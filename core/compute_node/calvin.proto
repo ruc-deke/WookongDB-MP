@@ -1,0 +1,35 @@
+syntax="proto3";
+option cc_generic_services = true;
+
+package calvin_service;
+
+message GetCalvinDataItemRequest {
+    uint64 batch_id = 1;
+    uint64 txn_id = 2;
+    repeated uint64 set_index = 3;
+};
+
+message ResItem{
+    uint64 set_index = 1;
+    bytes data = 2;
+}
+message GetCalvinDataItemResponse {
+    repeated ResItem data = 1;
+    uint32 node_id = 2;
+};
+
+message SendCalvinDataItemRequest {
+    repeated ResItem data = 1;
+    uint32 node_id = 2;
+    uint64 batch_id = 3;
+    uint64 txn_id = 4;
+    uint64 seed = 5;
+};
+
+message SendCalvinDataItemResponse {
+    uint64 txn_id = 1;
+};
+
+service CalvinService {
+    rpc SendCalvinDataItem(SendCalvinDataItemRequest) returns (SendCalvinDataItemResponse);
+};

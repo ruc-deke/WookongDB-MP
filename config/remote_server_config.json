@@ -1,0 +1,16 @@
+{
+  "local_server_node": {
+    "local_rpc_port": 33101,
+    "local_meta_port": 33102
+  },
+  "remote_compute_nodes": {
+    "compute_node_ips": [
+      "127.0.0.1",
+      "127.0.0.1"
+    ],
+    "compute_node_ports": [
+      42340,
+      42341
+    ]
+  }
+}

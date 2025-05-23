@@ -1,0 +1,42 @@
+{
+  "local_compute_node": {
+    "machine_num": 2,
+    "machine_id": 0,
+"thread_num_per_machine": 12,
+"coroutine_num": 1,
+"txn_system": 3,
+    "batch_size": 400
+  },
+  "remote_compute_nodes": {
+    "remote_compute_node_ips": [
+      "127.0.0.1",
+      "127.0.0.1"
+    ],
+    "remote_compute_node_port": [
+      42340,
+      42341
+    ]
+  },
+  "remote_server_nodes": {
+    "remote_server_node_ips": [
+      "127.0.0.1"
+    ],
+    "remote_server_node_port": [
+      33101
+    ],
+    "remote_server_node_meta_port": [
+      33102
+    ]
+  },
+  "remote_storage_nodes": {
+    "remote_storage_node_ips": [
+      "127.0.0.1"
+    ],
+    "remote_storage_node_rpc_port": [
+      33001
+    ],
+    "remote_storage_node_meta_port": [
+      33002
+    ]
+  }
+}

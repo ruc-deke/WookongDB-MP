@@ -1,0 +1,73 @@
+syntax="proto3";
+option cc_generic_services = true;
+
+package page_table_service;
+
+message PageID{
+    sint32 page_no = 1;
+    int32 table_id = 2;
+}
+
+message PXLockRequest {
+    PageID page_id = 1;
+    sint32 node_id = 2;
+};
+
+message PXLockResponse{
+    sint32 newest_node = 1; // 返回最新的数据页所在节点, 如果当前已经是最新的, 则返回-1
+    PageID page_id = 2;
+    bool wait_lock_release = 3; // 如果返回为true，则加锁不成功
+}
+
+message PXUnlockRequest {
+    PageID page_id = 1;
+    sint32 node_id = 2;
+};
+
+message PXUnlockResponse{}
+
+message PSLockRequest {
+    PageID page_id = 1;
+    sint32 node_id = 2;
+};
+
+message PSLockResponse{
+    sint32 newest_node = 1; // 返回最新的数据页所在节点, 如果当前已经是最新的, 则返回-1
+    PageID page_id = 2;
+    bool wait_lock_release = 3; // 如果返回为true，则加锁不成功
+}
+
+message PSUnlockRequest {
+    PageID page_id = 1;
+    sint32 node_id = 2;
+};
+
+message PSUnlockResponse{}
+
+// 不指定远程加锁类型，将服务端该节点锁释放
+message PAnyUnLockRequest {
+    PageID page_id = 1;
+    sint32 node_id = 2;
+};
+
+message PAnyUnLocksRequest {
+    repeated PageID pages_id = 1;
+    sint32 node_id = 2;
+}
+
+message PAnyUnLockResponse{}
+
+service PageTableService {
+    rpc PXLock(PXLockRequest) returns (PXLockResponse);
+    rpc PXUnlock(PXUnlockRequest) returns (PXUnlockResponse);
+    rpc PSLock(PSLockRequest) returns (PSLockResponse);
+    rpc PSUnlock(PSUnlockRequest) returns (PSUnlockResponse);
+
+    // for lazy release
+    rpc LRPXLock(PXLockRequest) returns (PXLockResponse);
+    rpc LRPXUnlock(PXUnlockRequest) returns (PXUnlockResponse);
+    rpc LRPSLock(PSLockRequest) returns (PSLockResponse); // unused now 
+    rpc LRPSUnlock(PSUnlockRequest) returns (PSUnlockResponse); // unused now 
+    rpc LRPAnyUnLock(PAnyUnLockRequest) returns (PAnyUnLockResponse);
+    rpc LRPAnyUnLocks(PAnyUnLocksRequest) returns (PAnyUnLockResponse);
+};

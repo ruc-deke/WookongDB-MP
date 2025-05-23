@@ -1,0 +1,15 @@
+syntax="proto3";
+option cc_generic_services = true;
+
+package timestamp_service;
+
+message GetTimeStampRequest {
+}
+
+message GetTimeStampResponse {
+    uint64 timestamp = 1;
+};
+
+service TimeStampService {
+    rpc GetTimeStamp(GetTimeStampRequest) returns (GetTimeStampResponse);
+};

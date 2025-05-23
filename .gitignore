@@ -1,0 +1,11 @@
+build/
+figure/
+*.pyc
+result.txt
+*.pb.cc
+*.pb.h
+cmake-build-debug-docker/*
+third_party/brpc
+.idea/
+result/
+perf*

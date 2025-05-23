@@ -1,0 +1,28 @@
+syntax="proto3";
+option cc_generic_services = true;
+
+package bufferpool_service;
+
+message PageID{
+    sint32 page_no = 1;
+}
+
+message GetPageRequest {
+    PageID page_id = 1;
+};
+
+message GetPageResponse {
+    bytes page_data = 1;
+};
+
+message FlushPageRequest {
+    PageID page_id = 1;
+    bytes page_data = 2;
+};
+
+message FlushPageResponse {};
+
+service BufferpoolService {
+    rpc GetPage(GetPageRequest) returns (GetPageResponse) {};
+    rpc FlushPage(FlushPageRequest) returns (FlushPageResponse) {};
+};

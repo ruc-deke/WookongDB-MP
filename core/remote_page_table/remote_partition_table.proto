@@ -1,0 +1,95 @@
+syntax="proto3";
+option cc_generic_services = true;
+
+package partition_table_service;
+
+message PageID{
+    sint32 page_no = 1;
+    int32 table_id = 2;
+}
+
+message PartitionID{
+    sint32 partition_no = 1;
+}
+
+message ParSLockRequest {
+    PartitionID partition_id = 1;
+    sint32 node_id = 2;
+};
+
+message ParSLockResponse{}
+
+message SendCrossRatioRequest{
+    double cross_ratio = 1;
+}
+
+message SendCrossRatioResponse{}
+
+message SendFinishRequest{
+    sint32 node_id = 1;
+}
+
+message SendFinishResponse{}
+
+message ParSUnlockRequest {
+    PartitionID partition_id = 1;
+    sint32 node_id = 2;
+    uint32 par_tps = 3;
+    uint32 global_tps = 4;
+};
+
+message ParSUnlockResponse{}
+
+message ParXLockRequest {
+    PartitionID partition_id = 1;
+    sint32 node_id = 2;
+};
+
+message ParXLockResponse{
+    uint32 partition_time = 1;
+    uint32 global_time = 2;
+}
+
+message ParXUnlockRequest {
+    PartitionID partition_id = 1;
+    sint32 node_id = 2;
+};
+
+message ParXUnlockResponse{}
+
+message InvalidRequest{
+    PageID page_id = 1;
+    sint32 node_id = 2;
+}
+
+message InvalidPagesRequest{
+    repeated PageID page_id = 1;
+    sint32 node_id = 2;
+}
+
+message InvalidResponse{}
+
+message GetInvalidRequest{
+    uint32 node_id = 1;  // from which node
+    repeated uint32 table_id = 2;
+    repeated uint64 start_page_no = 3;
+    repeated uint64 end_page_no = 4;
+}
+
+message GetInvalidResponse{
+    repeated uint32 table_id = 1;
+    repeated uint64 invalid_page_no = 2;
+    repeated uint32 newest_node_id = 3;
+}
+
+service PartitionTableService {
+    rpc ParSLock(ParSLockRequest) returns (ParSLockResponse);
+    rpc ParSUnlock(ParSUnlockRequest) returns (ParSUnlockResponse);
+    rpc ParXLock(ParXLockRequest) returns (ParXLockResponse);
+    rpc ParXUnlock(ParXUnlockRequest) returns (ParXUnlockResponse);
+    rpc Invalid(InvalidRequest) returns (InvalidResponse);
+    rpc InvalidPages(InvalidPagesRequest) returns (InvalidResponse);
+    rpc GetInvalid(GetInvalidRequest) returns (GetInvalidResponse);
+    rpc SendCorssRation(SendCrossRatioRequest) returns(SendCrossRatioResponse);
+    rpc SendFinish(SendFinishRequest) returns(SendFinishResponse);
+};

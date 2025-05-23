@@ -1,0 +1,61 @@
+syntax="proto3";
+option cc_generic_services = true;
+
+package compute_node_service;
+
+message PageID{
+    sint32 page_no = 1;
+    int32 table_id = 2;
+}
+
+enum PendingType {
+    XPending = 0;
+    SPending = 1;
+}
+
+// 其他节点如果想对一个已经持有锁且冲突的页面加锁，则会向所有持有这个页面锁的节点发送PendingRequest消息，请求这些节点释放锁
+message PendingRequest {
+    PageID page_id = 1;
+    PendingType pending_type = 2;
+};
+
+message PendingResponse{}
+
+message LockSuccessRequest{
+    sint32 newest_node = 1; // 返回最新的数据页所在节点, 如果当前已经是最新的, 则返回-1
+    PageID page_id = 2;
+    bool xlock_succeess = 3; // 1为排他锁加锁成功, 2为共享锁加锁成功
+}
+
+message LockSuccessResponse{}
+
+message GetPageRequest {
+    PageID page_id = 1;
+};
+
+message GetPageResponse {
+    bytes page_data = 1;
+};
+
+message DTX{
+    uint64 seed = 1;
+    uint64 tx_type = 2;
+    uint64 is_partitioned = 3;
+    uint64 dtx_id = 5;  
+}
+
+message TransferDTXRequest{
+    sint32 src_node_id = 1;
+    sint32 dst_node_id = 2;
+    uint64 batch_id = 3;
+    repeated DTX dtxs = 4;
+}
+
+message TransferDTXResponse{}
+
+service ComputeNodeService {
+    rpc Pending(PendingRequest) returns (PendingResponse);
+    rpc GetPage(GetPageRequest) returns (GetPageResponse);
+    rpc LockSuccess(LockSuccessRequest) returns(LockSuccessResponse);
+    rpc TransferDTX(TransferDTXRequest) returns (TransferDTXResponse);
+};

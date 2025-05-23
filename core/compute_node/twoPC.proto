@@ -1,0 +1,63 @@
+syntax="proto3";
+option cc_generic_services = true;
+
+package twopc_service;
+
+message ItemID{
+    sint32 table_id = 1;
+    sint32 page_no = 2;
+    sint32 slot_id = 3;
+    bool lock_data = 4;
+}
+
+message GetDataItemRequest {
+    ItemID item_id = 1;
+};
+
+message GetDataItemResponse {
+    bytes data = 1;
+    bool abort = 2;
+};
+
+message WriteDataItemRequest {
+    ItemID item_id = 1;
+    bytes data = 2;
+};
+
+message WriteDataItemResponse {};
+
+message PrepareRequest {
+    uint64 transaction_id = 1;
+};
+
+message PrepareResponse {
+    bool ok = 1;
+};
+
+message CommitRequest {
+    uint64 transaction_id = 1;
+    repeated ItemID item_id = 2;
+    repeated bytes data = 3; 
+};
+
+message CommitResponse {
+    bool ok = 1;
+    uint32 latency_commit = 2;
+};
+
+message AbortRequest {
+    uint64 transaction_id = 1;
+    repeated ItemID item_id = 2;
+};
+
+message AbortResponse {
+    bool ok = 1;
+};
+
+service TwoPCService {
+    rpc GetDataItem(GetDataItemRequest) returns (GetDataItemResponse);
+    rpc WriteDataItem(WriteDataItemRequest) returns (WriteDataItemResponse);
+    rpc Prepare(PrepareRequest) returns (PrepareResponse);
+    rpc Commit(CommitRequest) returns (CommitResponse);
+    rpc Abort(AbortRequest) returns (AbortResponse);
+};
