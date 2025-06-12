@@ -32,7 +32,7 @@ std::vector<uint64_t> total_try_times;
 std::vector<uint64_t> total_commit_times;
 double all_time = 0;
 double tx_begin_time = 0,tx_exe_time = 0,tx_commit_time = 0,tx_abort_time = 0,tx_update_time = 0;
-double tx_get_timestamp_time1=0, tx_get_timestamp_time2=0, tx_write_commit_log_time=0, tx_write_prepare_log_time=0, tx_write_backup_log_time=0;
+double tx_get_timestamp_time1=0, tx_get_timestamp_time2=0, tx_write_commit_log_time=0, tx_write_commit_log_time2=0, tx_write_prepare_log_time=0, tx_write_backup_log_time=0;
 double tx_fetch_exe_time=0, tx_fetch_commit_time=0, tx_release_exe_time=0, tx_release_commit_time=0;
 double tx_fetch_abort_time=0, tx_release_abort_time=0;
 int single_txn =0, distribute_txn=0;
@@ -182,9 +182,12 @@ void Handler::GenThreads(std::string bench_name) {
   }
   LOG(INFO) << "All workers DONE, Waiting for all compute nodes to finish...";
 
+  // 统计compute server中的统计信息
+  tx_update_time = compute_server->tx_update_time;
+
   if(SYSTEM_MODE == 1){
     // 该线程结束, 释放持有的页锁
-    compute_server->rpc_lazy_release_all_page_new();
+    compute_server->rpc_lazy_release_all_page();
   }
   
   // Wait for all compute nodes to finish

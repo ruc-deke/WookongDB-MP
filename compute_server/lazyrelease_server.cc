@@ -1,6 +1,6 @@
 #include "server.h"
 
-Page* ComputeServer::rpc_lazy_fetch_s_page_new(table_id_t table_id, page_id_t page_id) {
+Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_id) {
     assert(page_id < ComputeNodeBufferPageSize);
     this->node_->fetch_allpage_cnt++;
     Page* page = node_->local_buffer_pools[table_id]->pages_ + page_id;
@@ -37,7 +37,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page_new(table_id_t table_id, page_id_t pa
         // 如果valid是false, 则需要去远程取这个数据页
         if(valid_node != -1){
             assert(valid_node != node_->node_id);
-            UpdatePageFromRemoteComputeNew(page, table_id, page_id, valid_node);
+            UpdatePageFromRemoteCompute(page, table_id, page_id, valid_node);
         }
         //! lock remote ok and unlatch local
         node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->LockRemoteOK(node_->node_id);
@@ -46,7 +46,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page_new(table_id_t table_id, page_id_t pa
     return page;
 }
 
-Page* ComputeServer::rpc_lazy_fetch_x_page_new(table_id_t table_id, page_id_t page_id) {
+Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_id) {
     assert(page_id < ComputeNodeBufferPageSize);
     this->node_->fetch_allpage_cnt++;
     Page* page = node_->local_buffer_pools[table_id]->pages_ + page_id;
@@ -83,7 +83,7 @@ Page* ComputeServer::rpc_lazy_fetch_x_page_new(table_id_t table_id, page_id_t pa
         // 如果valid是false, 则需要去远程取这个数据页
         if(valid_node != -1){
             assert(valid_node != node_->node_id);
-            UpdatePageFromRemoteComputeNew(page, table_id, page_id, valid_node);
+            UpdatePageFromRemoteCompute(page, table_id, page_id, valid_node);
         }
         //! lock remote ok and unlatch local
         node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->LockRemoteOK(node_->node_id);
@@ -93,7 +93,7 @@ Page* ComputeServer::rpc_lazy_fetch_x_page_new(table_id_t table_id, page_id_t pa
     return page;
 }
 
-void ComputeServer::rpc_lazy_release_s_page_new(table_id_t table_id, page_id_t page_id) {
+void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_id) {
     // release page
     // LOG(INFO) << "node id: " << node_->node_id << " Release s table id: " << table_id << "page_id" << page_id;
     int unlock_remote = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockShared();
@@ -123,7 +123,7 @@ void ComputeServer::rpc_lazy_release_s_page_new(table_id_t table_id, page_id_t p
     return;
 }
 
-void ComputeServer::rpc_lazy_release_x_page_new(table_id_t table_id, page_id_t page_id) {
+void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_id) {
     // release page
     // LOG(INFO) << "node id: " << node_->node_id << " Release x table id: " << table_id << "page_id" << page_id;
     int unlock_remote = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockExclusive();
@@ -154,7 +154,7 @@ void ComputeServer::rpc_lazy_release_x_page_new(table_id_t table_id, page_id_t p
     return;
 }
 
-void ComputeServer::rpc_lazy_release_all_page_new() {
+void ComputeServer::rpc_lazy_release_all_page() {
     page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
     page_table_service::PAnyUnLocksRequest unlock_request;
     page_table_service::PAnyUnLockResponse *unlock_response = new page_table_service::PAnyUnLockResponse();

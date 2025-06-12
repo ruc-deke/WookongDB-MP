@@ -183,27 +183,26 @@ public:
     static void PXlockRPCDone(page_table_service::PXLockResponse* response, brpc::Controller* cntl, std::atomic<bool>* finish);
 
     // ****************** for eager release *********************
-    Page* rpc_fetch_s_page_new(table_id_t table_id, page_id_t page_id);
+    Page* rpc_fetch_s_page(table_id_t table_id, page_id_t page_id);
 
-    Page* rpc_fetch_x_page_new(table_id_t table_id, page_id_t page_id);
+    Page* rpc_fetch_x_page(table_id_t table_id, page_id_t page_id);
 
-    void rpc_release_s_page_new(table_id_t table_id, page_id_t page_id);
+    void rpc_release_s_page(table_id_t table_id, page_id_t page_id);
     
-    void rpc_release_x_page_new(table_id_t table_id, page_id_t page_id);
+    void rpc_release_x_page(table_id_t table_id, page_id_t page_id);
 
     // ****************** eager release end *********************
 
     // ****************** for lazy release *********************
-    Page* rpc_lazy_fetch_s_page_new(table_id_t table_id, page_id_t page_id);
+    Page* rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_id);
 
-    Page* rpc_lazy_fetch_x_page_new(table_id_t table_id, page_id_t page_id);
+    Page* rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_id);
 
-    void rpc_lazy_release_s_page_new(table_id_t table_id, page_id_t page_id);
+    void rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_id);
     
-    void rpc_lazy_release_x_page_new(table_id_t table_id, page_id_t page_id);
+    void rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_id);
 
     void rpc_lazy_release_all_page();
-    void rpc_lazy_release_all_page_new();
 
     void rpc_lazy_release_all_page_async();
     void rpc_lazy_release_all_page_async_new();
@@ -279,11 +278,7 @@ public:
     page_id_t last_generated_page_id = 0;
 
     // 从远程取数据页
-    void UpdatePageFromRemoteCompute(Page* page, page_id_t page_id, node_id_t node_id);
-    void UpdatePageFromRemoteComputeNew(Page* page,table_id_t table_id, page_id_t page_id, node_id_t node_id);
-
-    // 将batch事务发送给远程
-    void SendBatch(std::vector<dtx_entry> txns, batch_id_t bid, node_id_t node_id, node_id_t s_nid);
+    void UpdatePageFromRemoteCompute(Page* page,table_id_t table_id, page_id_t page_id, node_id_t node_id);
 
     // 获取与其他计算节点通信的channel
     inline brpc::Channel* get_pagetable_channel(){ return &node_->page_table_channel; }

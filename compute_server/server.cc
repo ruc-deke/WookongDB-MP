@@ -174,30 +174,7 @@ void ComputeNodeServiceImpl::TransferDTX(::google::protobuf::RpcController* cont
     }
 }
 
-void ComputeServer::UpdatePageFromRemoteCompute(Page* page, page_id_t page_id, node_id_t node_id){
-    // 从远程取数据页
-    brpc::Controller cntl;
-    node_->fetch_remote_cnt++;
-
-    // 使用远程compute node进行更新
-    compute_node_service::ComputeNodeService_Stub compute_node_stub(&nodes_channel[node_id]);
-    compute_node_service::GetPageRequest request;
-    compute_node_service::GetPageResponse* response = new compute_node_service::GetPageResponse();
-    compute_node_service::PageID *page_id_pb = new compute_node_service::PageID();
-    page_id_pb->set_page_no(page_id);
-    page_id_pb->set_table_id(0);
-    request.set_allocated_page_id(page_id_pb);
-    compute_node_stub.GetPage(&cntl, &request, response, NULL);
-    if(cntl.Failed()){
-        LOG(ERROR) << "Fail to fetch page " << page_id << " from remote compute node";
-    }
-    assert(response->page_data().size() == PAGE_SIZE);
-    memcpy(page->get_data(), response->page_data().c_str(), response->page_data().size());
-    // delete response;
-    delete response;
-}
-
-void ComputeServer::UpdatePageFromRemoteComputeNew(Page* page, table_id_t table_id, page_id_t page_id, node_id_t node_id){
+void ComputeServer::UpdatePageFromRemoteCompute(Page* page, table_id_t table_id, page_id_t page_id, node_id_t node_id){
     // LOG(INFO) << "need to update page from node " << node_id << " table id: " << table_id << "page_id" << page_id;
     // 从远程取数据页
     struct timespec start_time, end_time;
@@ -225,46 +202,6 @@ void ComputeServer::UpdatePageFromRemoteComputeNew(Page* page, table_id_t table_
     update_m.lock();
     this->tx_update_time += (end_time.tv_sec - start_time.tv_sec) + (double)(end_time.tv_nsec - start_time.tv_nsec) / 1000000000;
     update_m.unlock();
-}
-
-void ComputeServer::SendBatch(std::vector<dtx_entry> txns, batch_id_t bid, node_id_t node_id, node_id_t s_nid){
-    // 从远程取数据页
-    brpc::Controller cntl;
-    node_->fetch_remote_cnt++;
-
-    // 使用远程compute node进行更新
-    compute_node_service::ComputeNodeService_Stub compute_node_stub(&nodes_channel[node_id]);
-    compute_node_service::TransferDTXRequest request;
-    compute_node_service::TransferDTXResponse* response = new compute_node_service::TransferDTXResponse();
-    request.set_batch_id(bid);
-    request.set_dst_node_id(node_id);
-    request.set_src_node_id(s_nid);
-    for (int i = 0; i < txns.size(); i++) {
-        compute_node_service::DTX *dtx = request.add_dtxs();
-        dtx->set_dtx_id(txns[i].tid);
-        dtx->set_seed(txns[i].seed);
-        dtx->set_is_partitioned(txns[i].is_partitioned);
-        dtx->set_tx_type(txns[i].type);
-        
-    }
-    // 如果失败了就重新发送，直到成功
-    int count = 0;
-    while (true) {
-        compute_node_stub.TransferDTX(&cntl, &request, response, NULL);
-        if(cntl.Failed()){
-            count++;
-            if (count % 100 == 0) {
-                LOG(ERROR) << "Fail to send batch " << bid << " to remote compute node";
-            }
-            // LOG(ERROR) << "Fail to send batch " << bid << " to remote compute node";
-        } else {
-            break;
-        }
-    }
-    // assert(response->page_data().size() == PAGE_SIZE);
-    // memcpy(page->get_data(), response->page_data().c_str(), response->page_data().size());
-    // delete response;
-    delete response;
 }
 
 void ComputeServer::InitTableNameMeta(){

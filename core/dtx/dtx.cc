@@ -14,6 +14,7 @@ DTX::DTX(MetaManager* meta_man,
          brpc::Channel* data_channel, 
          brpc::Channel* log_channel,
          brpc::Channel* server_channel,
+         ThreadPool* thd_pool,
          TxnLog* txn_log0,
          CoroutineScheduler* sched_0,
          int* using_which_coro_sched_) {
@@ -36,6 +37,7 @@ DTX::DTX(MetaManager* meta_man,
   storage_log_channel = log_channel; 
   remote_server_channel = server_channel;
   txn_log = txn_log0;
+  thread_pool = thd_pool;
 }
 
 timestamp_t DTX::GetTimestampRemote() {
@@ -62,10 +64,10 @@ timestamp_t DTX::GetTimestampRemote() {
 char* DTX::FetchSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id){
     Page *page = nullptr;
     if(SYSTEM_MODE == 0) {
-        page = compute_server->rpc_fetch_s_page_new(table_id, page_id);
+        page = compute_server->rpc_fetch_s_page(table_id, page_id);
     } 
     else if(SYSTEM_MODE == 1){
-        page = compute_server->rpc_lazy_fetch_s_page_new(table_id,page_id);
+        page = compute_server->rpc_lazy_fetch_s_page(table_id,page_id);
     }
     else if(SYSTEM_MODE == 2){
         page = compute_server->local_fetch_s_page(table_id,page_id);
@@ -80,10 +82,10 @@ char* DTX::FetchSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_i
 char* DTX::FetchXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id){
     Page *page = nullptr;
     if(SYSTEM_MODE == 0) {
-        page = compute_server->rpc_fetch_x_page_new(table_id,page_id);
+        page = compute_server->rpc_fetch_x_page(table_id,page_id);
     }
     else if(SYSTEM_MODE == 1){
-        page = compute_server->rpc_lazy_fetch_x_page_new(table_id,page_id);
+        page = compute_server->rpc_lazy_fetch_x_page(table_id,page_id);
     }
     else if(SYSTEM_MODE == 2){
         page = compute_server->local_fetch_x_page(table_id,page_id);
@@ -97,10 +99,10 @@ char* DTX::FetchXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_i
 
 void DTX::ReleaseSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id){
     if(SYSTEM_MODE == 0) {
-        compute_server->rpc_release_s_page_new(table_id,page_id);
+        compute_server->rpc_release_s_page(table_id,page_id);
     } 
     else if(SYSTEM_MODE == 1){
-        compute_server->rpc_lazy_release_s_page_new(table_id,page_id);
+        compute_server->rpc_lazy_release_s_page(table_id,page_id);
     }
     else if(SYSTEM_MODE == 2){
         compute_server->local_release_s_page(table_id,page_id);
@@ -114,10 +116,10 @@ void DTX::ReleaseSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_
 
 void DTX::ReleaseXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id){
    if(SYSTEM_MODE == 0) {
-        compute_server->rpc_release_x_page_new(table_id,page_id);
+        compute_server->rpc_release_x_page(table_id,page_id);
     } 
     else if(SYSTEM_MODE == 1){
-        compute_server->rpc_lazy_release_x_page_new(table_id,page_id);
+        compute_server->rpc_lazy_release_x_page(table_id,page_id);
     }
     else if(SYSTEM_MODE == 2){
         compute_server->local_release_x_page(table_id,page_id);

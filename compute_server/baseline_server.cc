@@ -1,6 +1,6 @@
 #include "server.h"
 
-Page* ComputeServer::rpc_fetch_s_page_new(table_id_t table_id, page_id_t page_id) {
+Page* ComputeServer::rpc_fetch_s_page(table_id_t table_id, page_id_t page_id) {
     assert(page_id < ComputeNodeBufferPageSize);
     this->node_->fetch_allpage_cnt++;
     Page* page = node_->local_buffer_pools[table_id]->pages_ + page_id;
@@ -28,7 +28,7 @@ Page* ComputeServer::rpc_fetch_s_page_new(table_id_t table_id, page_id_t page_id
         // 如果valid是false, 则需要去远程取这个数据页
         if(valid_node != -1){
             assert(valid_node != node_->node_id);
-            UpdatePageFromRemoteComputeNew(page, table_id, page_id, valid_node);
+            UpdatePageFromRemoteCompute(page, table_id, page_id, valid_node);
         }
         node_->eager_local_page_lock_tables[table_id]->GetLock(page_id)->LockRemoteOK();
         delete response;
@@ -36,7 +36,7 @@ Page* ComputeServer::rpc_fetch_s_page_new(table_id_t table_id, page_id_t page_id
     return page;
 }
 
-Page* ComputeServer::rpc_fetch_x_page_new(table_id_t table_id, page_id_t page_id) {
+Page* ComputeServer::rpc_fetch_x_page(table_id_t table_id, page_id_t page_id) {
     assert(page_id < ComputeNodeBufferPageSize);
     this->node_->fetch_allpage_cnt++;
     Page* page = node_->local_buffer_pools[table_id]->pages_ + page_id;
@@ -65,7 +65,7 @@ Page* ComputeServer::rpc_fetch_x_page_new(table_id_t table_id, page_id_t page_id
         if(valid_node != -1){
             assert(valid_node != node_->node_id);
            //  std::cout<< "node: " << valid_node <<"have the newest node table_id: "<< table_id<<" page_id: " << page_id <<std::endl;
-            UpdatePageFromRemoteComputeNew(page,table_id, page_id, valid_node);
+            UpdatePageFromRemoteCompute(page,table_id, page_id, valid_node);
         }
         node_->eager_local_page_lock_tables[table_id]->GetLock(page_id)->LockRemoteOK();
         delete response;
@@ -73,7 +73,7 @@ Page* ComputeServer::rpc_fetch_x_page_new(table_id_t table_id, page_id_t page_id
     return page;
 }
 
-void ComputeServer::rpc_release_s_page_new(table_id_t  table_id, page_id_t page_id) {
+void ComputeServer::rpc_release_s_page(table_id_t  table_id, page_id_t page_id) {
     // release page
     bool unlock_remote = node_->eager_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockShared();
     if(unlock_remote){
@@ -100,7 +100,7 @@ void ComputeServer::rpc_release_s_page_new(table_id_t  table_id, page_id_t page_
 }
 
 
-void ComputeServer::rpc_release_x_page_new(table_id_t table_id, page_id_t page_id) {
+void ComputeServer::rpc_release_x_page(table_id_t table_id, page_id_t page_id) {
     // release page
     bool unlock_remote = node_->eager_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockExclusive();
     if(unlock_remote){

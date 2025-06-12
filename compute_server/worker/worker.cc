@@ -20,6 +20,7 @@
 
 #include "smallbank/smallbank_txn.h"
 #include "tpcc/tpcc_txn.h"
+#include "thread_pool.h"
 
 using namespace std::placeholders;
 
@@ -39,7 +40,7 @@ extern std::set<double> fetch_all_vec;
 extern std::set<double> lock_remote_vec;
 extern double all_time;
 extern double  tx_begin_time,tx_exe_time,tx_commit_time,tx_abort_time,tx_update_time;
-extern double tx_get_timestamp_time1, tx_get_timestamp_time2, tx_write_commit_log_time, tx_write_prepare_log_time, tx_write_backup_log_time;
+extern double tx_get_timestamp_time1, tx_get_timestamp_time2, tx_write_commit_log_time, tx_write_commit_log_time2, tx_write_prepare_log_time, tx_write_backup_log_time;
 extern double tx_fetch_exe_time, tx_fetch_commit_time, tx_release_exe_time, tx_release_commit_time;
 extern double tx_fetch_abort_time, tx_release_abort_time;
 
@@ -100,6 +101,9 @@ __thread std::vector<Txn_request_info>* txn_request_infos;
 __thread struct timespec last_commit_log_ts;
 __thread TxnLog* thread_txn_log = nullptr;
 
+// thread pool per worker thread
+__thread ThreadPool* thread_pool = nullptr;
+
 void RecordTpLat(double msr_sec, DTX* dtx) {
     mux.lock();
   all_time += msr_sec;
@@ -107,7 +111,6 @@ void RecordTpLat(double msr_sec, DTX* dtx) {
     tx_exe_time += dtx->tx_exe_time;
     tx_commit_time += dtx->tx_commit_time;
     tx_abort_time += dtx->tx_abort_time;
-    tx_update_time += dtx->compute_server->tx_update_time;
     tx_fetch_exe_time += dtx->tx_fetch_exe_time;
     tx_fetch_commit_time += dtx->tx_fetch_commit_time;
     tx_fetch_abort_time += dtx->tx_fetch_abort_time;
@@ -119,6 +122,7 @@ void RecordTpLat(double msr_sec, DTX* dtx) {
     tx_write_commit_log_time += dtx->tx_write_commit_log_time;
     tx_write_prepare_log_time += dtx->tx_write_prepare_log_time;
     tx_write_backup_log_time += dtx->tx_write_backup_log_time;
+    tx_write_commit_log_time2 += dtx->tx_write_commit_log_time2;
 
   single_txn += dtx->single_txn;
   distribute_txn += dtx->distribute_txn;
@@ -128,9 +132,9 @@ void RecordTpLat(double msr_sec, DTX* dtx) {
   double abort_rate = (double)(stat_attempted_tx_total - stat_committed_tx_total) / stat_attempted_tx_total;
   
   // assert(dtx != nullptr);
-  double fetch_remote;
-  double fetch_all;
-  double lock_remote;
+  double fetch_remote = 0;
+  double fetch_all = 0;
+  double lock_remote = 0;
   if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1) {
     fetch_remote = (double)dtx->compute_server->get_node()->get_fetch_remote_cnt() ;
     fetch_all = (double)dtx->compute_server->get_node()->get_fetch_allpage_cnt();
@@ -177,6 +181,7 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
                      data_channel,
                      log_channel,
                      remote_server_channel,
+                     thread_pool,
                      thread_txn_log);
   // Running transactions
   clock_gettime(CLOCK_REALTIME, &msr_start);
@@ -276,6 +281,7 @@ void RunTPCC(coro_yield_t& yield, coro_id_t coro_id) {
                        data_channel,
                        log_channel,
                        remote_server_channel,
+                       thread_pool,
                        thread_txn_log);
     struct timespec tx_end_time;
     bool tx_committed = false;
@@ -388,6 +394,8 @@ void run_thread(thread_params* params,
     LOG(FATAL) << "Unsupported benchmark: " << bench_name;
   }
 
+  thread_pool = new ThreadPool(ThreadPoolSizePerWorker);
+  // Initialize thread-local variables
   thread_gid = params->thread_global_id;
   thread_local_id = params->thread_id;
   thread_num = params->thread_num_per_machine;

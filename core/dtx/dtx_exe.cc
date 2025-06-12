@@ -2,6 +2,7 @@
 // Copyright (c) 2024
 
 #include <butil/logging.h>
+#include <future>
 #include "common.h"
 #include "dtx/dtx.h"
 #include "exception.h"
@@ -14,149 +15,146 @@ bool DTX::TxExe(coro_yield_t& yield, bool fail_abort) {
   clock_gettime(CLOCK_REALTIME, &start_time);
 
   // LOG(INFO) << "TxExe: " << tx_id;
-  try {
-    // read read-only data
-    for (size_t i=0; i<read_only_set.size(); i++) {
-      DataSetItem& item = read_only_set[i];
-      if (!item.is_fetched) {
-        // Get data index
-        Rid rid = GetRidFromIndexCache(item.item_ptr->table_id, item.item_ptr->key);
-        if(rid.page_no_ == -1) {
-          // Data not found
-          read_only_set.erase(read_only_set.begin() + i);
-          i--; // Move back one step
-          tx_status = TXStatus::TX_VAL_NOTFOUND; // Value not found
-          // LOG(INFO) << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " not found ";
-          continue;
-        }
-        // Fetch data from storage
-        if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3){
-            struct timespec start_time1, end_time1;
-            clock_gettime(CLOCK_REALTIME, &start_time1);
-          auto data = FetchSPage(yield, item.item_ptr->table_id, rid.page_no_);
-            clock_gettime(CLOCK_REALTIME, &end_time1);
-            std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
-            tx_fetch_exe_time += (end_time1.tv_sec - start_time1.tv_sec) + (double)(end_time1.tv_nsec - start_time1.tv_nsec) / 1000000000;
-          *item.item_ptr = *GetDataItemFromPageRO(item.item_ptr->table_id, data, rid);
-          item.is_fetched = true;
-          struct timespec start_time2, end_time2;
-            clock_gettime(CLOCK_REALTIME, &start_time2);
-          ReleaseSPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page
-            clock_gettime(CLOCK_REALTIME, &end_time2);
-            tx_release_exe_time += (end_time2.tv_sec - start_time2.tv_sec) + (double)(end_time2.tv_nsec - start_time2.tv_nsec) / 1000000000;
-          // no need to shared lock the data, bacause in mvcc protocol, write dose not block read
-        }
-        else if (SYSTEM_MODE == 2){
-          // this is coordinator
-          node_id_t node_id = compute_server->get_node_id_by_page_id_new(item.item_ptr->table_id, rid.page_no_); 
-          participants.emplace(node_id);
-          char* data = nullptr;
-            struct timespec start_time1, end_time1;
-            clock_gettime(CLOCK_REALTIME, &start_time1);
-          compute_server->Get_2pc_Remote_page(node_id, item.item_ptr->table_id, rid, false, data);
-            clock_gettime(CLOCK_REALTIME, &end_time1);
-            std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
-            tx_fetch_exe_time += (end_time1.tv_sec - start_time1.tv_sec) + (double)(end_time1.tv_nsec - start_time1.tv_nsec) / 1000000000;
-          assert (data != nullptr);
-          DataItemPtr data_item = std::make_shared<DataItem>(*reinterpret_cast<DataItem*>(data));
-          assert(data_item->key == item.item_ptr->key);
-          assert(data_item->table_id == item.item_ptr->table_id);
-          *item.item_ptr = *data_item;
-          item.is_fetched = true;
-        }
-        else assert(false);
+
+  // new dtx exe logic
+  std::vector<std::future<void>> futures;
+  std::vector<std::pair<size_t, std::pair<Rid, DataSetItem*>>> ro_fetch_tasks;  // record the index and rid of read-only items
+  std::vector<std::pair<size_t, std::pair<Rid, DataSetItem*>>> rw_fetch_tasks;  // record the index and rid of read-write items
+
+  // Step 1 : get the rid from index cache
+  for (size_t i=0; i<read_only_set.size(); i++) {
+    DataSetItem& item = read_only_set[i];
+    if (!item.is_fetched) { 
+      // Get data index
+      Rid rid = GetRidFromIndexCache(item.item_ptr->table_id, item.item_ptr->key);
+      if(rid.page_no_ == -1) {
+        // Data not found
+        read_only_set.erase(read_only_set.begin() + i);
+        i--; // Move back one step
+        tx_status = TXStatus::TX_VAL_NOTFOUND; // Value not found
+        // LOG(INFO) << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " not found ";
+        continue;
       }
-    }
-    // read write data, and exclusive lock
-    for (size_t i=0; i<read_write_set.size(); i++) {
-      DataSetItem& item = read_write_set[i];
-      if (!item.is_fetched) {
-        // Get data index
-        Rid rid = GetRidFromIndexCache(item.item_ptr->table_id, item.item_ptr->key);
-        if(rid.page_no_ == -1) {
-          // Data not found
-          read_write_set.erase(read_write_set.begin() + i);
-          i--; // Move back one step
-          tx_status = TXStatus::TX_VAL_NOTFOUND; // Value not found
-          // LOG(INFO) << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " not found ";
-          continue;
-        }
-        // Fetch data from storage
-        if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3){
-            struct timespec start_time1, end_time1;
-            clock_gettime(CLOCK_REALTIME, &start_time1);
-          auto data = FetchXPage(yield, item.item_ptr->table_id, rid.page_no_);
-            clock_gettime(CLOCK_REALTIME, &end_time1);
-            std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
-            tx_fetch_exe_time += (end_time1.tv_sec - start_time1.tv_sec) + (double)(end_time1.tv_nsec - start_time1.tv_nsec) / 1000000000;
-          DataItem* orginal_item = nullptr;
-          // copy the data to item_ptr, and return the orginal data via orginal_item pointer
-          *item.item_ptr = *GetDataItemFromPageRW(item.item_ptr->table_id, data, rid, orginal_item);
-          // !这里用页面上的锁
-          // item.lock_mode = lock_mode_type::NO_WAIT;
-          // auto rc = lock_manager->GetEXLock(bdtx,&item);
-          // auto rc = orginal_item->lock_manager.GetEXLock(bdtx,&item);
-          if(orginal_item->lock == UNLOCKED) {
-            orginal_item->lock = EXCLUSIVE_LOCKED;
-            // orginal_item->version = coro_id;
-            // orginal_item->node_id = compute_server->get_node()->getNodeID();
-            // LOG(INFO) << "lock ok on table: " << item.item_ptr->table_id << "on page: " << rid.page_no_ << " key: " << item.item_ptr->key;
-            // LOG(INFO) << "release ok ";
-            if(item.release_imme) {
-              orginal_item->lock = UNLOCKED;
-              // LOG(INFO) << "release imme ok ";
-            }
-            struct timespec start_time2, end_time2;
-            clock_gettime(CLOCK_REALTIME, &start_time2);
-            ReleaseXPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page
-            clock_gettime(CLOCK_REALTIME, &end_time2);
-            tx_release_exe_time += (end_time2.tv_sec - start_time2.tv_sec) + (double)(end_time2.tv_nsec - start_time2.tv_nsec) / 1000000000;
-          } else{
-            // lock conflict
-              // LOG(INFO) << "lock fail on table: " << item.item_ptr->table_id << "on page: " << rid.page_no_ << " key: " << item.item_ptr->key << "hold lock: " << item.item_ptr->version << "node_id: " << item.item_ptr->node_id;
-              // LOG(INFO) << "release fail ";
-              struct timespec start_time2, end_time2;
-                clock_gettime(CLOCK_REALTIME, &start_time2);
-            ReleaseXPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page
-                clock_gettime(CLOCK_REALTIME, &end_time2);
-                tx_release_exe_time += (end_time2.tv_sec - start_time2.tv_sec) + (double)(end_time2.tv_nsec - start_time2.tv_nsec) / 1000000000;
-            // TxAbort(yield);
-            throw AbortException(this->tx_id);
-            return false;
-          }
-          item.is_fetched = true;
-        } else if(SYSTEM_MODE == 2){
-          // this is coordinator
-          node_id_t node_id = compute_server->get_node_id_by_page_id_new(item.item_ptr->table_id, rid.page_no_);
-          participants.emplace(node_id);
-          char* data = nullptr;
-              struct timespec start_time1, end_time1;
-              clock_gettime(CLOCK_REALTIME, &start_time1);
-          compute_server->Get_2pc_Remote_page(node_id, item.item_ptr->table_id, rid, true, data);
-              clock_gettime(CLOCK_REALTIME, &end_time1);
-            std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
-              tx_fetch_exe_time += (end_time1.tv_sec - start_time1.tv_sec) + (double)(end_time1.tv_nsec - start_time1.tv_nsec) / 1000000000;
-          // LOG(INFO) <<  "Remote lock data item " << item.item_ptr->table_id << " " << rid.page_no_ << " " << rid.slot_no_;
-          if(data == nullptr){
-            // lock conflict
-            throw AbortException(this->tx_id);
-            return false;
-          }
-          DataItemPtr data_item = std::make_shared<DataItem>(*reinterpret_cast<DataItem*>(data));
-          assert(data_item->key == item.item_ptr->key);
-          assert(data_item->table_id == item.item_ptr->table_id);
-          *item.item_ptr = *data_item;
-          item.is_fetched = true;
-        }
-        else assert(false);
-      }
+      ro_fetch_tasks.emplace_back(i, std::make_pair(rid, &read_only_set[i]));
     }
   }
-  catch(const AbortException& e) {
+  for (size_t i=0; i<read_write_set.size(); i++) { 
+    DataSetItem& item = read_write_set[i];
+    if (!item.is_fetched) {
+      // Get data index
+      Rid rid = GetRidFromIndexCache(item.item_ptr->table_id, item.item_ptr->key);
+      if(rid.page_no_ == -1) {
+        // Data not found
+        read_write_set.erase(read_write_set.begin() + i);
+        i--; // Move back one step
+        tx_status = TXStatus::TX_VAL_NOTFOUND; // Value not found
+        // LOG(INFO) << "Thread id:" << local_t_id << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " not found ";
+        continue;
+      }
+      // LOG(INFO) << "Thread id:" << local_t_id << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " found on page: " << rid.page_no_;
+      rw_fetch_tasks.emplace_back(i, std::make_pair(rid, &read_write_set[i]));
+    }
+  }
+
+  // Step 2: Launch parallel tasks
+  struct timespec start_time2, end_time2;
+  clock_gettime(CLOCK_REALTIME, &start_time2);
+  for (auto& task : ro_fetch_tasks) {
+    size_t idx = task.first;
+    Rid rid = task.second.first;
+    futures.emplace_back(thread_pool->enqueue([&, idx, rid, task](){
+      DataSetItem& item = read_only_set[idx];  // Explicitly copy the pointer
+      assert(&item == task.second.second); // Ensure the pointer matches
+      // Fetch data from storage
+      if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3){
+        auto data = FetchSPage(yield, item.item_ptr->table_id, rid.page_no_);
+        std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
+        *item.item_ptr = *GetDataItemFromPageRO(item.item_ptr->table_id, data, rid);
+        item.is_fetched = true;
+        ReleaseSPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page
+        // no need to shared lock the data, bacause in mvcc protocol, write dose not block read
+      }
+      else if (SYSTEM_MODE == 2){
+        // this is coordinator
+        node_id_t node_id = compute_server->get_node_id_by_page_id_new(item.item_ptr->table_id, rid.page_no_); 
+        participants.emplace(node_id);
+        char* data = nullptr;
+        compute_server->Get_2pc_Remote_page(node_id, item.item_ptr->table_id, rid, false, data);
+        std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
+        assert (data != nullptr);
+        DataItemPtr data_item = std::make_shared<DataItem>(*reinterpret_cast<DataItem*>(data));
+        assert(data_item->key == item.item_ptr->key);
+        assert(data_item->table_id == item.item_ptr->table_id);
+        *item.item_ptr = *data_item;
+        item.is_fetched = true;
+      }
+      else assert(false);
+    }));
+  }
+  for (auto& task : rw_fetch_tasks) {
+    size_t idx = task.first;
+    Rid rid = task.second.first;
+    futures.emplace_back(thread_pool->enqueue([&, idx, rid, task](){
+      DataSetItem& item = read_write_set[idx];  // Explicitly copy the pointer
+      assert(&item == task.second.second); // Ensure the pointer matches
+      // Fetch data from storage
+      if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3){
+        auto data = FetchXPage(yield, item.item_ptr->table_id, rid.page_no_);
+        std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
+        DataItem* orginal_item = nullptr;
+        // copy the data to item_ptr, and return the orginal data via orginal_item pointer
+        *item.item_ptr = *GetDataItemFromPageRW(item.item_ptr->table_id, data, rid, orginal_item);
+        if(orginal_item->lock == UNLOCKED) {
+          orginal_item->lock = EXCLUSIVE_LOCKED;
+          // LOG(INFO) << "lock ok on table: " << item.item_ptr->table_id << "on page: " << rid.page_no_ << " key: " << item.item_ptr->key;
+          // LOG(INFO) << "release ok ";
+          if(item.release_imme) {
+            orginal_item->lock = UNLOCKED;
+          }
+          ReleaseXPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page
+        } else{
+          // lock conflict
+          // LOG(INFO) << "lock fail on table: " << item.item_ptr->table_id << "on page: " << rid.page_no_ << " key: " << item.item_ptr->key << "hold lock: " << item.item_ptr->version << "node_id: " << item.item_ptr->node_id;
+          // LOG(INFO) << "release fail ";
+          ReleaseXPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page
+          tx_status = TXStatus::TX_ABORTING; // Transaction is aborting due to lock conflict
+          return; 
+        }
+        item.is_fetched = true;
+      } else if(SYSTEM_MODE == 2){
+        // this is coordinator
+        node_id_t node_id = compute_server->get_node_id_by_page_id_new(item.item_ptr->table_id, rid.page_no_);
+        participants.emplace(node_id);
+        char* data = nullptr;
+        compute_server->Get_2pc_Remote_page(node_id, item.item_ptr->table_id, rid, true, data);
+        std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
+        if(data == nullptr){
+          // lock conflict
+          tx_status = TXStatus::TX_ABORTING; // Transaction is aborting due to lock conflict
+          return;
+        }
+        DataItemPtr data_item = std::make_shared<DataItem>(*reinterpret_cast<DataItem*>(data));
+        assert(data_item->key == item.item_ptr->key);
+        assert(data_item->table_id == item.item_ptr->table_id);
+        *item.item_ptr = *data_item;
+        item.is_fetched = true;
+        // LOG(INFO) << "Thread id:" << local_t_id << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " found on page: " << rid.page_no_ << " node_id: " << node_id << "successfully locked";
+      }
+      else assert(false);
+    }));
+  }
+  // Step 3: Wait for all fetch tasks to complete
+  for (auto& fut : futures) {
+      fut.get(); // Wait for the future to complete
+  }
+  clock_gettime(CLOCK_REALTIME, &end_time2);
+  tx_fetch_exe_time += (end_time2.tv_sec - start_time2.tv_sec) + (double)(end_time2.tv_nsec - start_time2.tv_nsec) / 1000000000;
+  // Step 4: Check if the transaction is still valid
+  if (tx_status == TXStatus::TX_ABORTING) {
+    // Transaction is aborting due to lock conflict
     if (fail_abort) TxAbort(yield);
     return false;
   }
-
   clock_gettime(CLOCK_REALTIME, &end_time);
   tx_exe_time += (end_time.tv_sec - start_time.tv_sec) + (double)(end_time.tv_nsec - start_time.tv_nsec) / 1000000000;
   return true;
@@ -172,8 +170,8 @@ bool DTX::TxCommit(coro_yield_t& yield){
   else if(SYSTEM_MODE == 2){
     commit_status = Tx2PCCommit(yield);
   }
-    clock_gettime(CLOCK_REALTIME, &end_time);
-    tx_commit_time += (end_time.tv_sec - start_time.tv_sec) + (double)(end_time.tv_nsec - start_time.tv_nsec) / 1000000000;
+  clock_gettime(CLOCK_REALTIME, &end_time);
+  tx_commit_time += (end_time.tv_sec - start_time.tv_sec) + (double)(end_time.tv_nsec - start_time.tv_nsec) / 1000000000;
   return commit_status;
 }
 
@@ -193,7 +191,7 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
   // Send log to storage pool
   cid = new brpc::CallId();
   SendLogToStoragePool(tx_id, cid);
-  // brpc::Join(*cid);
+  brpc::Join(*cid);
   
   struct timespec end_send_log_time;
   clock_gettime(CLOCK_REALTIME, &end_send_log_time);
@@ -204,17 +202,20 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
     assert(data_item.is_fetched);
     Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
     assert(rid.page_no_ >= 0);
+
     struct timespec start_time1, end_time1;
     clock_gettime(CLOCK_REALTIME, &start_time1);
     auto page = FetchXPage(yield, data_item.item_ptr->table_id, rid.page_no_);
     clock_gettime(CLOCK_REALTIME, &end_time1);
     tx_fetch_commit_time += (end_time1.tv_sec - start_time1.tv_sec) + (double)(end_time1.tv_nsec - start_time1.tv_nsec) / 1000000000;
+
     DataItem* orginal_item = nullptr;
     GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid, orginal_item);
     assert(orginal_item->key == data_item.item_ptr->key);
     orginal_item->version = commit_ts;
     orginal_item->lock = UNLOCKED;
     memcpy(orginal_item->value, data_item.item_ptr->value, MAX_ITEM_SIZE);
+
     struct timespec start_time2, end_time2;
     clock_gettime(CLOCK_REALTIME, &start_time2);
     ReleaseXPage(yield, data_item.item_ptr->table_id, rid.page_no_);
@@ -257,9 +258,9 @@ void DTX::TxAbort(coro_yield_t& yield) {
   else if(SYSTEM_MODE == 2){
     Tx2PCAbortAll(yield);
   }
-    tx_status = TXStatus::TX_ABORT;
-        clock_gettime(CLOCK_REALTIME, &end_time);
-        tx_abort_time += (end_time.tv_sec - start_time.tv_sec) + (double)(end_time.tv_nsec - start_time.tv_nsec) / 1000000000;
+  tx_status = TXStatus::TX_ABORT;
+  clock_gettime(CLOCK_REALTIME, &end_time);
+  tx_abort_time += (end_time.tv_sec - start_time.tv_sec) + (double)(end_time.tv_nsec - start_time.tv_nsec) / 1000000000;
   Abort();
 }
 
@@ -272,7 +273,7 @@ bool DTX::TxPrepare(coro_yield_t &yield){
 
 bool DTX::Tx2PCCommit(coro_yield_t &yield){
   struct timespec start_time, end_ts_time;
-    clock_gettime(CLOCK_REALTIME, &start_time);
+  clock_gettime(CLOCK_REALTIME, &start_time);
   commit_ts = GetTimestampRemote();
   clock_gettime(CLOCK_REALTIME, &end_ts_time);
   tx_get_timestamp_time2 += (end_ts_time.tv_sec - start_time.tv_sec) + (double)(end_ts_time.tv_nsec - start_time.tv_nsec) / 1000000000;
@@ -291,15 +292,17 @@ bool DTX::Tx2PCCommit(coro_yield_t &yield){
     // 分布式Commit
     this->distribute_txn++;
     assert(participants.size() > 1);
-      struct timespec start_time1, end_ts_time1;
-      clock_gettime(CLOCK_REALTIME, &start_time1);
-    bool commit = TxPrepare(yield);
-      clock_gettime(CLOCK_REALTIME, &end_ts_time1);
-      tx_write_prepare_log_time += (end_ts_time1.tv_sec - start_time1.tv_sec) + (double)(end_ts_time1.tv_nsec - start_time1.tv_nsec) / 1000000000;
 
-      struct timespec start_time2, end_ts_time2;
-      clock_gettime(CLOCK_REALTIME, &start_time2);
+    // prepare phase
+    struct timespec start_time1, end_ts_time1;
+    clock_gettime(CLOCK_REALTIME, &start_time1);
+    bool commit = TxPrepare(yield);
+    clock_gettime(CLOCK_REALTIME, &end_ts_time1);
+    tx_write_prepare_log_time += (end_ts_time1.tv_sec - start_time1.tv_sec) + (double)(end_ts_time1.tv_nsec - start_time1.tv_nsec) / 1000000000;
+
     // write backup log
+    struct timespec start_time2, end_ts_time2;
+    clock_gettime(CLOCK_REALTIME, &start_time2);
     brpc::Controller cntl;
     storage_service::LogWriteRequest log_request;
     storage_service::LogWriteResponse log_response;
@@ -309,26 +312,26 @@ bool DTX::Tx2PCCommit(coro_yield_t &yield){
     txn_log.batch_id_ = tx_id;
     log_request.set_log(txn_log.get_log_string());
     storage_service::StorageService_Stub stub(compute_server->get_storage_channel());
-
     stub.LogWrite(&cntl, &log_request, &log_response, NULL);
     if(cntl.Failed()){
         LOG(ERROR) << "Fail to write backup log";
     }
-      clock_gettime(CLOCK_REALTIME, &end_ts_time2);
+    clock_gettime(CLOCK_REALTIME, &end_ts_time2);
     tx_write_backup_log_time += (end_ts_time2.tv_sec - start_time2.tv_sec) + (double)(end_ts_time2.tv_nsec - start_time2.tv_nsec) / 1000000000;
 
-      struct timespec start_time3, end_ts_time3;
-      clock_gettime(CLOCK_REALTIME, &start_time3);
+    // commit phase
+    struct timespec start_time3, end_ts_time3;
+    clock_gettime(CLOCK_REALTIME, &start_time3);
     if(commit){
       Tx2PCCommitAll(yield);
-        clock_gettime(CLOCK_REALTIME, &end_ts_time3);
-        tx_write_commit_log_time += (end_ts_time3.tv_sec - start_time3.tv_sec) + (double)(end_ts_time3.tv_nsec - start_time3.tv_nsec) / 1000000000;
+      clock_gettime(CLOCK_REALTIME, &end_ts_time3);
+      tx_write_commit_log_time2 += (end_ts_time3.tv_sec - start_time3.tv_sec) + (double)(end_ts_time3.tv_nsec - start_time3.tv_nsec) / 1000000000;
       return true;
     }
     else{
       Tx2PCAbortAll(yield);
-        clock_gettime(CLOCK_REALTIME, &end_ts_time3);
-        tx_write_commit_log_time += (end_ts_time3.tv_sec - start_time3.tv_sec) + (double)(end_ts_time3.tv_nsec - start_time3.tv_nsec) / 1000000000;
+      clock_gettime(CLOCK_REALTIME, &end_ts_time3);
+      tx_write_commit_log_time2 += (end_ts_time3.tv_sec - start_time3.tv_sec) + (double)(end_ts_time3.tv_nsec - start_time3.tv_nsec) / 1000000000;
       return false;
     }
 

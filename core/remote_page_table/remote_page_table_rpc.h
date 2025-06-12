@@ -132,23 +132,6 @@ class PageTableServiceImpl : public PageTableService {
             return;
         }
 
-    // virtual void LRPXUnlock(::google::protobuf::RpcController* controller,
-    //                     const ::page_table_service::PXUnlockRequest* request,
-    //                     ::page_table_service::PXUnlockResponse* response,
-    //                     ::google::protobuf::Closure* done){
-    //         brpc::ClosureGuard done_guard(done);
-    //         page_id_t page_id = request->page_id().page_no();
-    //         node_id_t node_id = request->node_id();
-    //         table_id_t table_id = request->page_id().table_id();
-    //         // page_lock_table_->LR_GetLock(page_id)->UnlockExclusive(node_id);
-    //     // LOG(INFO) << "table_id: " << table_id << " page_id: " << page_id << " node_id: " << node_id << " try to release exclusive lock";
-    //         page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->UnlockExclusive(node_id);
-
-    //         // 添加模拟延迟
-    //         // usleep(NetworkLatency); // 100us
-    //         return;
-    //     }
-
     virtual void LRPSLock(::google::protobuf::RpcController* controller,
                         const ::page_table_service::PSLockRequest* request,
                         ::page_table_service::PSLockResponse* response,
@@ -176,23 +159,6 @@ class PageTableServiceImpl : public PageTableService {
             // usleep(NetworkLatency); // 100us
             return;
         }
-
-    // virtual void LRPSUnlock(::google::protobuf::RpcController* controller,
-    //                     const ::page_table_service::PSUnlockRequest* request,
-    //                     ::page_table_service::PSUnlockResponse* response,
-    //                     ::google::protobuf::Closure* done){
-    //         brpc::ClosureGuard done_guard(done);
-    //         page_id_t page_id = request->page_id().page_no();
-    //         node_id_t node_id = request->node_id();
-    //         table_id_t table_id = request->page_id().table_id();
-    //     // LOG(INFO) << "table_id: " << table_id << " page_id: " << page_id << " node_id: " << node_id << " try to release shared lock";
-    //        // page_lock_table_->LR_GetLock(page_id)->UnlockShared(node_id);
-    //         page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->UnlockShared(node_id);
-
-    //         // 添加模拟延迟
-    //         // usleep(NetworkLatency); // 100us
-    //         return;
-    //     }
     
     virtual void LRPAnyUnLock(::google::protobuf::RpcController* controller,
                     const ::page_table_service::PAnyUnLockRequest* request,

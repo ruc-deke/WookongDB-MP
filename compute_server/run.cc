@@ -59,7 +59,7 @@ int main(int argc, char* argv[]) {
     std::cout << "tx_exe_time: " << tx_exe_time / std::atoi(argv[3]) << std::endl;
     std::cout << "tx_commit_time: " << tx_commit_time / std::atoi(argv[3]) << std::endl;
     std::cout << "tx_abort_time: " << tx_abort_time / std::atoi(argv[3]) << std::endl;
-    std::cout << "tx_update_time: " << tx_update_time / std::atoi(argv[3]) / std::atoi(argv[3]) << std::endl;
+    std::cout << "tx_update_time: " << tx_update_time / std::atoi(argv[3]) << std::endl;
     std::cout << "tx_fetch_exe_time: " << tx_fetch_exe_time / std::atoi(argv[3]) << std::endl;
     std::cout << "tx_fetch_commit_time: " << tx_fetch_commit_time / std::atoi(argv[3]) << std::endl;
     std::cout << "tx_fetch_abort_time: " << tx_fetch_abort_time / std::atoi(argv[3]) << std::endl;
@@ -71,6 +71,7 @@ int main(int argc, char* argv[]) {
     std::cout << "tx_write_commit_log_time: " << tx_write_commit_log_time / std::atoi(argv[3]) << std::endl;
     std::cout << "tx_write_prepare_log_time: " << tx_write_prepare_log_time / std::atoi(argv[3]) << std::endl;
     std::cout << "tx_write_backup_log_time: " << tx_write_backup_log_time / std::atoi(argv[3]) << std::endl;
+    std::cout << "tx_write_commit_log_time2: " << tx_write_commit_log_time2 / std::atoi(argv[3]) << std::endl; // for distributed transactions commit log time
 
     std::ofstream result_file("result.txt");
 
@@ -108,6 +109,7 @@ int main(int argc, char* argv[]) {
     result_file << tx_write_commit_log_time / std::atoi(argv[3]) << std::endl;
     result_file << tx_write_prepare_log_time / std::atoi(argv[3]) << std::endl;
     result_file << tx_write_backup_log_time / std::atoi(argv[3]) << std::endl;
+    result_file << tx_write_commit_log_time2 / std::atoi(argv[3]) << std::endl; // for distributed transactions commit log time
 
     result_file.close();
 

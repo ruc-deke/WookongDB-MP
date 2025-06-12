@@ -44,6 +44,7 @@ extern double LongTxnRate;
 
 #define MaxPartitionCount 1024
 
+#define ThreadPoolSizePerWorker 8 // 每个worker线程池的大小
 // 定义计算节点的各个阶段
 enum class Phase {PARTITION, GLOBAL, SWITCH_TO_PAR, SWITCH_TO_GLOBAL, BEGIN};
 enum class OperationType {READ, WRITE};

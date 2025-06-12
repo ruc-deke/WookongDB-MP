@@ -2,9 +2,9 @@
   "local_compute_node": {
     "machine_num": 2,
     "machine_id": 0,
-"thread_num_per_machine": 12,
+"thread_num_per_machine": 4,
 "coroutine_num": 1,
-"txn_system": 3,
+"txn_system": 1,
     "batch_size": 400
   },
   "remote_compute_nodes": {

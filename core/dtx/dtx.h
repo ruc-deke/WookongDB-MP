@@ -28,6 +28,7 @@
 #include "storage/log_record.h"
 #include "scheduler/corotine_scheduler.h"
 #include "remote_page_table/timestamp_rpc.h"
+#include "thread_pool.h"
 
 struct DataSetItem {
   DataSetItem(DataItemPtr item) {
@@ -80,6 +81,7 @@ class DTX {
       brpc::Channel* data_channel,
       brpc::Channel* log_channel,
       brpc::Channel* remote_server_channel,
+      ThreadPool* thd_pool, 
       TxnLog* txn_log=nullptr, 
       CoroutineScheduler* sched_0=nullptr,
       int* using_which_coro_sched_=nullptr);
@@ -99,7 +101,7 @@ class DTX {
 
   // 计算事务的执行时间
   double tx_begin_time=0,tx_exe_time=0,tx_commit_time=0,tx_abort_time=0;
-  double tx_get_timestamp_time1=0, tx_get_timestamp_time2=0, tx_write_commit_log_time=0, tx_write_prepare_log_time=0, tx_write_backup_log_time=0;
+  double tx_get_timestamp_time1=0, tx_get_timestamp_time2=0, tx_write_commit_log_time=0, tx_write_commit_log_time2=0, tx_write_prepare_log_time=0, tx_write_backup_log_time=0;
   double tx_fetch_exe_time=0, tx_fetch_commit_time=0, tx_release_exe_time=0, tx_release_commit_time=0;
   double tx_fetch_abort_time=0, tx_release_abort_time=0;
   int single_txn=0;
@@ -185,6 +187,8 @@ class DTX {
   PageCache* page_cache;
 
   std::unordered_set<node_id_t> participants; // Participants in 2PC, only use in 2PC
+
+  ThreadPool* thread_pool;
 };
 
 enum class CalvinStages {
