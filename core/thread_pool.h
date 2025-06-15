@@ -15,10 +15,12 @@
 // --- Simple ThreadPool
 class ThreadPool {
 public:
-    ThreadPool(size_t num_threads) {
+    ThreadPool(size_t num_threads, int worker_id) {
         stop = false;
         for (size_t i = 0; i < num_threads; ++i) {
-            workers.emplace_back([this]() {
+            workers.emplace_back([this, worker_id]() {
+                std::string thread_name = "data_fetch" + std::to_string(worker_id);
+                pthread_setname_np(pthread_self(), thread_name.substr(0, 15).c_str());
                 while (true) {
                     std::function<void()> task;
 

@@ -17,14 +17,24 @@ enum PendingType {
 message PendingRequest {
     PageID page_id = 1;
     PendingType pending_type = 2;
+    sint32 dest_node_id = 3; // 如果是转移页面数据，则需要指定目标节点ID, 如果不需要转移页面数据，则为-1
 };
 
 message PendingResponse{}
 
+message PushPageRequest{
+    PageID page_id = 1; 
+    bytes page_data = 2;
+    sint32 src_node_id = 3; // 源节点ID, 用于标识是谁推送的页面
+    sint32 dest_node_id = 4; // 目标节点ID, 用于标识页面推送的目标节点
+}
+
+message PushPageResponse{}
+
 message LockSuccessRequest{
-    sint32 newest_node = 1; // 返回最新的数据页所在节点, 如果当前已经是最新的, 则返回-1
-    PageID page_id = 2;
-    bool xlock_succeess = 3; // 1为排他锁加锁成功, 2为共享锁加锁成功
+    PageID page_id = 1;
+    bool xlock_succeess = 2; // 1为排他锁加锁成功, 2为共享锁加锁成功
+    bool need_wait_push_page = 3; // 是否需要等待页面推送
 }
 
 message LockSuccessResponse{}
@@ -58,4 +68,5 @@ service ComputeNodeService {
     rpc GetPage(GetPageRequest) returns (GetPageResponse);
     rpc LockSuccess(LockSuccessRequest) returns(LockSuccessResponse);
     rpc TransferDTX(TransferDTXRequest) returns (TransferDTXResponse);
+    rpc PushPage(PushPageRequest) returns (PushPageResponse);
 };

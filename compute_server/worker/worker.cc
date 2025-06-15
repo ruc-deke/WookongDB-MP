@@ -394,7 +394,7 @@ void run_thread(thread_params* params,
     LOG(FATAL) << "Unsupported benchmark: " << bench_name;
   }
 
-  thread_pool = new ThreadPool(ThreadPoolSizePerWorker);
+  thread_pool = new ThreadPool(ThreadPoolSizePerWorker, params->thread_id);
   // Initialize thread-local variables
   thread_gid = params->thread_global_id;
   thread_local_id = params->thread_id;

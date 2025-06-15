@@ -41,7 +41,12 @@ class ComputeNodeServiceImpl : public ComputeNodeService {
                        const ::compute_node_service::PendingRequest* request,
                        ::compute_node_service::PendingResponse* response,
                        ::google::protobuf::Closure* done);
-
+        
+    virtual void PushPage(::google::protobuf::RpcController* controller,
+                       const ::compute_node_service::PushPageRequest* request,
+                       ::compute_node_service::PushPageResponse* response,
+                       ::google::protobuf::Closure* done);
+                       
     virtual void GetPage(::google::protobuf::RpcController* controller,
                        const ::compute_node_service::GetPageRequest* request,
                        ::compute_node_service::GetPageResponse* response,
@@ -181,6 +186,8 @@ public:
     static void PSlockRPCDone(page_table_service::PSLockResponse* response, brpc::Controller* cntl, std::atomic<bool>* finish);
 
     static void PXlockRPCDone(page_table_service::PXLockResponse* response, brpc::Controller* cntl, std::atomic<bool>* finish);
+
+    static void PushPageRPCDone(compute_node_service::PushPageResponse* response, brpc::Controller* cntl);
 
     // ****************** for eager release *********************
     Page* rpc_fetch_s_page(table_id_t table_id, page_id_t page_id);

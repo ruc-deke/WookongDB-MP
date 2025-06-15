@@ -2,6 +2,7 @@
 #include "common.h"
 #include "config.h"
 #include "compute_node/compute_node.pb.h"
+#include "global_valid_table.h"
 
 #include <iostream>
 #include <list>
@@ -85,20 +86,41 @@ public:
         // NewCallback产生的Closure会在Run结束后删除自己，不用我们做。
     }
 
-    void SetComputenodePending(node_id_t n, bool XPending, table_id_t table_id){
+    void SetComputenodePending(node_id_t n, bool XPending, table_id_t table_id, GlobalValidInfo* valid_info) {
         // 构造request
         compute_node_service::PendingRequest request;
         compute_node_service::PageID *page_id_pb = new compute_node_service::PageID();
         page_id_pb->set_page_no(page_id);
         page_id_pb->set_table_id(table_id);
         request.set_allocated_page_id(page_id_pb);
-        if(XPending) request.set_pending_type(compute_node_service::PendingType::XPending);
-        else request.set_pending_type(compute_node_service::PendingType::SPending);
-
+        int trans_node_id = -1;
+        if(XPending) {
+            assert(hold_lock_nodes.size() == 1);
+            trans_node_id = hold_lock_nodes.front();
+            request.set_pending_type(compute_node_service::PendingType::XPending);
+        }
+        else {
+            request.set_pending_type(compute_node_service::PendingType::SPending);
+            assert(hold_lock_nodes.size() >= 1); 
+            if(!valid_info->IsValid(n)){
+                // 从节点集合中随机选择一个节点传输页面
+                for(auto node_id : hold_lock_nodes){
+                    if(node_id != n) {
+                        trans_node_id = node_id;
+                        break; // 找到一个就可以了
+                    }
+                }
+            }
+        }
         // 向所有的持有锁的计算节点发送释放锁请求
         std::vector<brpc::CallId> cids;
         for(auto node_id : hold_lock_nodes){
             if(node_id == n) continue; // 不需要向自己发送请求
+            if(trans_node_id == node_id){
+                request.set_dest_node_id(n); // 设置目标节点id为n, 也就是当前计算节点
+            } else{
+                request.set_dest_node_id(-1); // 不需要传输页面数据
+            }
             brpc::Channel* channel = compute_channels[node_id];
             // std::string remote_node = "127.0.0.1:" + std::to_string(34002 + node_id);
             // LOG(INFO) << "Pending tableid:" << table_id << "page " << page_id << " request node: " << n << " in remote compute node: " << node_id;
@@ -119,7 +141,7 @@ public:
         // }
     }
 
-    bool LockShared(node_id_t node_id, table_id_t table_id) {
+    bool LockShared(node_id_t node_id, table_id_t table_id, GlobalValidInfo* valid_info) {
         mutex.lock();
         if(lock != EXCLUSIVE_LOCKED && request_queue.empty()){
             // 可以直接上锁
@@ -139,7 +161,7 @@ public:
             is_pending = true;
             s_request_num++;
             assert(s_request_num==1);
-            SetComputenodePending(node_id, true, table_id); // 这里被X锁占用，所以需要释放X锁
+            SetComputenodePending(node_id, true, table_id, valid_info); // 这里被X锁占用，所以需要释放X锁
             // mutex.unlock(); // 在SetComputenodePending()中会释放mutex
         }
         else if(!request_queue.empty()){
@@ -157,7 +179,7 @@ public:
         return false;
     }
 
-    bool LockExclusive(node_id_t node_id, table_id_t table_id) {
+    bool LockExclusive(node_id_t node_id, table_id_t table_id, GlobalValidInfo* valid_info) {
         mutex.lock();
         if(lock != 0 && is_pending == false) {
             assert(request_queue.empty()); 
@@ -180,7 +202,7 @@ public:
                 assert(node_id != hold_lock_nodes.front());
                 xpending = true;
             }
-            SetComputenodePending(node_id, xpending,table_id);
+            SetComputenodePending(node_id, xpending,table_id,valid_info);
             // mutex.unlock(); // 在SetComputenodePending()中会释放mutex
         }
         else if(lock == 0 && is_pending == false){
@@ -236,13 +258,14 @@ public:
         request.set_allocated_page_id(page_id_pb);
         if(xlock) request.set_xlock_succeess(true);
         else request.set_xlock_succeess(false);
-        request.set_newest_node(newest_id);
-        
+        if(newest_id == -1) request.set_need_wait_push_page(false);
+        else request.set_need_wait_push_page(true);
+
         // 向所有的持有锁的计算节点发送加锁成功请求
         std::vector<brpc::CallId> cids;
         for(auto node_id : hold_lock_nodes){
             brpc::Channel* channel = compute_channels[node_id];
-            // LOG(INFO) << "Lock page Sucess tableid: " << table_id << " page: " << page_id << " in remote compute node: " << node_id << " lock: " << lock;
+            // LOG(INFO) << "Lock page Sucess tableid: " << table_id << " page: " << page_id << " in remote compute node: " << node_id << " lock: " << lock << "newest_id: " << newest_id;
             compute_node_service::ComputeNodeService_Stub computenode_stub(channel);
             brpc::Controller* cntl = new brpc::Controller();
             compute_node_service::LockSuccessResponse* response = new compute_node_service::LockSuccessResponse();
@@ -322,7 +345,7 @@ public:
         return true;
     }
 
-    void TransferPending(table_id_t table_id, std::atomic<int>& immedia_transfer){
+    void TransferPending(table_id_t table_id, std::atomic<int>& immedia_transfer, GlobalValidInfo* valid_info) {
         // mutex is hold here, need unlock in this fun
         // judge if need pending
         if(is_pending || request_queue.empty()) {
@@ -345,7 +368,7 @@ public:
                     xpending = true;
                 }
                 // 在这里unlock
-                SetComputenodePending(request.node_id, xpending, table_id);
+                SetComputenodePending(request.node_id, xpending, table_id, valid_info);
                 return;
             }
             else{
@@ -356,7 +379,7 @@ public:
                 is_pending = true;
                 bool xpending = true;
                 // 在这里unlock
-                SetComputenodePending(request.node_id, xpending, table_id);
+                SetComputenodePending(request.node_id, xpending, table_id, valid_info);
                 return;
             }
         }

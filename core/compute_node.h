@@ -223,11 +223,11 @@ public:
     }
 
     // 远程通知此节点释放数据页（不主动释放数据页策略下）
-    int PendingPage(page_id_t page_id, bool xpending, table_id_t table_id) {
+    int PendingPage(page_id_t page_id, bool xpending, table_id_t table_id, node_id_t dest_node_id = -1) {
       int unlock_remote;
       if(SYSTEM_MODE == 1){ // lazy release
         assert(lazy_local_page_lock_tables[table_id] != nullptr && local_page_lock_tables[table_id] == nullptr);
-        unlock_remote = lazy_local_page_lock_tables[table_id]->GetLock(page_id)->Pending(node_id, xpending);
+        unlock_remote = lazy_local_page_lock_tables[table_id]->GetLock(page_id)->Pending(node_id, xpending, dest_node_id);
       }
       else{
         assert(false);
@@ -236,10 +236,21 @@ public:
     }
 
     // 远程通知此节点获取页面控制权成功
-    void NotifyLockPageSuccess(table_id_t table_id, page_id_t page_id, bool xlock, node_id_t newest_node_id) {
+    void NotifyPushPageSuccess(table_id_t table_id, page_id_t page_id) {
       if(SYSTEM_MODE == 1){ // lazy release
         assert(lazy_local_page_lock_tables[table_id] != nullptr && local_page_lock_tables[table_id] == nullptr);
-        lazy_local_page_lock_tables[table_id]->GetLock(page_id)->RemoteNotifyLockSuccess(xlock, newest_node_id);
+        lazy_local_page_lock_tables[table_id]->GetLock(page_id)->RemotePushPageSuccess();
+      }
+      else{
+        assert(false);
+      }
+    }
+
+    // 远程通知此节点获取页面控制权成功
+    void NotifyLockPageSuccess(table_id_t table_id, page_id_t page_id, bool xlock, bool need_wait_transfer) {
+      if(SYSTEM_MODE == 1){ // lazy release
+        assert(lazy_local_page_lock_tables[table_id] != nullptr && local_page_lock_tables[table_id] == nullptr);
+        lazy_local_page_lock_tables[table_id]->GetLock(page_id)->RemoteNotifyLockSuccess(xlock, need_wait_transfer);
       }
       else{
         assert(false);

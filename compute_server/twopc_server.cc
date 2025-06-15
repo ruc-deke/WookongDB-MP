@@ -33,7 +33,7 @@ namespace twopc_service{
             DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
             if(item->lock == UNLOCKED){
                 item->lock = EXCLUSIVE_LOCKED;
-                char* ret = tuple + sizeof(itemkey_t);
+                // char* ret = tuple + sizeof(itemkey_t);
                 response->set_data(data, PAGE_SIZE);
                 // response->set_data(ret, sizeof(DataItem));
             }

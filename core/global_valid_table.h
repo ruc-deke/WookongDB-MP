@@ -21,6 +21,12 @@ private:
         }
     }
 
+    void SetAllNodeStatusTrue(){
+        for(int i=0; i<MaxComputeNodeCount; i++){
+            node_has_newest_page_status[i] = true;
+        }
+    }
+
 public:
     GlobalValidInfo(page_id_t pid){
         page_id = pid;
@@ -32,7 +38,7 @@ public:
 
     void Reset(){
         newest_node = -1;
-        SetAllNodeStatusFalse();
+        SetAllNodeStatusTrue(); // 重置时，所有计算节点都认为有最新的数据页
     }
 
     // 设置数据页为无效
@@ -55,6 +61,13 @@ public:
             mutex.unlock();
             return newest_node;
         }
+    }
+
+    bool IsValid(node_id_t node_id) {
+        mutex.lock();
+        bool valid = node_has_newest_page_status[node_id];
+        mutex.unlock();
+        return valid;
     }
 };
 

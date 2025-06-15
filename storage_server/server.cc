@@ -233,7 +233,7 @@ int main(int argc, char* argv[]) {
     size_t compute_node_num = compute_node_ips.size();
     std::vector<std::string> compute_ip_list;
     std::vector<int> compute_ports_list;
-    for(int i=0; i<compute_node_ips.size(); i++){
+    for(size_t i=0; i<compute_node_ips.size(); i++){
       compute_ip_list.push_back(compute_nodes.get("compute_node_ips").get(i).get_str());
       compute_ports_list.push_back(compute_nodes.get("compute_node_ports").get(i).get_int64());
     }

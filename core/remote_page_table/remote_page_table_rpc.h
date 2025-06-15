@@ -116,7 +116,8 @@ class PageTableServiceImpl : public PageTableService {
 //            node_id_t newest_node_id = page_valid_table_->GetValidInfo(page_id)->GetValid(node_id);
 //            page_lock_table_->LR_GetLock(page_id)->LockExclusive(node_id);
         // LOG(INFO) << "table_id: " << table_id << " page_id: " << page_id << " node_id: " << node_id << " try to get exclusive lock";
-            bool lock_success = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->LockExclusive(node_id,table_id);
+            GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
+            bool lock_success = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->LockExclusive(node_id,table_id, valid_info);
 
             response->set_wait_lock_release(!lock_success);
             if(lock_success){
@@ -144,7 +145,8 @@ class PageTableServiceImpl : public PageTableService {
 //            node_id_t newest_node_id = page_valid_table_->GetValidInfo(page_id)->GetValid(node_id);
 //            page_lock_table_->LR_GetLock(page_id)->LockShared(node_id);
 // LOG(INFO) << "table_id: " << table_id << " page_id: " << page_id << " node_id: " << node_id << " try to get shared lock";
-            bool lock_success = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->LockShared(node_id,table_id);
+            GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
+            bool lock_success = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->LockShared(node_id,table_id, valid_info);
 
             response->set_wait_lock_release(!lock_success);
             if(lock_success){
@@ -172,7 +174,8 @@ class PageTableServiceImpl : public PageTableService {
             // bool need_valid = page_lock_table_->LR_GetLock(page_id)->UnlockAny(node_id);
         // LOG(INFO) << "table_id: " << table_id << " page_id: " << page_id << " node_id: " << node_id << " try to release any lock";
             bool need_valid = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->UnlockAny(node_id);
-
+            GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
+            
             if(need_valid){
 //                page_valid_table_->GetValidInfo(page_id)->XReleasePage(node_id);
 //                page_lock_table_->LR_GetLock(page_id)->InvalidOK();
@@ -190,7 +193,7 @@ class PageTableServiceImpl : public PageTableService {
                     newest_id = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid(n);
                 }
                 page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->SendComputenodeLockSuccess(table_id, newest_id);
-                page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferPending(table_id, immedia_transfer);
+                page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferPending(table_id, immedia_transfer, valid_info);
             }
             
             // 添加模拟延迟
@@ -208,6 +211,7 @@ class PageTableServiceImpl : public PageTableService {
                 node_id_t node_id = request->node_id();
                 // bool need_valid = page_lock_table_->LR_GetLock(page_id)->UnlockAny(node_id);
                 // LOG(INFO) << "**table_id: " << table_id << " page_id: " << page_id << " node_id: " << node_id << " try to release any lock";
+                GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
                 bool need_valid = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->UnlockAny(node_id);
 
                 if(need_valid){
@@ -227,7 +231,7 @@ class PageTableServiceImpl : public PageTableService {
                         newest_id = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid(n);
                     }
                     page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->SendComputenodeLockSuccess(table_id, newest_id);
-                    page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferPending(table_id, immedia_transfer);
+                    page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferPending(table_id, immedia_transfer, valid_info);
                 }
             }
         }

@@ -100,33 +100,54 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
             page_id_t page_id = request->page_id().page_no();
             table_id_t table_id = request->page_id().table_id();
             bool xpending = (request->pending_type() == PendingType::XPending);
+            node_id_t dest_node_id = request->dest_node_id();
 
-            // LOG(INFO) << "Panding node id: " << server->get_node()->getNodeID() << " page id: " << page_id;
-            int unlock_remote = server->get_node()->PendingPage(page_id, xpending, table_id);
+            // LOG(INFO) << "Panding node id: " << server->get_node()->getNodeID() << "table_id: " << table_id << " page id: " << page_id << "transfer data: " << dest_node_id;
+            int unlock_remote = server->get_node()->PendingPage(page_id, xpending, table_id, dest_node_id);
             if(unlock_remote > 0){
-                // 3. rpc release page
-                page_table_service::PageTableService_Stub pagetable_stub(server->get_pagetable_channel());
-                page_table_service::PAnyUnLockRequest unlock_request;
-                page_table_service::PAnyUnLockResponse* unlock_response = new page_table_service::PAnyUnLockResponse();
-                page_table_service::PageID* page_id_pb = new page_table_service::PageID();
-                page_id_pb->set_page_no(page_id);
-                page_id_pb->set_table_id(table_id);
-                unlock_request.set_allocated_page_id(page_id_pb);
-                unlock_request.set_node_id(server->get_node()->getNodeID());
+                // 3. push page to dest node && rpc release page
+                if(dest_node_id != -1){
+                    node_id_t dest_node = request->dest_node_id();
+                    Page* page = server->get_node()->getBufferPoolByIndex(request->page_id().table_id())->GetPage(page_id);
+                    compute_node_service::PushPageRequest push_request;
+                    compute_node_service::PushPageResponse* push_response = new compute_node_service::PushPageResponse();
+                    compute_node_service::PageID* page_id_pb = new compute_node_service::PageID();
+                    page_id_pb->set_page_no(page_id);
+                    page_id_pb->set_table_id(table_id);
+                    push_request.set_allocated_page_id(page_id_pb);
+                    push_request.set_page_data(page->get_data(), PAGE_SIZE);
+                    push_request.set_src_node_id(server->get_node()->getNodeID());
+                    push_request.set_dest_node_id(dest_node);
 
-                brpc::Controller cntl;
-                pagetable_stub.LRPAnyUnLock(&cntl, &unlock_request, unlock_response, NULL);
-                if(cntl.Failed()){
-                    LOG(ERROR) << "Fail to unlock page " << page_id << " in remote page table";
+                    brpc::Controller *push_cntl = new brpc::Controller();
+                    compute_node_service::ComputeNodeService_Stub compute_node_stub(server->get_compute_channel() + dest_node);
+                    // 异步
+                    compute_node_stub.PushPage(push_cntl, &push_request, push_response, brpc::NewCallback(server->PushPageRPCDone, push_response, push_cntl));
                 }
-                //! unlock remote ok and unlatch local
-                if(SYSTEM_MODE == 1){
-                    server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->UnlockRemoteOK();
-                }else{
-                    assert(false);
+                if(unlock_remote != 3){
+                    page_table_service::PageTableService_Stub pagetable_stub(server->get_pagetable_channel());
+                    page_table_service::PAnyUnLockRequest unlock_request;
+                    page_table_service::PAnyUnLockResponse* unlock_response = new page_table_service::PAnyUnLockResponse();
+                    page_table_service::PageID* page_id_pb = new page_table_service::PageID();
+                    page_id_pb->set_page_no(page_id);
+                    page_id_pb->set_table_id(table_id);
+                    unlock_request.set_allocated_page_id(page_id_pb);
+                    unlock_request.set_node_id(server->get_node()->getNodeID());
+
+                    brpc::Controller cntl;
+                    pagetable_stub.LRPAnyUnLock(&cntl, &unlock_request, unlock_response, NULL);
+                    if(cntl.Failed()){
+                        LOG(ERROR) << "Fail to unlock page " << page_id << " in remote page table";
+                    }
+                    //! unlock remote ok and unlatch local
+                    if(SYSTEM_MODE == 1){
+                        server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->UnlockRemoteOK();
+                    }else{
+                        assert(false);
+                    }
+                    // delete response;
+                    delete unlock_response;
                 }
-                // delete response;
-                delete unlock_response;
             }
 
             // 添加模拟延迟
@@ -150,6 +171,29 @@ void ComputeNodeServiceImpl::GetPage(::google::protobuf::RpcController* controll
         return;
     }
 
+void ComputeNodeServiceImpl::PushPage(::google::protobuf::RpcController* controller,
+                    const ::compute_node_service::PushPageRequest* request,
+                    ::compute_node_service::PushPageResponse* response,
+                    ::google::protobuf::Closure* done){
+
+        brpc::ClosureGuard done_guard(done);
+        page_id_t page_id = request->page_id().page_no();
+        table_id_t table_id = request->page_id().table_id();
+        node_id_t src_node_id = request->src_node_id();
+        node_id_t dest_node_id = request->dest_node_id();
+
+        assert(src_node_id != dest_node_id);
+        assert(server->get_node()->getNodeID() == dest_node_id);
+        // LOG(INFO) << "Push page table id: " << table_id << "page_id: " << page_id << " from node " << src_node_id << " to node " << dest_node_id;
+        Page* page = server->get_node()->getBufferPoolByIndex(table_id)->GetPage(page_id);
+        memcpy(page->get_data(), request->page_data().c_str(), request->page_data().size());
+        server->get_node()->NotifyPushPageSuccess(table_id, page_id);
+        
+        // 添加模拟延迟
+        // usleep(NetworkLatency); // 100us
+        return;
+    }
+
 void ComputeNodeServiceImpl::LockSuccess(::google::protobuf::RpcController* controller,
                     const ::compute_node_service::LockSuccessRequest* request,
                     ::compute_node_service::LockSuccessResponse* response,
@@ -159,8 +203,9 @@ void ComputeNodeServiceImpl::LockSuccess(::google::protobuf::RpcController* cont
         page_id_t page_id = request->page_id().page_no();
         table_id_t table_id = request->page_id().table_id();
         bool xlock = request->xlock_succeess();
-        node_id_t node_id = request->newest_node();
-        server->get_node()->NotifyLockPageSuccess(table_id, page_id, xlock, node_id);
+        // node_id_t node_id = request->newest_node();
+        bool need_wait_transfer = request->need_wait_push_page();
+        server->get_node()->NotifyLockPageSuccess(table_id, page_id, xlock, need_wait_transfer);
         return;
     }
 
@@ -306,6 +351,20 @@ void ComputeServer::PXlockRPCDone(page_table_service::PXLockResponse* response, 
     } else {
         // RPC成功了，response里有我们想要的数据。开始RPC的后续处理.
         *finish = true;
+    }
+    // NewCallback产生的Closure会在Run结束后删除自己，不用我们做。
+}
+
+void ComputeServer::PushPageRPCDone(compute_node_service::PushPageResponse* response, brpc::Controller* cntl){
+    // unique_ptr会帮助我们在return时自动删掉response/cntl，防止忘记。gcc 3.4下的unique_ptr是模拟版本。
+    // std::unique_ptr<page_table_service::PXLockResponse> response_guard(response);
+    std::unique_ptr<brpc::Controller> cntl_guard(cntl);
+    // std::unique_ptr<bool> finish_guard(finish);
+    if (cntl->Failed()) {
+        LOG(ERROR) << "PushPageRPC failed";
+        // RPC失败了. response里的值是未定义的，勿用。
+    } else {
+        // RPC成功了，response里有我们想要的数据。开始RPC的后续处理.
     }
     // NewCallback产生的Closure会在Run结束后删除自己，不用我们做。
 }
