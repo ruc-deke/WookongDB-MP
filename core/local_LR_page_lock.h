@@ -16,8 +16,8 @@ private:
     node_id_t dest_push_node = -1; // 需要push的目标节点, 如果不需要push, 则为-1
     bool is_granting = false;   // 是否正在授权
     bool success_return = false; // 成功加锁返回
-    // node_id_t update_node = -1;   // 是否需要更新
-    bool need_wait_push = false; // 是否需要更新
+    node_id_t update_node = -1;   // 是否需要更新
+    bool push_or_pull = false; // 如果需要更新, 是等待push: true, 还是等待pull: false
     bool update_success = false; // 是否更新成功
 
 private:
@@ -129,31 +129,58 @@ public:
         mutex.unlock();
     }
 
-    void RemoteNotifyLockSuccess(bool xlock, bool need_wait_push_){
+    void RemoteNotifyLockSuccess(bool xlock, node_id_t newest_id, bool push_or_pull_){
         mutex.lock();
         assert(is_granting == true);
         if(xlock) assert(lock == EXCLUSIVE_LOCKED);
         else assert(lock > 0); 
         success_return = true;
-        need_wait_push = need_wait_push_;
+        update_node = newest_id; // 更新最新的持有锁的节点ID
+        push_or_pull = push_or_pull_; // 如果需要更新, 是等待push: true, 还是等待pull: false
         mutex.unlock();
     }
 
-    bool TryRemoteLockSuccess(){
+    // 返回如果需要主动pull的newest_id
+    node_id_t TryRemoteLockSuccess(double* wait_push_time = nullptr){
+        node_id_t pull_node_id = -1;
         while(true) {
             mutex.lock();
             assert(is_granting == true);
-            if(success_return == true && (need_wait_push == false || update_success == true)){
+            if(success_return == true){
+                // lock success
+                if(update_node == -1 || push_or_pull == false){
+                    // 不需要更新数据页 或者 需要pull数据页
+                    assert(update_success == false); 
+                    pull_node_id = update_node; // 需要pull的节点ID
+                }
+                else{
+                    // 需要等待push数据页
+                    mutex.unlock();
+                    struct timespec start_time, end_time;
+                    clock_gettime(CLOCK_REALTIME, &start_time);
+                    while(true){
+                        mutex.lock();
+                        if(update_success == true){
+                            break; // 成功返回
+                        }
+                        mutex.unlock();
+                    }
+                    clock_gettime(CLOCK_REALTIME, &end_time);
+                    auto wait = (end_time.tv_sec - start_time.tv_sec) + (double)(end_time.tv_nsec - start_time.tv_nsec) / 1000000000;
+                    if(wait_push_time != nullptr){
+                        *wait_push_time = wait;
+                    }
+                    update_success = false;
+                }
                 // 重置远程加锁成功标志位
                 success_return = false;
-                update_success = false;
-                need_wait_push = false;
+                update_node = -1; // 重置update_node
                 break;
             }
             mutex.unlock();
         }
         mutex.unlock();
-        return true;
+        return pull_node_id;
     }
 
     // 调用LockExclusive()或者LockShared()之后, 如果返回true, 则需要调用这个函数将granting状态转换为shared或者exclusive

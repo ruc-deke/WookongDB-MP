@@ -34,7 +34,9 @@ message PushPageResponse{}
 message LockSuccessRequest{
     PageID page_id = 1;
     bool xlock_succeess = 2; // 1为排他锁加锁成功, 2为共享锁加锁成功
-    bool need_wait_push_page = 3; // 是否需要等待页面推送
+    // bool need_wait_push_page = 3; // 是否需要等待页面推送
+    sint32 newest_id = 3; // 最新的持有锁的节点ID
+    bool push_or_pull = 4; // 是否需要推送页面数据, true表示推送页面数据, false表示不推送页面数据
 }
 
 message LockSuccessResponse{}

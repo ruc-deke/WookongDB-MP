@@ -36,7 +36,16 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
         }
         else{
             // 等待加锁成功, 远程节点会主动把最新的页面数据推送过来
-            node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->TryRemoteLockSuccess();
+            double wait_push_time = 0.0;
+            node_id_t pull_node = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->TryRemoteLockSuccess(&wait_push_time);
+            if(pull_node != -1){
+                // 如果需要pull数据页, 则从远程节点拉取数据页
+                LOG(INFO) << "node id: " << node_->node_id << " pull table id: " << table_id << " page id: " << page_id << " from node: " << pull_node;
+                UpdatePageFromRemoteCompute(page, table_id, page_id, pull_node);
+            }
+            update_m.lock();
+            tx_update_time += wait_push_time;
+            update_m.unlock();
         }
         //! lock remote ok and unlatch local
         node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->LockRemoteOK(node_->node_id);
@@ -81,7 +90,11 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
         }
         else{
             // 等待加锁成功, 远程节点会主动把最新的页面数据推送过来
-            node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->TryRemoteLockSuccess();
+            double wait_push_time = 0.0;
+            node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->TryRemoteLockSuccess(&wait_push_time);
+            update_m.lock();
+            tx_update_time += wait_push_time;
+            update_m.unlock();
         }
         //! lock remote ok and unlatch local
         node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->LockRemoteOK(node_->node_id);

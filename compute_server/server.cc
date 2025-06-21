@@ -203,9 +203,9 @@ void ComputeNodeServiceImpl::LockSuccess(::google::protobuf::RpcController* cont
         page_id_t page_id = request->page_id().page_no();
         table_id_t table_id = request->page_id().table_id();
         bool xlock = request->xlock_succeess();
-        // node_id_t node_id = request->newest_node();
-        bool need_wait_transfer = request->need_wait_push_page();
-        server->get_node()->NotifyLockPageSuccess(table_id, page_id, xlock, need_wait_transfer);
+        node_id_t newest_id = request->newest_id();
+        bool push_or_pull = request->push_or_pull();
+        server->get_node()->NotifyLockPageSuccess(table_id, page_id, xlock, newest_id, push_or_pull);
         return;
     }
 

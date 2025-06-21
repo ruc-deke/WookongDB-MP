@@ -247,10 +247,10 @@ public:
     }
 
     // 远程通知此节点获取页面控制权成功
-    void NotifyLockPageSuccess(table_id_t table_id, page_id_t page_id, bool xlock, bool need_wait_transfer) {
+    void NotifyLockPageSuccess(table_id_t table_id, page_id_t page_id, bool xlock, node_id_t newest_id, bool push_or_pull) {
       if(SYSTEM_MODE == 1){ // lazy release
         assert(lazy_local_page_lock_tables[table_id] != nullptr && local_page_lock_tables[table_id] == nullptr);
-        lazy_local_page_lock_tables[table_id]->GetLock(page_id)->RemoteNotifyLockSuccess(xlock, need_wait_transfer);
+        lazy_local_page_lock_tables[table_id]->GetLock(page_id)->RemoteNotifyLockSuccess(xlock, newest_id, push_or_pull);
       }
       else{
         assert(false);

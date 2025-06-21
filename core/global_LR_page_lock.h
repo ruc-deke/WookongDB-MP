@@ -93,10 +93,11 @@ public:
         page_id_pb->set_page_no(page_id);
         page_id_pb->set_table_id(table_id);
         request.set_allocated_page_id(page_id_pb);
-        int trans_node_id = -1;
+        int trans_node_id = -1; // 从哪个节点发
         if(XPending) {
             assert(hold_lock_nodes.size() == 1);
-            trans_node_id = hold_lock_nodes.front();
+            // pay attention: 注意当有多个节点请求S锁时, 需要将其都设为push, 即在这种情况下可能出现X->S, S
+            trans_node_id = hold_lock_nodes.front(); // 这里为了简化, 只push第一个S节点, 后续的节点为pull
             request.set_pending_type(compute_node_service::PendingType::XPending);
         }
         else {
@@ -250,20 +251,22 @@ public:
     void SendComputenodeLockSuccess(table_id_t table_id, node_id_t newest_id){
         // 这里有mutex
         bool xlock = (lock == EXCLUSIVE_LOCKED);
-        // 构造request
-        compute_node_service::LockSuccessRequest request;
-        compute_node_service::PageID *page_id_pb = new compute_node_service::PageID();
-        page_id_pb->set_page_no(page_id);
-        page_id_pb->set_table_id(table_id);
-        request.set_allocated_page_id(page_id_pb);
-        if(xlock) request.set_xlock_succeess(true);
-        else request.set_xlock_succeess(false);
-        if(newest_id == -1) request.set_need_wait_push_page(false);
-        else request.set_need_wait_push_page(true);
-
         // 向所有的持有锁的计算节点发送加锁成功请求
         std::vector<brpc::CallId> cids;
+        int i = 0;
         for(auto node_id : hold_lock_nodes){
+            // 构造request
+            compute_node_service::LockSuccessRequest request;
+            compute_node_service::PageID *page_id_pb = new compute_node_service::PageID();
+            page_id_pb->set_page_no(page_id);
+            page_id_pb->set_table_id(table_id);
+            request.set_allocated_page_id(page_id_pb);
+            if(xlock) request.set_xlock_succeess(true);
+            else request.set_xlock_succeess(false);
+            request.set_newest_id(newest_id); // 最新的持有锁的节点ID
+            if(i == 0) request.set_push_or_pull(true); // 第一个节点需要push数据
+            else request.set_push_or_pull(false); // 其他节点不需要push数据, 需要主动pull
+            // 发送请求
             brpc::Channel* channel = compute_channels[node_id];
             // LOG(INFO) << "Lock page Sucess tableid: " << table_id << " page: " << page_id << " in remote compute node: " << node_id << " lock: " << lock << "newest_id: " << newest_id;
             compute_node_service::ComputeNodeService_Stub computenode_stub(channel);
@@ -272,6 +275,7 @@ public:
             cids.push_back(cntl->call_id());
             computenode_stub.LockSuccess(cntl, &request, response, 
                 brpc::NewCallback(LockSuccessRPCDone, response, cntl));
+            i++;
         }
         // 等待所有的请求完成
         // for(auto cid : cids){
