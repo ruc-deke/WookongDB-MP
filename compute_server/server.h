@@ -158,7 +158,7 @@ public:
             butil::EndPoint point;
             point = butil::EndPoint(butil::IP_ANY, compute_ports[node_->getNodeID()]);
             brpc::ServerOptions server_options;
-            server_options.num_threads = 128;
+            server_options.num_threads = 8;
             server_options.use_rdma = use_rdma;
 
             if (server.Start(point,&server_options) != 0) {

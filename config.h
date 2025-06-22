@@ -60,7 +60,7 @@ enum class OperationType {READ, WRITE};
 
 #define RunOperationTime 500 // us, 1000us = 1ms
 
-#define NetworkLatency 100 // us, 1000us = 1ms
+#define NetworkLatency 1000 // us, 1000us = 1ms
 
 #define BatchTimeStamp 200 
 
