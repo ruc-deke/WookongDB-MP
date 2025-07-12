@@ -29,8 +29,6 @@ using timestamp_t = uint64_t; // Timestamp type
 // Indicating that memory store metas have been transmitted
 const uint64_t MEM_STORE_META_END = 0xE0FF0E0F;
 
-#define RAFT true
-
 #define MAX_DB_TABLE_NUM 15      // Max DB tables
 
 #define LOG_FILE_NAME "LOG_FILE"   

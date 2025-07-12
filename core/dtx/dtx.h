@@ -132,8 +132,10 @@ class DTX {
   bool Tx2PCCommit(coro_yield_t &yield);
 
   void Tx2PCCommitAll(coro_yield_t &yield);
+  void Tx2PCCommitLocal(coro_yield_t &yield);
 
   void Tx2PCAbortAll(coro_yield_t &yield);
+  void Tx2PCAbortLocal(coro_yield_t &yield);
 
   bool TxCommitSingle(coro_yield_t& yield);
 

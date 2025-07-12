@@ -43,6 +43,9 @@ namespace twopc_service{
             }
             server->local_release_x_page(table_id, page_id);
         }
+
+        // 添加模拟延迟
+        usleep(NetworkLatency); // 100us
         return;
     };
 
@@ -69,6 +72,9 @@ namespace twopc_service{
         memcpy(item->value, write_remote_data, MAX_ITEM_SIZE);
         item->lock = UNLOCKED;
         server->local_release_x_page(table_id, page_id);
+
+        // 添加模拟延迟
+        usleep(NetworkLatency); // 100us
         return;
     };
 
@@ -95,6 +101,9 @@ namespace twopc_service{
             LOG(ERROR) << "Fail to write log";
         }
         response->set_ok(true);
+
+        // 添加模拟延迟
+        usleep(NetworkLatency); // 100us
     };
 
     void add_milliseconds(struct timespec& ts, long long ms) {
@@ -150,6 +159,9 @@ namespace twopc_service{
             LOG(ERROR) << "Fail to write log";
         }
         response->set_latency_commit(0);
+
+        // 添加模拟延迟
+        usleep(NetworkLatency); // 100us
     };
 
     void TwoPCServiceImpl::Abort(::google::protobuf::RpcController* controller,
@@ -192,6 +204,9 @@ namespace twopc_service{
             item->lock = UNLOCKED;
             server->local_release_x_page(table_id, page_id);
         }
+
+        // 添加模拟延迟
+        usleep(NetworkLatency); // 100us
     };
 };
 

@@ -79,7 +79,10 @@ bool DTX::TxExe(coro_yield_t& yield, bool fail_abort) {
         node_id_t node_id = compute_server->get_node_id_by_page_id_new(item.item_ptr->table_id, rid.page_no_); 
         participants.emplace(node_id);
         char* data = nullptr;
-        compute_server->Get_2pc_Remote_page(node_id, item.item_ptr->table_id, rid, false, data);
+        if(node_id == compute_server->get_node()->getNodeID())
+          compute_server->Get_2pc_Local_page(node_id, item.item_ptr->table_id, rid, false, data);
+        else 
+          compute_server->Get_2pc_Remote_page(node_id, item.item_ptr->table_id, rid, false, data);
         std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
         assert (data != nullptr);
         DataItemPtr data_item = std::make_shared<DataItem>(*reinterpret_cast<DataItem*>(data));
@@ -126,7 +129,10 @@ bool DTX::TxExe(coro_yield_t& yield, bool fail_abort) {
         node_id_t node_id = compute_server->get_node_id_by_page_id_new(item.item_ptr->table_id, rid.page_no_);
         participants.emplace(node_id);
         char* data = nullptr;
-        compute_server->Get_2pc_Remote_page(node_id, item.item_ptr->table_id, rid, true, data);
+        if(node_id == compute_server->get_node()->getNodeID())
+          compute_server->Get_2pc_Local_page(node_id, item.item_ptr->table_id, rid, true, data);
+        else
+          compute_server->Get_2pc_Remote_page(node_id, item.item_ptr->table_id, rid, true, data);
         std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
         if(data == nullptr){
           // lock conflict
@@ -256,7 +262,10 @@ void DTX::TxAbort(coro_yield_t& yield) {
     }
   }
   else if(SYSTEM_MODE == 2){
-    Tx2PCAbortAll(yield);
+    if(participants.size() == 1 && compute_server->get_node()->getNodeID() == *participants.begin())
+      Tx2PCAbortLocal(yield);
+    else
+      Tx2PCAbortAll(yield);
   }
   tx_status = TXStatus::TX_ABORT;
   clock_gettime(CLOCK_REALTIME, &end_time);
@@ -283,7 +292,10 @@ bool DTX::Tx2PCCommit(coro_yield_t &yield){
     struct timespec start_time1, end_ts_time1;
       clock_gettime(CLOCK_REALTIME, &start_time1);
     this->single_txn++;
-    Tx2PCCommitAll(yield);
+    if(compute_server->get_node()->getNodeID() == *participants.begin())
+      Tx2PCCommitLocal(yield);
+    else
+      Tx2PCCommitAll(yield);
     clock_gettime(CLOCK_REALTIME, &end_ts_time1);
         tx_write_commit_log_time += (end_ts_time1.tv_sec - start_time1.tv_sec) + (double)(end_ts_time1.tv_nsec - end_ts_time1.tv_nsec) / 1000000000;
     return true;
@@ -300,49 +312,72 @@ bool DTX::Tx2PCCommit(coro_yield_t &yield){
     clock_gettime(CLOCK_REALTIME, &end_ts_time1);
     tx_write_prepare_log_time += (end_ts_time1.tv_sec - start_time1.tv_sec) + (double)(end_ts_time1.tv_nsec - start_time1.tv_nsec) / 1000000000;
 
-    // write backup log
-    struct timespec start_time2, end_ts_time2;
-    clock_gettime(CLOCK_REALTIME, &start_time2);
-    brpc::Controller cntl;
-    storage_service::LogWriteRequest log_request;
-    storage_service::LogWriteResponse log_response;
-    TxnLog txn_log;
-    BatchEndLogRecord* backup_log = new BatchEndLogRecord(tx_id, compute_server->get_node()->getNodeID(), tx_id);
-    txn_log.logs.push_back(backup_log); 
-    txn_log.batch_id_ = tx_id;
-    log_request.set_log(txn_log.get_log_string());
-    storage_service::StorageService_Stub stub(compute_server->get_storage_channel());
-    stub.LogWrite(&cntl, &log_request, &log_response, NULL);
-    if(cntl.Failed()){
-        LOG(ERROR) << "Fail to write backup log";
-    }
-    clock_gettime(CLOCK_REALTIME, &end_ts_time2);
-    tx_write_backup_log_time += (end_ts_time2.tv_sec - start_time2.tv_sec) + (double)(end_ts_time2.tv_nsec - start_time2.tv_nsec) / 1000000000;
+    // // write backup log
+    // struct timespec start_time2, end_ts_time2;
+    // clock_gettime(CLOCK_REALTIME, &start_time2);
+    // brpc::Controller cntl;
+    // storage_service::LogWriteRequest log_request;
+    // storage_service::LogWriteResponse log_response;
+    // TxnLog txn_log;
+    // BatchEndLogRecord* backup_log = new BatchEndLogRecord(tx_id, compute_server->get_node()->getNodeID(), tx_id);
+    // txn_log.logs.push_back(backup_log); 
+    // txn_log.batch_id_ = tx_id;
+    // log_request.set_log(txn_log.get_log_string());
+    // storage_service::StorageService_Stub stub(compute_server->get_storage_channel());
+    // stub.LogWrite(&cntl, &log_request, &log_response, NULL);
+    // if(cntl.Failed()){
+    //     LOG(ERROR) << "Fail to write backup log";
+    // }
+    // clock_gettime(CLOCK_REALTIME, &end_ts_time2);
+    // tx_write_backup_log_time += (end_ts_time2.tv_sec - start_time2.tv_sec) + (double)(end_ts_time2.tv_nsec - start_time2.tv_nsec) / 1000000000;
 
     // commit phase
     struct timespec start_time3, end_ts_time3;
     clock_gettime(CLOCK_REALTIME, &start_time3);
-    if(commit){
-      Tx2PCCommitAll(yield);
-      clock_gettime(CLOCK_REALTIME, &end_ts_time3);
-      tx_write_commit_log_time2 += (end_ts_time3.tv_sec - start_time3.tv_sec) + (double)(end_ts_time3.tv_nsec - start_time3.tv_nsec) / 1000000000;
-      return true;
-    }
-    else{
-      Tx2PCAbortAll(yield);
-      clock_gettime(CLOCK_REALTIME, &end_ts_time3);
-      tx_write_commit_log_time2 += (end_ts_time3.tv_sec - start_time3.tv_sec) + (double)(end_ts_time3.tv_nsec - start_time3.tv_nsec) / 1000000000;
-      return false;
-    }
+    if(commit) Tx2PCCommitAll(yield);
+    else Tx2PCAbortAll(yield);
+    clock_gettime(CLOCK_REALTIME, &end_ts_time3);
+    tx_write_commit_log_time2 += (end_ts_time3.tv_sec - start_time3.tv_sec) + (double)(end_ts_time3.tv_nsec - start_time3.tv_nsec) / 1000000000;
+    return commit;
 
   }
+}
+
+void DTX::Tx2PCCommitLocal(coro_yield_t &yield){
+  // write log
+  brpc::CallId* cid;
+  AddLogToTxn();
+  // Send log to storage pool
+  cid = new brpc::CallId();
+  SendLogToStoragePool(tx_id, cid);
+  brpc::Join(*cid);
+
+  for(size_t i=0; i<read_write_set.size(); i++){
+    DataSetItem& data_item = read_write_set[i];
+    if(data_item.is_fetched){ 
+      // this data item is fetched and locked
+      Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
+      node_id_t node_id = compute_server->get_node_id_by_page_id_new(data_item.item_ptr->table_id, rid.page_no_);
+      assert(node_id == compute_server->get_node()->getNodeID());
+
+      Page* page = compute_server->local_fetch_x_page(data_item.item_ptr->table_id, rid.page_no_);
+      char* data = page->get_data();
+      char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+      char *slots = bitmap + compute_server->get_node()->getMetaManager()->GetTableMeta(data_item.item_ptr->table_id).bitmap_size_;
+      char* tuple = slots + rid.slot_no_ * (sizeof(DataItem) + sizeof(itemkey_t));
+      DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+      assert(item->lock == EXCLUSIVE_LOCKED);
+      // write the data
+      memcpy(item->value, data_item.item_ptr->value, MAX_ITEM_SIZE);
+      item->lock = UNLOCKED; // unlock the data
+      compute_server->local_release_x_page(data_item.item_ptr->table_id, rid.page_no_);
+    }
+  } 
 }
 
 void DTX::Tx2PCCommitAll(coro_yield_t &yield){
   // LOG(INFO) << "Tx2PCCommitAll";
   // 2pc 方法的commit阶段
-    struct timespec start_time, end_time;
-    clock_gettime(CLOCK_REALTIME, &start_time);
   std::unordered_map<node_id_t, std::vector<std::pair<std::pair<table_id_t, Rid>, char*>>> node_data_map;
   for(size_t i=0; i<read_write_set.size(); i++){
     DataSetItem& data_item = read_write_set[i];
@@ -357,9 +392,47 @@ void DTX::Tx2PCCommitAll(coro_yield_t &yield){
       node_data_map[node_id].push_back(std::make_pair(std::make_pair(data_item.item_ptr->table_id, rid), write_data));
     }
   }
-  two_latency_c = compute_server->Commit_2pc(node_data_map, tx_id);
+  
+#if AsyncCommit2pc 
+  // 异步提交
+  two_latency_c = compute_server->Commit_2pc(node_data_map, tx_id, false);
+#else
+  // 同步提交
+  two_latency_c = compute_server->Commit_2pc(node_data_map, tx_id, true);
+#endif 
   // LOG(INFO) << "2PC commit latency: " << two_latency_c;
   return;
+}
+
+void DTX::Tx2PCAbortLocal(coro_yield_t &yield){
+  // write log
+  brpc::CallId* cid;
+  AddLogToTxn();
+  // Send log to storage pool
+  cid = new brpc::CallId();
+  SendLogToStoragePool(tx_id, cid);
+  brpc::Join(*cid);
+
+  for(size_t i=0; i<read_write_set.size(); i++){
+    DataSetItem& data_item = read_write_set[i];
+    if(data_item.is_fetched){ 
+      // this data item is fetched and locked
+      Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
+      node_id_t node_id = compute_server->get_node_id_by_page_id_new(data_item.item_ptr->table_id, rid.page_no_);
+      assert(node_id == compute_server->get_node()->getNodeID()); 
+
+      Page* page = compute_server->local_fetch_x_page(data_item.item_ptr->table_id, rid.page_no_);
+      char* data = page->get_data();
+      char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+      char *slots = bitmap + compute_server->get_node()->getMetaManager()->GetTableMeta(data_item.item_ptr->table_id).bitmap_size_;
+      char* tuple = slots + rid.slot_no_ * (sizeof(DataItem) + sizeof(itemkey_t));
+      DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+      assert(item->lock == EXCLUSIVE_LOCKED);
+      // don't write the data
+      item->lock = UNLOCKED; // unlock the data
+      compute_server->local_release_x_page(data_item.item_ptr->table_id, rid.page_no_);
+    }
+  } 
 }
 
 void DTX::Tx2PCAbortAll(coro_yield_t &yield){
@@ -380,6 +453,12 @@ void DTX::Tx2PCAbortAll(coro_yield_t &yield){
       node_data_map[node_id].push_back(std::make_pair(data_item.item_ptr->table_id, rid));
     }
   }
-  compute_server->Abort_2pc(node_data_map, tx_id);
+#if AsyncCommit2pc 
+  // 异步abort
+  compute_server->Abort_2pc(node_data_map, tx_id, false);
+#else
+  // 同步abort
+  compute_server->Abort_2pc(node_data_map, tx_id, true);
+#endif
   return;
 }

@@ -226,15 +226,19 @@ public:
 
     void Get_2pc_Remote_data(node_id_t node_id, table_id_t table_id, Rid rid, bool lock, char* &data);
 
-    void Write_2pc_data(node_id_t node_id, table_id_t table_id, Rid rid, char* data);
+    void Write_2pc_Remote_data(node_id_t node_id, table_id_t table_id, Rid rid, char* data); 
+
+    void Write_2pc_Local_data(node_id_t node_id, table_id_t table_id, Rid rid, char* data);
+
+    void Get_2pc_Local_page(node_id_t node_id, table_id_t table_id, Rid rid, bool lock, char* &data);
 
     void Get_2pc_Remote_page(node_id_t node_id, table_id_t table_id, Rid rid, bool lock, char* &data);
 
     bool Prepare_2pc(std::unordered_set<node_id_t> node_id, uint64_t txn_id);
 
-    int Commit_2pc(std::unordered_map<node_id_t, std::vector<std::pair<std::pair<table_id_t, Rid>, char*>>> node_data_map, uint64_t txn_id);
+    int Commit_2pc(std::unordered_map<node_id_t, std::vector<std::pair<std::pair<table_id_t, Rid>, char*>>> node_data_map, uint64_t txn_id, bool sync = true);
 
-    void Abort_2pc(std::unordered_map<node_id_t, std::vector<std::pair<table_id_t, Rid>>> node_data_map, uint64_t txn_id);
+    void Abort_2pc(std::unordered_map<node_id_t, std::vector<std::pair<table_id_t, Rid>>> node_data_map, uint64_t txn_id, bool sync = true);
 
     static void PrepareRPCDone(twopc_service::PrepareResponse* response, brpc::Controller* cntl);
 
