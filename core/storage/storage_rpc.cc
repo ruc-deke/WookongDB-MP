@@ -1,4 +1,5 @@
 #include "storage_rpc.h"
+#include "config.h"
 
 namespace storage_service{
 
@@ -86,6 +87,9 @@ namespace storage_service{
         for(auto it = table_fd_map.begin(); it != table_fd_map.end(); it++){
             disk_manager_->close_file(it->second);
         }
+
+        // 添加模拟延迟
+        usleep(NetworkLatency); // 100us
         return;
     };
 
@@ -98,6 +102,9 @@ namespace storage_service{
         // RDMA_LOG(INFO) << "handle write log request, log is " << request->log();
         log_manager_->write_raft_log_to_disk(request->raft_log());
         // LOG(INFO) << "Receive Raft log";
+
+        // 添加模拟延迟
+        usleep(NetworkLatency); // 100us
         return;
     };
 

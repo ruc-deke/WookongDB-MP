@@ -40,7 +40,7 @@ class PageTableServiceImpl : public PageTableService {
         response->set_allocated_page_id(page_id_pb);
 
         // 添加模拟延迟
-        // usleep(NetworkLatency); // 100us
+        usleep(NetworkLatency); // 100us
         return;
     }
 
@@ -55,7 +55,7 @@ class PageTableServiceImpl : public PageTableService {
             // page_lock_table_->Basic_GetLock(page_id)->UnlockShared();
 
             // 添加模拟延迟
-            // usleep(NetworkLatency); // 100us
+            usleep(NetworkLatency); // 100us
             return;
         }
 
@@ -79,7 +79,7 @@ class PageTableServiceImpl : public PageTableService {
             response->set_allocated_page_id(page_id_pb);
 
             // 添加模拟延迟
-            // usleep(NetworkLatency); // 100us
+            usleep(NetworkLatency); // 100us
             return;
         }
     virtual void PXUnlock(::google::protobuf::RpcController* controller,
@@ -99,7 +99,7 @@ class PageTableServiceImpl : public PageTableService {
            // std::cout <<"table_id: " << table_id << " page_id: " << page_id << " node_id: " << node_id << " has the newest" << std::endl;
 
             // 添加模拟延迟
-            // usleep(NetworkLatency); // 100us
+            usleep(NetworkLatency); // 100us
             return;
         }
 
@@ -129,7 +129,7 @@ class PageTableServiceImpl : public PageTableService {
             }
 
             // 添加模拟延迟
-            // usleep(NetworkLatency); // 100us
+            usleep(NetworkLatency); // 100us
             return;
         }
 
@@ -158,7 +158,7 @@ class PageTableServiceImpl : public PageTableService {
             }
             
             // 添加模拟延迟
-            // usleep(NetworkLatency); // 100us
+            usleep(NetworkLatency); // 100us
             return;
         }
     
@@ -197,7 +197,7 @@ class PageTableServiceImpl : public PageTableService {
             }
             
             // 添加模拟延迟
-            // usleep(NetworkLatency); // 100us
+            usleep(NetworkLatency); // 100us
         }
 
     virtual void LRPAnyUnLocks(::google::protobuf::RpcController* controller,
@@ -234,6 +234,9 @@ class PageTableServiceImpl : public PageTableService {
                     page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferPending(table_id, immedia_transfer, valid_info);
                 }
             }
+            
+            // 添加模拟延迟
+            usleep(NetworkLatency); // 100us
         }
 
     private:

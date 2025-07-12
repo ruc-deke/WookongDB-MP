@@ -151,7 +151,7 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
             }
 
             // 添加模拟延迟
-            // usleep(NetworkLatency); // 100us
+            usleep(NetworkLatency); // 100us
             return;
         }
 
@@ -167,7 +167,7 @@ void ComputeNodeServiceImpl::GetPage(::google::protobuf::RpcController* controll
         response->set_page_data(page->get_data(), PAGE_SIZE);
 
         // 添加模拟延迟
-        // usleep(NetworkLatency); // 100us
+        usleep(NetworkLatency); // 100us
         return;
     }
 
@@ -190,7 +190,7 @@ void ComputeNodeServiceImpl::PushPage(::google::protobuf::RpcController* control
         server->get_node()->NotifyPushPageSuccess(table_id, page_id);
         
         // 添加模拟延迟
-        // usleep(NetworkLatency); // 100us
+        usleep(NetworkLatency); // 100us
         return;
     }
 
@@ -206,6 +206,9 @@ void ComputeNodeServiceImpl::LockSuccess(::google::protobuf::RpcController* cont
         node_id_t newest_id = request->newest_id();
         bool push_or_pull = request->push_or_pull();
         server->get_node()->NotifyLockPageSuccess(table_id, page_id, xlock, newest_id, push_or_pull);
+
+        // 添加模拟延迟
+        usleep(NetworkLatency); // 100us
         return;
     }
 
