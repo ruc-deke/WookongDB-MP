@@ -63,3 +63,5 @@ add_library(load_table STATIC
         ${Record_SRC}
         ${StorageBuffer_SRC}
         ${DTX_SRC})
+
+add_subdirectory(test)
