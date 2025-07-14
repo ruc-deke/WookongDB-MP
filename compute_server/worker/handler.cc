@@ -119,7 +119,7 @@ void Handler::GenThreads(std::string bench_name) {
   }
   auto* compute_server = new ComputeServer(compute_node, compute_ips, compute_ports);
 
-  std::this_thread::sleep_for(std::chrono::seconds(3));  // Wait for 3s to ensure that the compute node server has started
+  std::this_thread::sleep_for(std::chrono::seconds(10));  // Wait for 3s to ensure that the compute node server has started
 
   // Send TCP requests to remote servers here, and the remote server establishes a connection with the compute node
   socket_start_client(global_meta_man->remote_server_nodes[0].ip, global_meta_man->remote_server_meta_port);

@@ -21,6 +21,12 @@
 #include "remote_page_table/remote_partition_table.pb.h"
 #include "storage/storage_rpc.h"
 #include "storage/txn_log.h"
+#include "remote_bufferpool/remote_bufferpool_rpc.h"
+#include "remote_page_table/remote_page_table_rpc.h"
+#include "remote_page_table/remote_partition_table_rpc.h"
+#include "remote_page_table/timestamp_rpc.h"
+#include "global_page_lock.h"
+#include "global_valid_table.h"
 
 extern double ReadOperationRatio; // for workload generator
 extern int TryOperationCnt;  // only for micro experiment
@@ -135,7 +141,7 @@ public:
             }
         }
 
-        std::thread t([this,compute_ports] {
+        std::thread t([this,compute_ips,compute_ports] {
             // Init compute node server
             brpc::Server server;
             auto disk_manager = std::make_shared<DiskManager>();
@@ -155,6 +161,27 @@ public:
                 LOG(ERROR) << "Fail to add twoPC_service";
                 return;
             }
+
+            // add meta server service in each compute node
+            // 初始化全局的bufferpool和page_lock_table
+            global_page_lock_table_list_ = new std::vector<GlobalLockTable*>();
+            global_valid_table_list_ = new std::vector<GlobalValidTable*>();
+            for(int i=0; i < 15; i++){
+                global_page_lock_table_list_->push_back(new GlobalLockTable());
+                global_valid_table_list_->push_back(new GlobalValidTable());
+            }
+            page_table_service_impl_ = new page_table_service::PageTableServiceImpl(global_page_lock_table_list_, global_valid_table_list_);
+            if (server.AddService(page_table_service_impl_, brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
+                LOG(ERROR) << "Fail to add page_table_service";
+                return;
+            }
+            // 初始化Meta Server
+            for(size_t i = 0; i < global_page_lock_table_list_->size(); i++){
+                global_page_lock_table_list_->at(i)->Reset();
+                global_valid_table_list_->at(i)->Reset();
+                global_page_lock_table_list_->at(i)->BuildRPCConnection(compute_ips, compute_ports);
+            }
+
             butil::EndPoint point;
             point = butil::EndPoint(butil::IP_ANY, compute_ports[node_->getNodeID()]);
             brpc::ServerOptions server_options;
@@ -273,11 +300,7 @@ public:
         return page_id >= (node_->getNodeID() * partition_size + 1) && page_id < ((node_->getNodeID() + 1) * partition_size + 1);
     }
 
-    inline node_id_t get_node_id_by_page_id(page_id_t page_id){
-        return page_id / PartitionDataSize;
-    }
-
-    inline node_id_t get_node_id_by_page_id_new(table_id_t table_id, page_id_t page_id){
+    inline node_id_t get_node_id_by_page_id(table_id_t table_id, page_id_t page_id){
         auto max_pages_this_table = node_->meta_manager_->GetMaxPageNumPerTable(table_id);
         auto partition_size = max_pages_this_table / ComputeNodeCount;
         int node_id = (page_id - 1) / partition_size;
@@ -302,8 +325,10 @@ public:
     double tx_update_time = 0;
 private:
     ComputeNode* node_;
-
+    std::vector<GlobalLockTable*>* global_page_lock_table_list_;
+    std::vector<GlobalValidTable*>* global_valid_table_list_;
     brpc::Channel* nodes_channel; //与其他计算节点通信的channel
+    page_table_service::PageTableServiceImpl* page_table_service_impl_; // 保存在类中，以便本地调用
 };
 
 int socket_start_client(std::string ip, int port);

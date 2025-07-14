@@ -125,7 +125,8 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
                     compute_node_stub.PushPage(push_cntl, &push_request, push_response, brpc::NewCallback(server->PushPageRPCDone, push_response, push_cntl));
                 }
                 if(unlock_remote != 3){
-                    page_table_service::PageTableService_Stub pagetable_stub(server->get_pagetable_channel());
+                    brpc::Channel* page_table_channel =  server->get_compute_channel() + server->get_node_id_by_page_id(table_id, page_id);
+                    page_table_service::PageTableService_Stub pagetable_stub(page_table_channel);
                     page_table_service::PAnyUnLockRequest unlock_request;
                     page_table_service::PAnyUnLockResponse* unlock_response = new page_table_service::PAnyUnLockResponse();
                     page_table_service::PageID* page_id_pb = new page_table_service::PageID();
