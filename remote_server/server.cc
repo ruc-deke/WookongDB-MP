@@ -52,6 +52,7 @@ public:
                 return;
             }
             
+            // 
             butil::EndPoint point;
             point = butil::EndPoint(butil::IP_ANY, rpc_port_);
 
@@ -59,6 +60,7 @@ public:
             options.num_threads = 256;
             options.use_rdma = use_rdma;
 
+            //启动 brpc Server
             if (server.Start(point,&options) != 0) {
                 LOG(ERROR) << "Fail to start Server";
             }
@@ -93,6 +95,8 @@ private:
     BufferPool* bufferpool_;
 };
 
+// 主节点等待所有计算节点都连接上并完成注册，然后一起开始
+// 连接的端口是 meta_port_
 int socket_start_server(Server *server) {
     // 创建套接字
     int serverSocket = socket(AF_INET, SOCK_STREAM, 0);
@@ -116,13 +120,14 @@ int socket_start_server(Server *server) {
     }
 
     // 监听连接请求
+    // listen 之后还需要 accept，5 就是已经 listen，但是还没 accept 的最大数量，后面再来就给它飞了
     if(listen(serverSocket, 5) < 0){
         perror("listen failed");
     }
 
     std::vector<int> clientSockets(server->compute_node_ips_.size());
     for(size_t i=0; i<server->compute_node_ips_.size(); i++){
-        // 接受客户端连接
+        // 接受主节点连接
         clientSockets[i] = accept(serverSocket, nullptr, nullptr);
         // 接收客户端发送的节点数目
         recv(clientSockets[i], &ComputeNodeCount, sizeof(ComputeNodeCount), 0);
@@ -133,6 +138,7 @@ int socket_start_server(Server *server) {
     for(size_t i = 0; i < server->getGlobalPageLockTableList()->size(); i++){
         server->getGlobalPageLockTableList()->at(i)->Reset();
         server->getGlobalValidTableList()->at(i)->Reset();
+        // 对每一个表，添加所有主节点到这个锁表的 RPC
         server->getGlobalPageLockTableList()->at(i)->BuildRPCConnection(server->compute_node_ips_, server->compute_node_ports_);
     }
     
@@ -235,7 +241,7 @@ int main(int argc, char* argv[]) {
     }
 
     // 初始化全局的bufferpool和page_lock_table
-    auto bufferpool = std::make_unique<BufferPool>(BufferFusionSize);
+    auto bufferpool = std::make_unique<BufferPool>(BufferFusionSize , 10000);
     auto global_page_lock_table_list = std::make_unique<std::vector<GlobalLockTable*>>();
     auto global_valid_table_list = std::make_unique<std::vector<GlobalValidTable*>>();
     for(int i=0; i < 15; i++){

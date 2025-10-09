@@ -41,7 +41,7 @@ void Handler::ConfigureComputeNode(int argc, char* argv[]) {
   std::string config_file = "../../config/compute_node_config.json";
   std::string system_name = std::string(argv[2]);
   // ./run <benchmark_name> <system_name> <thread_num> <coroutine_num> <read_only_ratio> <local_transaction_ratio>
-  if (argc == 7) {
+  if (argc == 7 || argc == 8) {
 
     std::string s2 = "sed -i '5c \"thread_num_per_machine\": " + std::string(argv[3]) + ",' " + config_file;
     thread_num_per_node = std::stoi(argv[3]);
@@ -51,6 +51,12 @@ void Handler::ConfigureComputeNode(int argc, char* argv[]) {
     READONLY_TXN_RATE = std::stod(argv[5]);
     LOCAL_TRASACTION_RATE = std::stod(argv[6]);
     CrossNodeAccessRatio = 1 - LOCAL_TRASACTION_RATE;
+
+    // 新增：支持第 8 个参数覆盖 machine_id（对应 config 第 4 行）
+    if (argc == 8) {
+      std::string s1 = "sed -i '4c \"machine_id\": " + std::string(argv[7]) + ",' " + config_file;
+      system(s1.c_str());
+    }
   }
 
   // read compute node count
@@ -90,6 +96,7 @@ void Handler::GenThreads(std::string bench_name) {
   auto client_conf = json_config.get("local_compute_node");
   node_id_t machine_num = (node_id_t)client_conf.get("machine_num").get_int64();
   node_id_t machine_id = (node_id_t)client_conf.get("machine_id").get_int64();
+  std::cout << "starting primary , machine id = " << machine_id << "\n";
   t_id_t thread_num_per_machine = (t_id_t)client_conf.get("thread_num_per_machine").get_int64();
   const int coro_num = (int)client_conf.get("coroutine_num").get_int64();
 
@@ -124,6 +131,8 @@ void Handler::GenThreads(std::string bench_name) {
   // Send TCP requests to remote servers here, and the remote server establishes a connection with the compute node
   socket_start_client(global_meta_man->remote_server_nodes[0].ip, global_meta_man->remote_server_meta_port);
 
+  std::cout << "finish start client\n";
+
   SmallBank* smallbank_client = nullptr;
   TPCC* tpcc_client = nullptr;
 
@@ -142,6 +151,8 @@ void Handler::GenThreads(std::string bench_name) {
   } else {
     LOG(FATAL) << "Unsupported benchmark name: " << bench_name;
   }
+
+  // std::cout << "Got Here1\n";
 
   LOG(INFO) << "Spawn threads to execute...";
   t_id_t i = 0;
@@ -172,6 +183,8 @@ void Handler::GenThreads(std::string bench_name) {
     }
   }
 
+  // std::cout << "Got Here2\n";
+
   std::thread switch_thread;
 
   for (t_id_t i = 0; i < thread_num_per_machine; i++) {
@@ -187,7 +200,7 @@ void Handler::GenThreads(std::string bench_name) {
 
   if(SYSTEM_MODE == 1){
     // 该线程结束, 释放持有的页锁
-    compute_server->rpc_lazy_release_all_page();
+    // compute_server->rpc_lazy_release_all_page();
   }
   
   // Wait for all compute nodes to finish

@@ -50,6 +50,7 @@ public:
         return partition_table[partition_id];
     }
     
+    // 建立这张锁表到全部主节点的 RPC
     void BuildRPCConnection(std::vector<std::string> compute_node_ips, std::vector<int> compute_node_ports){
         brpc::ChannelOptions options;
         // options.timeout_ms = 5000; // 5秒超时

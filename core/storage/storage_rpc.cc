@@ -112,6 +112,7 @@ namespace storage_service{
         std::string return_data;
         for(int i=0; i<request->page_id().size(); i++){
             std::string table_name = request->page_id()[i].table_name();
+            
             int fd;
             if(table_fd_map.find(table_name) == table_fd_map.end()){
                 fd = disk_manager_->open_file(table_name);
@@ -121,6 +122,7 @@ namespace storage_service{
                 fd = table_fd_map[table_name];
             }
             page_id_t page_no = request->page_id()[i].page_no();
+            // std::cout << "Getting Page " << "table_name = " << table_name << " page_id = " << page_no << "\n";
             PageId page_id(fd, page_no);
             batch_id_t request_batch_id = request->require_batch_id();
             LogReplay* log_replay = log_manager_->log_replay_;
@@ -148,7 +150,9 @@ namespace storage_service{
             log_replay->latch3_.unlock();
 
             disk_manager_->read_page(fd, page_no, data, PAGE_SIZE);
+            // std::cout << "Got Here\n\n";
             return_data.append(std::string(data, PAGE_SIZE));
+            // std::cout << return_data << "\n";
         }
 
         response->set_data(return_data);
@@ -198,6 +202,27 @@ namespace storage_service{
             // std::cout << "Read line: " << line << std::endl;
         }
         file.close();
+        return;
+    };
+
+    void StoragePoolImpl::WritePage(::google::protobuf::RpcController* controller,
+                       const ::storage_service::WritePageRequest* request,
+                       ::storage_service::WritePageResponse* response,
+                       ::google::protobuf::Closure* done){
+        brpc::ClosureGuard done_guard(done);
+
+        // std::cout << "Got Here\n";
+
+        std::string table_name = request->page_id().table_name();
+        int fd = disk_manager_->open_file(table_name);
+        page_id_t page_no = request->page_id().page_no();
+
+        const std::string& payload = request->data();
+        assert(payload.size() == PAGE_SIZE);
+        
+        disk_manager_->write_page(fd, page_no, payload.data(), PAGE_SIZE);
+
+        disk_manager_->close_file(fd);
         return;
     };
 }

@@ -64,15 +64,18 @@ timestamp_t DTX::GetTimestampRemote() {
 char* DTX::FetchSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id){
     Page *page = nullptr;
     if(SYSTEM_MODE == 0) {
+        assert(false);
         page = compute_server->rpc_fetch_s_page(table_id, page_id);
     } 
     else if(SYSTEM_MODE == 1){
         page = compute_server->rpc_lazy_fetch_s_page(table_id,page_id);
     }
     else if(SYSTEM_MODE == 2){
+        assert(false);
         page = compute_server->local_fetch_s_page(table_id,page_id);
     }
     else if(SYSTEM_MODE == 3){
+        assert(false);
         page = compute_server->single_fetch_s_page(table_id,page_id);
     }
     else assert(false);
@@ -136,6 +139,7 @@ DataItemPtr DTX::GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid)
   char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
   char *slots = bitmap + global_meta_man->GetTableMeta(table_id).bitmap_size_;
   char* tuple = slots + rid.slot_no_ * (sizeof(DataItem) + sizeof(itemkey_t));
+  // std::cout << "DTX GetData , table_id = " << table_id << " page_id = " << rid.page_no_ << " slot = " << rid.slot_no_ << "\n";
   DataItemPtr itemPtr = std::make_shared<DataItem>(*reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t)));
   // need to check if the data is visible in read only set
   if(start_ts < itemPtr->version){
@@ -150,6 +154,7 @@ DataItemPtr DTX::GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid,
   char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
   char *slots = bitmap + global_meta_man->GetTableMeta(table_id).bitmap_size_;
   char* tuple = slots + rid.slot_no_ * (sizeof(DataItem) + sizeof(itemkey_t));
+  // std::cout << "DTX GetData , table_id = " << table_id << " page_id = " << rid.page_no_ << " slot = " << rid.slot_no_ << "\n";
   DataItemPtr itemPtr = std::make_shared<DataItem>(*reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t)));
   orginal_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
   return itemPtr; 

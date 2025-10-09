@@ -11,6 +11,7 @@
 #include "remote_bufferpool.pb.h"
 
 namespace bufferpool_service{
+// 把本主节点的缓冲池暴露出来，其他主节点能够通过 rpc 访问
 class BufferpoolServiceImpl : public BufferpoolService {
     public:
     BufferpoolServiceImpl(BufferPool* bufferpool): bufferpool_(bufferpool) {};
@@ -24,7 +25,8 @@ class BufferpoolServiceImpl : public BufferpoolService {
 
             brpc::ClosureGuard done_guard(done);
             page_id_t page_id = request->page_id().page_no();
-            Page* page = bufferpool_->GetPage(page_id);
+            // LJTag
+            Page* page = bufferpool_->fetch_page(page_id);
             response->set_page_data(page->get_data(), PAGE_SIZE);
             return;
         }
@@ -38,7 +40,7 @@ class BufferpoolServiceImpl : public BufferpoolService {
             brpc::ClosureGuard done_guard(done);
             page_id_t page_id = request->page_id().page_no();
             auto flush_data = request->page_data();
-            Page* page = bufferpool_->GetPage(page_id);
+            Page* page = bufferpool_->fetch_page(page_id);
             memcpy(page->get_data(), flush_data.data(), PAGE_SIZE);
             return;
         }

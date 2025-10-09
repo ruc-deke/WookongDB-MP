@@ -46,6 +46,11 @@ class ComputeNodeServiceImpl : public ComputeNodeService {
                        const ::compute_node_service::PushPageRequest* request,
                        ::compute_node_service::PushPageResponse* response,
                        ::google::protobuf::Closure* done);
+
+    virtual void NotifyPushPage(::google::protobuf::RpcController* controller,
+                       const ::compute_node_service::NotifyPushPageRequest* request,
+                       ::compute_node_service::NotifyPushPageResponse* response,
+                       ::google::protobuf::Closure* done);
                        
     virtual void GetPage(::google::protobuf::RpcController* controller,
                        const ::compute_node_service::GetPageRequest* request,
@@ -118,6 +123,7 @@ struct dtx_entry {
 // 所以建立一个ComputeServer类，ComputeServer类可以与其他计算节点通信
 class ComputeServer {
 public:
+    // 构造函数的主要作用是设置了和其它主节点、存储层、2PC 的通信
     ComputeServer(ComputeNode* node, std::vector<std::string> compute_ips, std::vector<int> compute_ports): node_(node){
         InitTableNameMeta();
         // 构造与其他计算节点通信的channel
@@ -136,17 +142,19 @@ public:
         }
 
         std::thread t([this,compute_ports] {
-            // Init compute node server
+            // 创建一个 Server，这个 Server 是自己用的
             brpc::Server server;
             auto disk_manager = std::make_shared<DiskManager>();
             auto log_manager = std::make_shared<LogManager>(disk_manager.get(), nullptr, "Raft_Log" + std::to_string(node_->getNodeID()));
             compute_node_service::ComputeNodeServiceImpl compute_node_service_impl(this);
             twopc_service::TwoPCServiceImpl twoPC_service_impl(this);
             storage_service::StoragePoolImpl storage_service_impl(log_manager.get(), disk_manager.get(), nodes_channel, 0);
+            // 和存储层的通信
             if (server.AddService(&storage_service_impl, brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
                 LOG(ERROR) << "Fail to add compute_node_service";
                 return;
             }
+            // 自己也给自己整一个服务，让别人可以感知到
             if (server.AddService(&compute_node_service_impl, brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
                 LOG(ERROR) << "Fail to add compute_node_service";
                 return;
@@ -155,16 +163,19 @@ public:
                 LOG(ERROR) << "Fail to add twoPC_service";
                 return;
             }
+            // std::cout << "finish add service\n";
             butil::EndPoint point;
             point = butil::EndPoint(butil::IP_ANY, compute_ports[node_->getNodeID()]);
             brpc::ServerOptions server_options;
             server_options.num_threads = 8;
             server_options.use_rdma = use_rdma;
+            // std::cout << "finish build endpoint\n";
 
             if (server.Start(point,&server_options) != 0) {
                 LOG(ERROR) << "Fail to start Server";
                 exit(1);
             }
+            // std::cout << "Fininsh start server\n";
             server.RunUntilAskedToQuit();
             exit(1);
         });
@@ -172,7 +183,6 @@ public:
     }
 
     ~ComputeServer(){}
-
     static void InvalidRPCDone(partition_table_service::InvalidResponse* response, brpc::Controller* cntl);
 
     static void FlushRPCDone(bufferpool_service::FlushPageResponse* response, brpc::Controller* cntl);
@@ -188,6 +198,12 @@ public:
     static void PXlockRPCDone(page_table_service::PXLockResponse* response, brpc::Controller* cntl, std::atomic<bool>* finish);
 
     static void PushPageRPCDone(compute_node_service::PushPageResponse* response, brpc::Controller* cntl);
+    // 新增：携带页元数据的回调，便于归还 pending 计数
+    static void PushPageRPCDone(compute_node_service::PushPageResponse* response,
+                                brpc::Controller* cntl,
+                                int table_id,
+                                int page_id,
+                                ComputeServer* server);
 
     // ****************** for eager release *********************
     Page* rpc_fetch_s_page(table_id_t table_id, page_id_t page_id);
@@ -208,6 +224,56 @@ public:
     void rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_id);
     
     void rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_id);
+
+    // LJ
+    Page *put_page_into_local_buffer(table_id_t table_id , page_id_t page_id , const void *data) {
+        bool is_from_lru = false;
+        frame_id_t frame_id;
+
+        // 传到函数里了，为了确保缓冲池中选择的页面之后在淘汰的过程中不会被本地的线程使用
+        auto try_begin_evict = ([this , table_id](page_id_t victim_page_id) {
+            LRLocalPageLock *lock = this->node_->lazy_local_page_lock_tables[table_id]->GetLock(victim_page_id);
+            return lock->TryBeginEvict();
+        });
+
+        // 先找到一个淘汰的页面，然后再真正淘汰它
+        std::pair<bool , int> res = node_->getBufferPoolByIndex(table_id)->need_to_replace(page_id , frame_id , try_begin_evict);
+        assert(frame_id >= 0);
+        // 不需要替换的话，直接拿到返回就行
+        if (!res.first){
+            Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(page_id , frame_id , false , res.second , data);
+            return page;
+        }
+
+        page_id_t replaced_page_id = res.second;
+        assert(replaced_page_id != INVALID_PAGE_ID);
+        LRLocalPageLock *lr_local_lock = node_->lazy_local_page_lock_tables[table_id]->GetLock(replaced_page_id);
+        int unlock_remote = lr_local_lock->UnlockAny();
+        Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(page_id , frame_id , true , replaced_page_id , data);
+
+        if (unlock_remote){
+            std::cout << "Remove from bufferPool where table_id = " << table_id << " page_id = " << page_id << "\n"; 
+            page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
+            auto *req = new page_table_service::PAnyUnLockRequest();
+            auto *resp = new page_table_service::PAnyUnLockResponse();
+            auto *pid = new page_table_service::PageID();
+            pid->set_page_no(replaced_page_id);
+            pid->set_table_id(table_id);
+            req->set_allocated_page_id(pid);
+            req->set_node_id(node_->node_id);
+
+            brpc::Controller cntl;
+            pagetable_stub.LRPAnyUnLock(&cntl , req , resp , NULL);
+            if (cntl.Failed()){
+                LOG(ERROR) << "Fail to unlock page " << replaced_page_id << " in remote page table";
+            } else {
+                lr_local_lock->UnlockRemoteOK();
+            }
+            delete resp;
+        }
+        lr_local_lock->EndEvict();
+        return page;
+    }
 
     void rpc_lazy_release_all_page();
 
@@ -251,9 +317,11 @@ public:
     void single_release_x_page(table_id_t table_id, page_id_t page_id);
     // ****************** for single end *********************
 
+
+
     std::vector<std::string> table_name_meta;
     void InitTableNameMeta();
-    Page* rpc_fetch_page_from_storage(table_id_t table_id, page_id_t page_id);
+    std::string rpc_fetch_page_from_storage(table_id_t table_id, page_id_t page_id);
 
     inline bool is_partitioned_page(page_id_t page_id){
         return page_id >= node_->getNodeID() * PartitionDataSize && page_id < (node_->getNodeID() + 1) * PartitionDataSize;
@@ -296,6 +364,11 @@ public:
 
     std::mutex update_m;
     double tx_update_time = 0;
+
+    node_id_t getNodeID() const {
+        return node_->getNodeID();
+    }
+
 private:
     ComputeNode* node_;
 

@@ -163,7 +163,7 @@ class PartitionTableImpl : public PartitionTableService {
                 node_id_t node_id = request->node_id();
                 table_id_t table_id = request->page_id().table_id();
 
-                page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->XReleasePage(node_id);
+                page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->ReleasePage(node_id);
             }
 
     virtual void InvalidPages(::google::protobuf::RpcController* controller,
@@ -176,7 +176,7 @@ class PartitionTableImpl : public PartitionTableService {
                 for(int i=0; i<request->page_id_size(); i++){
                     page_id_t page_id = request->page_id(i).page_no();
                     table_id_t table_id = request->page_id(i).table_id();
-                    page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->XReleasePage(node_id);
+                    page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->ReleasePage(node_id);
                 }
             }
             

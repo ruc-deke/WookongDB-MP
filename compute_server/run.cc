@@ -15,7 +15,7 @@ int main(int argc, char* argv[]) {
     log_setting.logging_dest = logging::LOG_TO_FILE; // 设置日志写到文件，不写的话不生效
     ::logging::InitLogging(log_setting);     // 应用日志设置
   if (argc != 7 && argc != 8) {
-    std::cerr << "./run <benchmark_name> <system_name> <thread_num> <coroutine_num> <read_only_ratio> <local_transaction_ratio>. E.g., ./run smallbank chimera 16 8 8 0.5" << std::endl;
+    std::cerr << "./run <benchmark_name> <system_name> <thread_num> <coroutine_num> <read_only_ratio> <local_transaction_ratio> [machine_id]. E.g., ./run smallbank chimera 16 8 0.5 0.5 1" << std::endl;
     return 0;
   }
 

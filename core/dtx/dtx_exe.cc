@@ -69,6 +69,7 @@ bool DTX::TxExe(coro_yield_t& yield, bool fail_abort) {
       if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3){
         auto data = FetchSPage(yield, item.item_ptr->table_id, rid.page_no_);
         std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
+        // std::cout << "dtx fetch where table_id = " << item.item_ptr->table_id << " page_id = " << rid.page_no_ << "\n";
         *item.item_ptr = *GetDataItemFromPageRO(item.item_ptr->table_id, data, rid);
         item.is_fetched = true;
         ReleaseSPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page

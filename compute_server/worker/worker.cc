@@ -188,6 +188,8 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
   SmallBankDTX* bench_dtx = new SmallBankDTX();
   bench_dtx->dtx = dtx;
   while (true) {
+    // static int cnt = 0;
+    //std::cout << cnt++ << "\n";
     bool is_partitioned = FastRand(&seed) % 100 < (LOCAL_TRASACTION_RATE * 100); // local transaction rate
     SmallBankTxType tx_type = smallbank_workgen_arr[FastRand(&seed) % 100];
     uint64_t iter = ++tx_id_generator;  // Global atomic transaction id
@@ -199,6 +201,7 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
     clock_gettime(CLOCK_REALTIME, &txn_meta.start_time);
 
     // printf("worker.cc:326, start a new txn\n");
+    
     switch (tx_type) {
       case SmallBankTxType::kAmalgamate: {
           thread_local_try_times[uint64_t(tx_type)]++;
@@ -240,6 +243,7 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
         printf("Unexpected transaction type %d\n", static_cast<int>(tx_type));
         abort();
     }
+    // std::cout << "End !\n\n";
     /********************************** Stat begin *****************************************/
     // Stat after one transaction finishes
     // printf("try %d transaction commit? %s\n", stat_attempted_tx_total, tx_committed?"true":"false");
@@ -375,11 +379,14 @@ void run_thread(thread_params* params,
                 TPCC* tpcc_cli) {
   bench_name = params->bench_name;
   std::string config_filepath = "../../config/" + bench_name + "_config.json";
+  // std::cout << "running threads\n";
 
   auto json_config = JsonConfig::load_file(config_filepath);
   auto conf = json_config.get(bench_name);
   ATTEMPTED_NUM = conf.get("attempted_num").get_uint64();
-  
+
+
+  // 根据 bench 类型，生成长度 100 的事务类型概率数组，随机抽事务类型
   if (bench_name == "smallbank") { // SmallBank benchmark
     smallbank_client = smallbank_cli;
     smallbank_workgen_arr = smallbank_client->CreateWorkgenArray(READONLY_TXN_RATE);

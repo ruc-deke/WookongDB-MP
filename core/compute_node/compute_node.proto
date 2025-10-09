@@ -13,11 +13,11 @@ enum PendingType {
     SPending = 1;
 }
 
-// 其他节点如果想对一个已经持有锁且冲突的页面加锁，则会向所有持有这个页面锁的节点发送PendingRequest消息，请求这些节点释放锁
+// 其他节点如果想对一个已经持有锁且冲突的页面加锁，则会向所有持有这个页面锁的节点发送PendingRequest消息
 message PendingRequest {
     PageID page_id = 1;
     PendingType pending_type = 2;
-    sint32 dest_node_id = 3; // 如果是转移页面数据，则需要指定目标节点ID, 如果不需要转移页面数据，则为-1
+    sint32 dest_node_id = 3; // 目标节点ID，用于标识页面推送的目标
 };
 
 message PendingResponse{}
@@ -31,10 +31,17 @@ message PushPageRequest{
 
 message PushPageResponse{}
 
+message NotifyPushPageRequest{
+    PageID page_id = 1;
+    repeated sint32 dest_node_ids = 2; // 多个目标节点
+    sint32 src_node_id = 3; // 源节点ID（当前持有最新页的节点）
+}
+
+message NotifyPushPageResponse{}
+
 message LockSuccessRequest{
     PageID page_id = 1;
     bool xlock_succeess = 2; // 1为排他锁加锁成功, 2为共享锁加锁成功
-    // bool need_wait_push_page = 3; // 是否需要等待页面推送
     sint32 newest_id = 3; // 最新的持有锁的节点ID
     bool push_or_pull = 4; // 是否需要推送页面数据, true表示推送页面数据, false表示不推送页面数据
 }
@@ -71,4 +78,5 @@ service ComputeNodeService {
     rpc LockSuccess(LockSuccessRequest) returns(LockSuccessResponse);
     rpc TransferDTX(TransferDTXRequest) returns (TransferDTXResponse);
     rpc PushPage(PushPageRequest) returns (PushPageResponse);
+    rpc NotifyPushPage(NotifyPushPageRequest) returns (NotifyPushPageResponse);
 };

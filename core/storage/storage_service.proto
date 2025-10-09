@@ -42,9 +42,23 @@ message GetBatchIndexResponse {
     repeated sint32 slotid = 3;
 };
 
+// 新增：写整页接口
+message WritePageRequest {
+    message PageID{
+        bytes table_name = 1;
+        sint32 page_no = 2;
+    }
+    PageID page_id = 1;
+    bytes data = 2;
+}
+
+message WritePageResponse {}
+
 service StorageService {
     rpc LogWrite(LogWriteRequest) returns (LogWriteResponse);
     rpc RaftLogWrite(RaftLogWriteRequest) returns (LogWriteResponse);
     rpc GetPage(GetPageRequest) returns (GetPageResponse);
     rpc PrefetchIndex(GetBatchIndexRequest) returns (GetBatchIndexResponse);
+    // 新增：计算层主动将页面写入存储层
+    rpc WritePage(WritePageRequest) returns (WritePageResponse);
 };
