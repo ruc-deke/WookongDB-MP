@@ -38,6 +38,16 @@ private:
     int pending_src_node_id = -1;
 
 public:
+    int getPendingSrc(){
+        return pending_src_node_id;
+    }
+    void mutexLock(){
+        mutex.lock();
+    }
+    void mutexUnlock(){
+        mutex.unlock();
+    }
+
     LR_GlobalPageLock(page_id_t pid, brpc::Channel** c) {
         page_id = pid;
         lock = 0;
@@ -497,6 +507,29 @@ public:
             }
         }
         return;
+    }
+
+    bool UnlockAnyNoBlock(node_id_t node_id){
+        bool need_validate = false;
+        if(lock == EXCLUSIVE_LOCKED){
+            assert(hold_lock_nodes.size() == 1);
+            assert(hold_lock_nodes.front() == node_id);
+
+            lock = 0;
+            hold_lock_nodes.remove(node_id);
+            // 在外部释放mutex
+            need_validate = true;
+        }
+        else{
+            assert(lock == hold_lock_nodes.size());
+            assert(1 == std::count(hold_lock_nodes.begin(), hold_lock_nodes.end(), node_id));
+
+            --lock;
+            hold_lock_nodes.remove(node_id);
+            assert(lock == hold_lock_nodes.size());
+            // 在Transfer Control中释放mutex
+        }
+        return need_validate;
     }
 
     // 节点n前来解锁

@@ -8,7 +8,7 @@ static int lazy_cnt = 0;
 
 Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_id) {
     assert(page_id < ComputeNodeBufferPageSize);
-    std::cout << ++cnt << "\n";
+    // std::cout << ++cnt << "\n";
     //LOG(INFO) << "fetching S Page " << "table_id = " << table_id << " page_id = " << page_id << "\n";
     this->node_->fetch_allpage_cnt++;
     // LJTag
@@ -93,16 +93,13 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
     }
     assert(page);
     //LOG(INFO) << "fetch S Page Over" << "table_id = " << table_id << " page_id = " << page_id << "\n";
-    // if (table_id == 1 && page_id == 2724){
-    //     std::cout << "fetching s page over\n";
-    // }
 
     return page;
 }
 
 Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_id) {
     assert(page_id < ComputeNodeBufferPageSize);
-    std::cout << ++cnt << "\n";
+    // std::cout << ++cnt << "\n";
     // LOG(INFO) << "fetching X Page " << "table_id = " << table_id << " page_id = " << page_id << "\n";
     this->node_->fetch_allpage_cnt++;
 

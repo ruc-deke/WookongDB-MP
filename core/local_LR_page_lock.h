@@ -397,6 +397,20 @@ public:
         std::lock_guard<std::mutex> l(mutex);
         return (remote_mode == LockMode::SHARED || remote_mode == LockMode::EXCLUSIVE);
     }
+
+    int getUnlockType(){
+        std::lock_guard<std::mutex> lk(mutex);
+        if (remote_mode == LockMode::NONE){
+            return 0;
+        }else if (remote_mode == LockMode::EXCLUSIVE){
+            return 2;
+        }else if (remote_mode == LockMode::SHARED){
+            return 1;
+        }else {
+            assert(false);
+        }
+        return -1;
+    }
 };
 
 // Lazy Release的锁表

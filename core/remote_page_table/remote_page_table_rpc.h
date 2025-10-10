@@ -179,10 +179,18 @@ class PageTableServiceImpl : public PageTableService {
         table_id_t table_id = request->page_id().table_id();
         node_id_t node_id = request->node_id();
 
-        // 简单粗暴：如果 X 锁，need_valid = true,否则 need_validate = false
-        bool need_valid = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->UnlockAny(node_id);
+        LR_GlobalPageLock *gl = page_lock_table_list_->at(table_id)->LR_GetLock(page_id);
+        // 这里加锁，是为了确保获取 pending_src 和执行 Unlock 二者是连贯的，不能在二者中间让别人选中了一个新的 pending_src(在LockShared/Exclusive)
+        gl->mutexLock();
+        if (gl->getPendingSrc() == node_id){
+            gl->mutexUnlock();
+            response->set_is_chosen_push(true);
+            return ;
+        }
+        // 这里也先别释放锁，在后面会自己释放锁,要么在 TransferControl里，要么在 TranfserPending 里
+        bool need_validate = gl->UnlockAnyNoBlock(node_id);
+        response->set_is_chosen_push(false);
         GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
-        
         // 把页面所有权让给下一个节点
         // 会修改两个东西： 1. request_queue：把下一轮的清除，2. hold_lock_nodes：添加下一轮节点
         bool need_transfer = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferControl(table_id);
@@ -191,16 +199,9 @@ class PageTableServiceImpl : public PageTableService {
         if(need_transfer){
             // 先取当前的 newest，用于通知下一轮节点的数据来源
             valid_info->Global_Lock();
-            // auto next_nodes = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->get_hold_lock_nodes();
             assert(!next_nodes.empty());
-            
-            // true 表示需要等别人推送数据，这里是在锁释放里面的，就是需要 Push 的
             std::vector<std::pair<bool , int>> res1 = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->SendComputenodeLockSuccess(table_id , valid_info , true);
-
             std::vector<std::pair<bool , int>> res2 = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->NotifyPushPage(table_id , valid_info);
-
-            //  assert(res1.size() != 0);
-            // assert(res2.size() != 0);
             // debug
             assert(res1.size() == res2.size());
             for (size_t i = 0 ; i < res1.size() ; i++){

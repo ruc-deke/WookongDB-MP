@@ -88,8 +88,7 @@ public:
         assert(it != page_table.end());
 
         frame_id_t frame_id = it->second;
-        Page *pg = pages[frame_id];
-
+        // Page *pg = pages[frame_id];
         // 不需要 pin_count，因为我这个缓冲区是严格限制的，unpin 一定是用完了缓冲区
         replacer->unpin(frame_id);
     }
@@ -103,15 +102,15 @@ public:
     // is_from_lru：是否是从 LRU 中删除的，LRU 中存储的是持有，但未使用的页面，也就是最上面备注提到的第3类页面
     bool find_victim_pages(frame_id_t &frame_id , 
                 bool& is_from_lru ,
+                int &try_cnt ,
                 const std::function<bool(page_id_t)> &try_begin_evict) {
         if (free_lists.size() == 0){
             // 走到这里说明已经没有空闲页面了，需要去淘汰掉因为延迟获取所有权而放在 LRU 里面的页面
             is_from_lru = true; 
             // 一直找到一个能够用的
             bool need_loop = true;
-            int try_cnt = 0;
             while(need_loop){
-                bool res = replacer->tryVictim(&frame_id , try_cnt++);
+                bool res = replacer->tryVictim(&frame_id , try_cnt);
                 // res == false 代表缓冲区也没人换出去了，这种情况几乎不可能
                 // 开的线程数量和缓冲区容量差不多的时候，才可能出现这种情况
                 assert(res);
@@ -119,6 +118,10 @@ public:
                 assert(victim_page_id != INVALID_PAGE_ID);
                 bool ok = try_begin_evict(victim_page_id);
                 need_loop = (!ok);
+                if (!ok){
+                    // 需要再来一次
+                    try_cnt++;
+                }
                 replacer->endVictim(ok , &frame_id);
             }
         }else {
@@ -131,6 +134,7 @@ public:
     // bool：是否要替换页面，int：被替换掉的页面
     std::pair<bool , int> need_to_replace(page_id_t page_id , 
             frame_id_t &frame_id,
+            int &try_cnt ,
             const std::function<bool(page_id_t)> &try_begin_evict ){
         // frame_id_t frame_id;
         bool need_replace = false;
@@ -146,7 +150,7 @@ public:
 
         // 除非开了和缓冲池容量一致的线程，不然一般不会满到用不了
         // 为了满足原子性，所以需要把函数放到这里面来调用
-        assert(find_victim_pages(frame_id , need_replace , try_begin_evict));
+        assert(find_victim_pages(frame_id , need_replace , try_cnt , try_begin_evict));
         page_id_t replaced_page = pages[frame_id]->page_id_;
         return std::make_pair(need_replace , replaced_page);
     }

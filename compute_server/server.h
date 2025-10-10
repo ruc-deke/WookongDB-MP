@@ -230,49 +230,74 @@ public:
         bool is_from_lru = false;
         frame_id_t frame_id;
 
-        // 传到函数里了，为了确保缓冲池中选择的页面之后在淘汰的过程中不会被本地的线程使用
+        // 传到 need_to_replace 里的，为了确保缓冲池中选择的页面之后在淘汰的过程中不会被本地的线程使用
         auto try_begin_evict = ([this , table_id](page_id_t victim_page_id) {
             LRLocalPageLock *lock = this->node_->lazy_local_page_lock_tables[table_id]->GetLock(victim_page_id);
             return lock->TryBeginEvict();
         });
 
-        // 先找到一个淘汰的页面，然后再真正淘汰它
-        std::pair<bool , int> res = node_->getBufferPoolByIndex(table_id)->need_to_replace(page_id , frame_id , try_begin_evict);
-        assert(frame_id >= 0);
-        // 不需要替换的话，直接拿到返回就行
-        if (!res.first){
-            Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(page_id , frame_id , false , res.second , data);
-            return page;
-        }
+        int try_cnt = -1;
+        while(true){
+            try_cnt++;
+            // 先找到一个淘汰的页面，然后再真正淘汰它，
+            std::pair<bool , int> res = node_->getBufferPoolByIndex(table_id)->need_to_replace(page_id , frame_id , try_cnt , try_begin_evict);
+            assert(frame_id >= 0);
+            // 不需要替换的话，直接拿到返回就行
+            if (!res.first){
+                Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(page_id , frame_id , false , res.second , data);
+                // std::cout << "No Need To SwapOut\n";
+                return page;
+            }
 
-        page_id_t replaced_page_id = res.second;
-        assert(replaced_page_id != INVALID_PAGE_ID);
-        LRLocalPageLock *lr_local_lock = node_->lazy_local_page_lock_tables[table_id]->GetLock(replaced_page_id);
-        int unlock_remote = lr_local_lock->UnlockAny();
-        Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(page_id , frame_id , true , replaced_page_id , data);
+            page_id_t replaced_page_id = res.second;
+            assert(replaced_page_id != INVALID_PAGE_ID);
+            LRLocalPageLock *lr_local_lock = node_->lazy_local_page_lock_tables[table_id]->GetLock(replaced_page_id);
+            int unlock_remote = lr_local_lock->getUnlockType();
+            if (unlock_remote){
+                page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
+                auto *request = new page_table_service::BufferReleaseUnlockRequest();
+                auto *response = new page_table_service::BufferReleaseUnlockResponse();
+                auto *pid = new page_table_service::PageID();
+                pid->set_page_no(replaced_page_id);
+                pid->set_table_id(table_id);
+                request->set_allocated_page_id(pid);
+                request->set_node_id(node_->node_id);
 
-        if (unlock_remote){
-            std::cout << "Remove from bufferPool where table_id = " << table_id << " page_id = " << page_id << "\n"; 
-            page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
-            auto *req = new page_table_service::PAnyUnLockRequest();
-            auto *resp = new page_table_service::PAnyUnLockResponse();
-            auto *pid = new page_table_service::PageID();
-            pid->set_page_no(replaced_page_id);
-            pid->set_table_id(table_id);
-            req->set_allocated_page_id(pid);
-            req->set_node_id(node_->node_id);
+                brpc::Controller cntl;
+                pagetable_stub.BufferReleaseUnlock(&cntl , request , response , NULL);
+                if (cntl.Failed()){
+                    LOG(ERROR) << "Fatal Error , brpc Failed";
+                    lr_local_lock->EndEvict();
+                    delete response;
+                    delete request;
+                    continue;
+                }else if (response->is_chosen_push()){
+                    std::cout << "This Page Is Rejected\n";
+                    // 如果在这个页面上，我被选中去推送页面了，那我就滚
+                    lr_local_lock->EndEvict();
+                    // 需要把之前缓冲区锁定的那个页面搞回来
+                    node_->getBufferPoolByIndex(table_id)->unpin_page(replaced_page_id);
+                    delete response;
+                    delete request;
+                    continue;
+                }else {
+                    // 允许你换出这个帧了
+                    std::cout << "One Page Swap Out , table_id = " << table_id << " page_id = " << page_id << "\n";
+                    delete response;
+                    delete request;
+                }
+            }else {
+                // 不需要在远程解锁，直接用就行
+            }
 
-            brpc::Controller cntl;
-            pagetable_stub.LRPAnyUnLock(&cntl , req , resp , NULL);
-            if (cntl.Failed()){
-                LOG(ERROR) << "Fail to unlock page " << replaced_page_id << " in remote page table";
-            } else {
+            int unlock_remote2 = lr_local_lock->UnlockAny();
+            if (unlock_remote2){
                 lr_local_lock->UnlockRemoteOK();
             }
-            delete resp;
+            Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(page_id , frame_id , true , replaced_page_id , data);
+            lr_local_lock->EndEvict();
+            return page;
         }
-        lr_local_lock->EndEvict();
-        return page;
     }
 
     void rpc_lazy_release_all_page();
