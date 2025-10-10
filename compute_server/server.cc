@@ -110,7 +110,7 @@ void ComputeNodeServiceImpl::NotifyPushPage(::google::protobuf::RpcController* c
     // 计数 + n，释放是在 PushPageRpcDone 里面
     server->get_node()->getBufferPoolByIndex(table_id)->IncreasePendingOperations(page_id, dest_node_id_size);
     // 在 Pending 阶段把计数 + 1 了，这里把那个+1 的还回去
-    server->get_node()->getBufferPoolByIndex(table_id)->DecrementPendingOperations(page_id);
+    server->get_node()->getBufferPoolByIndex(table_id)->DecrementPendingOperations(page_id , nullptr);
 
     // LOG(INFO) << "table_id = " << table_id << " page_id = " << page_id << " Notify Push Page , "
     //             << "dest_node_id_size = " << dest_node_id_size << " now tag = "
@@ -152,10 +152,6 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
     table_id_t table_id = request->page_id().table_id();
     bool xpending = (request->pending_type() == PendingType::XPending);
     // node_id_t dest_node_id = request->dest_node_id();
-    
-    // node_id_t this_node = this->server->get_node()->getNodeID();
-    // std::cout << "node" << this_node << " is pending , dest node id = " << dest_node_id << "\n";
-    // std::cout << "table_id : " << table_id << " page_id " << page_id << "\n";
 
     // 把本页面标记为 pending，并看一下要不要释放锁(页面是否正在赖着不走)
     // 同时，如果需要把页面 Push到目标节点，也是在这里标记的
@@ -165,10 +161,10 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
     assert(dest_node_id != server->get_node()->getNodeID());
     if (dest_node_id != -1){
         server->get_node()->getBufferPoolByIndex(table_id)->IncreasePendingOperations(page_id, 1);
-        // std::cout << "Table_id = " << table_id << " page_id = " << page_id << " add tag , not tag = " 
-        //         << server->get_node()->getBufferPoolByIndex(table_id)->getPendingCounts(page_id);
+        assert(server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->getIsNamedToPush() == false);
+        server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->setIsNamedToPush(true);
     }
-    // std::cout << "Got Here1\n";
+
     if(unlock_remote > 0){
         // ToDO：这里我把传输数据延后到 Unlock 了，可能会导致性能问题
 
@@ -439,8 +435,6 @@ void ComputeServer::PushPageRPCDone(compute_node_service::PushPageResponse* resp
         LOG(ERROR) << "PushPageRPC failed";
     }
 
-    // LOG(INFO) << "node_id = " << server->getNodeID() << " table_id = " << table_id << " page_id = " << page_id << " decrease tag " 
-    //         << "not tag = " << server->get_node()->getBufferPoolByIndex(table_id)->getPendingCounts(page_id);
-    // 无论成功失败都归还 pending 计数，避免泄漏
-    server->get_node()->getBufferPoolByIndex(table_id)->DecrementPendingOperations(page_id);
+    LRLocalPageLock *lr_lock = server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id);
+    server->get_node()->getBufferPoolByIndex(table_id)->DecrementPendingOperations(page_id , lr_lock);
 }

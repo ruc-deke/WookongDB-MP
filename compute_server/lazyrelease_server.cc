@@ -230,17 +230,11 @@ void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_
         node_->getBufferPoolByIndex(table_id)->MarkForBufferRelease(page_id);
         // assert(node_->getBufferPoolByIndex(table_id)->is_in_bufferPool(page_id));
         // node_->getBufferPoolByIndex(table_id)->release_page(page_id);
-        //! unlock remote ok and unlatch local
         node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockRemoteOK();
-        //LOG(INFO) << "Immediate Release S Page over " << "table_id = " << table_id << " page_id = " << page_id << "\n";
-        // delete response;
         delete response;
     }else {
         // 无需远程解锁，由于采用 lazy_release，所以不释放掉本地缓存所有权，只是 unpin 一下
         node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
-        // if (table_id == 1 && page_id == 2724){
-        //     std::cout << "lazy release s page\n";
-        // }
         //LOG(INFO) << "Lazy Release S Page Over " << "table_id = " << table_id << " page_id = " << page_id << "\n";
     }
 

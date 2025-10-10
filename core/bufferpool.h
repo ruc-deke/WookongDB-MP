@@ -5,6 +5,7 @@
 #include "base/page.h"
 #include "common.h"
 #include "bufferpool_replacer.h"
+#include "local_LR_page_lock.h"
 
 #include "memory"
 #include "mutex"
@@ -178,17 +179,28 @@ public:
     }
 
     // count--，必要时直接释放缓冲区
-    void DecrementPendingOperations(page_id_t page_id){
+    void DecrementPendingOperations(page_id_t page_id , LRLocalPageLock *lr_lock){
+
         std::lock_guard<std::mutex> lock(mtx);
         pending_operation_counts[page_id]--;
         assert(pending_operation_counts[page_id] >= 0);
 
-        if (pending_operation_counts[page_id] == 0 && should_release_buffer[page_id]){
-            should_release_buffer[page_id] = false;
-            release_page(page_id);
-            pushing_cv.notify_all();
+        if (lr_lock == nullptr){
+            assert(pending_operation_counts[page_id] != 0);
+            return;
+        }
+
+        if (pending_operation_counts[page_id] == 0){
+            // 只要计数 = 0 ，就把标记设置为 false，因为 PushPage 完成的时候，可能还没 markrelease
+            lr_lock->setIsNamedToPush(false);
+            if (should_release_buffer[page_id]){
+                should_release_buffer[page_id] = false;
+                release_page(page_id);
+                pushing_cv.notify_all();
+            }
         }
     }
+
     // 当锁释放的时候，标记一下需要释放缓冲区了
     // 返回 true 表示需要立刻释放，否则表示延迟释放
     void MarkForBufferRelease(page_id_t page_id){

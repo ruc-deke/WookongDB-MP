@@ -39,6 +39,7 @@ public:
 
         size_t cnt = try_cnt % lru_list.size();
         auto it = lru_list.end();
+        std::cout << "LRU Size : " << lru_list.size() << "\n";
         while (try_cnt >= 0){
             --it;
             --try_cnt;
