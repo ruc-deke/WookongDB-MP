@@ -257,11 +257,11 @@ public:
     }
 
     // 远程通知此节点释放数据页（不主动释放数据页策略下）
-    int PendingPage(page_id_t page_id, bool xpending, table_id_t table_id, node_id_t dest_node_id = -1) {
+    int PendingPage(page_id_t page_id, bool xpending, table_id_t table_id) {
       int unlock_remote;
       if(SYSTEM_MODE == 1){ // lazy release
         assert(lazy_local_page_lock_tables[table_id] != nullptr && local_page_lock_tables[table_id] == nullptr);
-        unlock_remote = lazy_local_page_lock_tables[table_id]->GetLock(page_id)->Pending(node_id, xpending, dest_node_id);
+        unlock_remote = lazy_local_page_lock_tables[table_id]->GetLock(page_id)->Pending(node_id, xpending);
       }
       else{
         assert(false);

@@ -182,7 +182,7 @@ class PageTableServiceImpl : public PageTableService {
         LR_GlobalPageLock *gl = page_lock_table_list_->at(table_id)->LR_GetLock(page_id);
         // 这里加锁，是为了确保获取 pending_src 和执行 Unlock 二者是连贯的，不能在二者中间让别人选中了一个新的 pending_src(在LockShared/Exclusive)
         gl->mutexLock();
-        if (gl->getPendingSrc() == node_id){
+        if (gl->getPushSrc_NoBlock() == node_id){
             gl->mutexUnlock();
             response->set_is_chosen_push(true);
             return ;
@@ -228,21 +228,26 @@ class PageTableServiceImpl : public PageTableService {
         page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->ReleasePage(node_id);
     }
     
+    /*
+        捋一下流程：
+        1. 一个节点想要某个页面所有权，在本地检查，如果没有对应的远程锁，执行 LRPS/XLock，加锁
+        2. 远程 LRPSLock 调用 LockShared/Exclusive，发现无法上锁，调用 SetComputeNodePending，给持有锁的节点发送 Pending 信号
+        3. 节点收到 Pending 信号后，尽可能快地释放锁，释放先在本地(设置 is_pending = true，防止本地再加锁)，锁用完后调用 LRPAnyUnlock
+        4. LRPAnyUnLock 先把当前节点的远程所有权给取消，如果自己解锁后，可以转移所有权给下一轮节点了，那就转移所有权
+        5. 转移完成后，先向下一轮节点广播获得锁成功了，然后通知之前选中的 src_node 推送页面给下一轮持有锁的节点(跳过本轮持有，下一轮也持有的)
+        6. 由于 request_queue 中可能有很多节点的请求，这些请求可能无法在本轮获取锁中拿到锁，因此在解锁之后，如果 request_queue还有元素，需要再调用一次 SetComputeNodePending(Transfer Pending 做的事情)
+    */
     virtual void LRPAnyUnLock(::google::protobuf::RpcController* controller,
                     const ::page_table_service::PAnyUnLockRequest* request,
                     ::page_table_service::PAnyUnLockResponse* response,
-                    ::google::protobuf::Closure* done){
-            // std::cout << "Unlock Begin\n";
+                    ::google::protobuf::Closure* done){            
             brpc::ClosureGuard done_guard(done);
             page_id_t page_id = request->page_id().page_no();
             table_id_t table_id = request->page_id().table_id();
             node_id_t node_id = request->node_id();
 
-            // if (table_id == 0 && page_id == 2717){
-            //     std::cout << "node" << node_id << " is Unlocking Page\n\n\n";
-            // }
-
             // 简单粗暴：如果 X 锁，need_valid = true,否则 need_validate = false
+            // 在这里加速，后面解锁
             bool need_valid = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->UnlockAny(node_id);
             GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
             
@@ -265,8 +270,6 @@ class PageTableServiceImpl : public PageTableService {
                 // 有一种情况是，当前持有者是 s 锁，然后本节点又申请了 x 锁，此时不能同意，还是得加入到请求队列里去
                 std::vector<std::pair<bool , int>> res2 = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->NotifyPushPage(table_id , valid_info);
 
-                //  assert(res1.size() != 0);
-                // assert(res2.size() != 0);
                 // debug
                 assert(res1.size() == res2.size());
                 for (size_t i = 0 ; i < res1.size() ; i++){
@@ -282,6 +285,7 @@ class PageTableServiceImpl : public PageTableService {
                 page_valid_table_list_->at(table_id)->setNodeValidAndNewest(next_nodes.front(), page_id);
                 // 在这里解锁 LR_Lock
                 page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferPending(table_id , immedia_transfer , valid_info);
+                page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->setPushSrc(-1);
             }
             // 把自己现在这个锁给释放了
             for (auto hold_node : next_nodes){

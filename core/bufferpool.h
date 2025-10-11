@@ -85,10 +85,13 @@ public:
     void unpin_page(page_id_t page_id) {
         std::lock_guard<std::mutex> lk(mtx);
         auto it = page_table.find(page_id);
+
+        // Debug 用
+        bool should_release = should_release_buffer[page_id];
+        int pending_count = pending_operation_counts[page_id];
         assert(it != page_table.end());
 
         frame_id_t frame_id = it->second;
-        // Page *pg = pages[frame_id];
         // 不需要 pin_count，因为我这个缓冲区是严格限制的，unpin 一定是用完了缓冲区
         replacer->unpin(frame_id);
     }
@@ -224,6 +227,10 @@ public:
     int getPendingCounts(page_id_t page_id){
         std::lock_guard<std::mutex> lk(mtx);
         return pending_operation_counts[page_id];
+    }
+    bool getShouldReleaseBuffer(page_id_t page_id){
+        std::lock_guard<std::mutex> lk(mtx);
+        return should_release_buffer[page_id];
     }
 
     // 等待 Push 页面的操作完成

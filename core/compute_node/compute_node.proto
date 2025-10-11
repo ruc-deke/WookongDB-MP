@@ -17,7 +17,6 @@ enum PendingType {
 message PendingRequest {
     PageID page_id = 1;
     PendingType pending_type = 2;
-    sint32 dest_node_id = 3; // 目标节点ID，用于标识页面推送的目标
 };
 
 message PendingResponse{}

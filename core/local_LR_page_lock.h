@@ -314,27 +314,28 @@ public:
         mutex.unlock();
     }
 
-    int Pending(node_id_t n, bool xpending, node_id_t dest_node_id = -1){
+    int Pending(node_id_t n, bool xpending){
         int unlock_remote = 0;
         mutex.lock();
         // LOG(INFO) << "Pending: " << page_id ;
         assert(!is_pending);
 
+        // 如果远程还吃有所
         if(!is_granting && remote_mode != LockMode::NONE) {
             assert(remote_mode == LockMode::SHARED || remote_mode == LockMode::EXCLUSIVE);
+            // 如果没人在用了，那就立刻释放锁
             if(lock == 0){
                 // 立刻在远程释放锁
                 unlock_remote = (remote_mode == LockMode::SHARED) ? 1 : 2;
                 remote_mode = LockMode::NONE;
                 // 在函数外部unlock
             }
-            else{
+            else{   //如果有人在用，那就等待锁释放
                 is_pending = true;
-                dest_push_node = dest_node_id; // 需要push的目标节点
                 mutex.unlock();
             }
         }
-        else if(!is_granting && remote_mode == LockMode::NONE){
+        else if(!is_granting && remote_mode == LockMode::NONE){ // 如果远程没锁了，按道理不会到这里，但是有特殊情况，看下边
             // 举个例子：
             /*
                 1. 节点 A 持有页面 1 的 S 锁，然后准备释放，先把本地的 remote_mode 设置为 None，然后给 Lock Fusion 发送 Unlock 请求
@@ -344,12 +345,11 @@ public:
             unlock_remote = 3; 
             mutex.unlock();
         }
-        else if(is_granting && remote_mode == LockMode::SHARED){
+        else if(is_granting && remote_mode == LockMode::SHARED){    // 如果远程
             // 远程已经获取了S锁，正在申请X锁
             assert(lock == EXCLUSIVE_LOCKED);
             if(xpending){ 
                 is_pending = true;
-                dest_push_node = dest_node_id; // 需要push的目标节点
                 mutex.unlock();
             }
             else{
@@ -364,7 +364,6 @@ public:
             // 第二种是主动释放锁，接受了过时的pending，而又来了新的加锁请求
             // 无论xpengding是true还是false, 都一样
             is_pending = true;
-            dest_push_node = dest_node_id; // 需要push的目标节点
             mutex.unlock();
         }
         else{

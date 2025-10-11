@@ -107,14 +107,15 @@ void ComputeNodeServiceImpl::NotifyPushPage(::google::protobuf::RpcController* c
     assert(dest_node_id_size != 0);
     // std::cout << "Server Receive Push Page command, table_id = " << table_id << " page_id = " << page_id <<  " dest node : " << request->dest_node_ids(0) << "\n";
 
+    // 能走到这里的，一定是已经被指定 PushPage 了
     // 计数 + n，释放是在 PushPageRpcDone 里面
     server->get_node()->getBufferPoolByIndex(table_id)->IncreasePendingOperations(page_id, dest_node_id_size);
-    // 在 Pending 阶段把计数 + 1 了，这里把那个+1 的还回去
-    server->get_node()->getBufferPoolByIndex(table_id)->DecrementPendingOperations(page_id , nullptr);
+    assert(server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->getIsNamedToPush() == false);
+    server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->setIsNamedToPush(true);
 
-    // LOG(INFO) << "table_id = " << table_id << " page_id = " << page_id << " Notify Push Page , "
-    //             << "dest_node_id_size = " << dest_node_id_size << " now tag = "
-    //             << server->get_node()->getBufferPoolByIndex(table_id)->getPendingCounts(page_id);
+    // 在 Pending 阶段把计数 + 1 了，这里把那个+1 的还回去
+    // server->get_node()->getBufferPoolByIndex(table_id)->DecrementPendingOperations(page_id , nullptr);
+    assert(server->get_node()->getBufferPoolByIndex(table_id)->getPendingCounts(page_id) != 0);
 
     for (int i = 0 ; i < dest_node_id_size ; i++){
         node_id_t dest_node = request->dest_node_ids(i);
@@ -141,7 +142,11 @@ void ComputeNodeServiceImpl::NotifyPushPage(::google::protobuf::RpcController* c
 }
 
 // 只有一个地方会调用这个，就是 SetComputeNodePending，这个函数是解锁的时候调用的
-// 本函数首先会判断本节点是否正在使用页面，如果没在，立刻释放页面，如果在，标记为 pending
+/*
+    找到真正的问题了：在 SetComputeNodePending 里，设置如果下一轮有自己的话，那就把 dest_node_id 设置为 false
+    但是虽然在 SetComputeNodePending 里下一轮获得锁的节点只有一个，但是在 LRPAnyUnlock 里面的 TransferControl 下一轮获得锁的节点可能有很多个
+    这就存在问题了，在 SetComputeNodePending 假设下一轮没有锁，这里缓冲区计数没有 +1，但是在 NotifyPushPage 按照下一轮多个节点获取锁来处理，缓冲区又给他 -1，自然提前释放锁了，然后 unpin 就找不到页面了
+*/
 void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controller,
                        const ::compute_node_service::PendingRequest* request,
                        ::compute_node_service::PendingResponse* response,
@@ -151,19 +156,18 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
     page_id_t page_id = request->page_id().page_no();
     table_id_t table_id = request->page_id().table_id();
     bool xpending = (request->pending_type() == PendingType::XPending);
-    // node_id_t dest_node_id = request->dest_node_id();
 
     // 把本页面标记为 pending，并看一下要不要释放锁(页面是否正在赖着不走)
-    // 同时，如果需要把页面 Push到目标节点，也是在这里标记的
-    int dest_node_id = request->dest_node_id();
-    int unlock_remote = server->get_node()->PendingPage(page_id, xpending, table_id, dest_node_id);
-    // 现在这里占个位置，让缓冲池先别急着释放
-    assert(dest_node_id != server->get_node()->getNodeID());
-    if (dest_node_id != -1){
-        server->get_node()->getBufferPoolByIndex(table_id)->IncreasePendingOperations(page_id, 1);
-        assert(server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->getIsNamedToPush() == false);
-        server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->setIsNamedToPush(true);
-    }
+    int unlock_remote = server->get_node()->PendingPage(page_id, xpending, table_id);
+
+    assert(
+        server->get_node()->getBufferPoolByIndex(table_id)->getPendingCounts(page_id) == 0 && 
+        server->get_node()->getBufferPoolByIndex(table_id)->getShouldReleaseBuffer(page_id) == false && 
+        server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->getIsNamedToPush() == false
+    );
+
+    // 不在这里增加缓冲区计数了，改成在 LRPAnyUnlock 里面调用 NotifyPushPage 的时候增加计数
+    // 出现这个 Bug 的原因在 NotifyPushPage 里面标注了
 
     if(unlock_remote > 0){
         // ToDO：这里我把传输数据延后到 Unlock 了，可能会导致性能问题
@@ -204,8 +208,6 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
 
         
     }
-    // std::cout << "Got Here5\n";
-    // std::cout << "node" << this->server->get_node()->getNodeID() << "  pending over dest node id = " << dest_node_id << "\n";
 
     // 添加模拟延迟
     // usleep(NetworkLatency); // 100us
