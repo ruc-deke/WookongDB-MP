@@ -50,7 +50,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",
             // lazy 后面那个是线程数量
-            "args": ["smallbank", "lazy", "2", "1", "0", "0.5" , "0"],
+            "args": ["smallbank", "lazy", "12", "1", "0", "0.5" , "0"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
@@ -69,7 +69,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",
-            "args": ["smallbank", "lazy", "2", "1", "0", "0.5" , "1"],
+            "args": ["smallbank", "lazy", "12", "1", "0", "0.5" , "1"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],

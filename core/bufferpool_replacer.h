@@ -27,38 +27,40 @@ class LRU_Replacer : public ReplacerBase {
 public:
     std::shared_ptr<LRU_Replacer> ptr;
     
-    LRU_Replacer(size_t num_pages) : max_size(num_pages) {}
+    LRU_Replacer(size_t num_pages) : max_size(num_pages) {
+        is_evicting = std::vector<bool>(num_pages , false);
+    }
     ~LRU_Replacer() {}
 
     // 只是尝试找到一个帧，但是不真正从 LRU 里面删除，因为需要验证是否真的可用
     bool tryVictim(frame_id_t *frame_id , int try_cnt) override {
-        mtx.lock();
-        if (lru_list.empty()){
-            return false;
-        }
-
-        size_t cnt = try_cnt % lru_list.size();
+        std::lock_guard<std::mutex> lk(mtx);
+        assert(!lru_list.empty());
+        int cnt = try_cnt % lru_list.size();
         auto it = lru_list.end();
         std::cout << "LRU Size : " << lru_list.size() << "\n";
-        while (try_cnt >= 0){
+        while (cnt >= 0){
             --it;
-            --try_cnt;
+            --cnt;
         }
 
         *frame_id = *it;
-        // 这里先不解锁，在 endVictim 中解锁
+        if (is_evicting[*frame_id]){
+            return false;
+        }
+        is_evicting[*frame_id] = true;
         return true;
     }
 
     void endVictim(bool success , frame_id_t *frame_id) override {
+        std::lock_guard<std::mutex> lk(mtx);
+        is_evicting[*frame_id] = false;
         if (success){
             auto it = lru_hash.find(*frame_id);
             assert(it != lru_hash.end());
             lru_list.erase(it->second);
             lru_hash.erase(*frame_id);
         }
-        // try 加的锁在这里解锁
-        mtx.unlock();
     }
 
     // 锁定一个页面
@@ -80,10 +82,10 @@ public:
             lru_hash.erase(it);
         }
         if (lru_list.size() >= max_size){
-            return ;
+            assert(false);
         }
         std::list<frame_id_t>::iterator iter = 
-        lru_list.insert(lru_list.begin() , frame_id);
+            lru_list.insert(lru_list.begin() , frame_id);
         lru_hash[frame_id] = iter;
     }
 
@@ -93,6 +95,7 @@ public:
 
 private:
     std::mutex mtx;
+    std::vector<bool> is_evicting;
     // 记录LRU里面保存的全部页面
     std::list<frame_id_t> lru_list;
     // 记录 

@@ -183,16 +183,37 @@ class PageTableServiceImpl : public PageTableService {
         GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
         // 这里加锁，是为了确保获取 pending_src 和执行 Unlock 二者是连贯的，不能在二者中间让别人选中了一个新的 pending_src(在LockShared/Exclusive)
         gl->mutexLock();
-        if (gl->getIsPendingNoBlock()){
+        /*
+            开始之前先明确一下：能到达这里，节点一定不会获得下一轮的锁，因为在主节点那里做了处理，不允许节点再加锁
+
+            总结一下节点的几个状态，方便想，以是否在 hold_lock_nodes 为边界
+            1. 在 hold_lock_nodes 中：
+                1.1 is_pending = false，节点持有所有权，但是不知道在不在用，感觉也没办法知道
+                1.2 is_pending = true，节点持有所有权，但是已经进入到下一轮授予锁的阶段了，可能马上要丢掉所有权
+            2. 不在 hold_lock_nodes 中：
+                2.1 你这家伙谁啊？
+            
+            顺着这个思路走：
+            1. 如果到达这里了，但是不在 hold_lock_nodes(到达这里之前一定持有所有权)，说明在发送的过程中页面所有权被释放了
+               那么这个节点就是危险的，因为你不知道它现在在主节点是什么状态，干脆直接不要了，反正这种情况发生概率非常低
+            2. 如果到达这里，且在 hold_lock_nodes 中
+                2.1 is_pending = false，都到这里了，说明节点一定是不在用的，安全可以淘汰
+                2.2 is_pending = true：两种情况：
+                    2.2.1 下一轮没有 node_id 了，即将被淘汰掉
+                    2.2.2 下一轮还有自己，Nice
+                因此，如果 is_pending = true，也是危险了，不要了算了
+            总结：能到这里的，且满足下面两个条件的，一定是危险的
+        */
+        if (!gl->CheckIsHoldNoBlock(node_id)){
             gl->mutexUnlock();
             response->set_is_chosen_push(true);
-            return ;
-        }
-        if (!gl->CheckIsHold(node_id)){
+            return;
+        } else if (gl->getIsPendingNoBlock()){
             gl->mutexUnlock();
             response->set_is_chosen_push(true);
             return;
         }
+
         // 这里也先别释放锁，在后面会自己释放锁,要么在 TransferControl里，要么在 TranfserPending 里
         bool need_validate = gl->UnlockAnyNoBlock(node_id);
         response->set_is_chosen_push(false);

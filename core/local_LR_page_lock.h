@@ -24,6 +24,7 @@ private:
     bool is_evicting;   // 是否正在驱逐页面
     // 在之前是用 mutex 来管理并发性的，会有bug，改成用这个
     std::atomic<bool> is_named_to_push;  // 是否正在被指定推送页面
+    bool is_released;  // 表示是否真正释放所有权了(而非 lazyRelease 赖着的)
 
 private:
     std::mutex mutex;    // 用于保护读写锁的互斥锁
@@ -36,6 +37,7 @@ public:
         remote_mode = LockMode::NONE;
         is_evicting = false;
         is_named_to_push = false;
+        is_released = true;
     }
 
     void setIsNamedToPush(bool value){
@@ -195,11 +197,12 @@ public:
     }
 
     bool TryBeginEvict(){
-        // std::lock_guard<std::mutex> lk(mutex);
         // is_evicting：我正在选这孩子淘汰，你们这些线程别来沾边
         // is_named_to_push_page：我正被要求淘汰掉页面呢，别来沾边
         // 第二个参数无法完全隔绝掉全部的情况，需要和 remote server 配合使用
-        if (is_evicting  || is_named_to_push ){
+        std::lock_guard<std::mutex> lk(mutex);
+        if (is_evicting  || is_named_to_push || is_released){
+            mutex.unlock();
             return false;
         }
         // TODO：这里参数的选择可能有问题，后面优化下
@@ -207,14 +210,13 @@ public:
             is_evicting = true;
             return true;
         }
-        mutex.unlock();
         return false;
     }
+
     void EndEvict(){
-        mutex.lock();
+        std::lock_guard<std::mutex> lk(mutex);
         assert(is_evicting);
         is_evicting = false;
-        mutex.unlock();
     }
 
     // 调用LockExclusive()或者LockShared()之后, 如果返回true, 则需要调用这个函数将granting状态转换为shared或者exclusive
@@ -232,6 +234,8 @@ public:
             // LOG(INFO) << "LockRemoteOK: " << page_id << " SHARED in node " << node_id;
             remote_mode = LockMode::SHARED;
         }
+        // assert(is_released);
+        is_released = false;
         mutex.unlock();
     }
 
@@ -243,6 +247,7 @@ public:
         assert(!is_granting);
         // 如果释放了当前锁后，可以释放了
         if ((lock - 1) == 0 && is_pending){
+            is_released = true;
             unlock_remote = (remote_mode == LockMode::SHARED) ? 1 : 2;
         }
         return unlock_remote;
@@ -264,6 +269,7 @@ public:
         assert(lock == EXCLUSIVE_LOCKED);
         assert(!is_granting);
         if (is_pending){
+            is_released = true;
             unlock_remote = 2;
         }
         return unlock_remote;
@@ -274,6 +280,32 @@ public:
             is_pending = false; // 释放远程锁后，将is_pending置为false
             remote_mode = LockMode::NONE;
         }
+    }
+
+    int UnlockAnyNoBlock(){
+        // 这个函数在一个线程结束的时候调用，此时本地的锁已经释放，远程的锁也应该释放
+        int unlock_remote; // 0表示不需要释放远程锁, 1表示需要释放S锁, 2表示需要释放X锁
+        mutex.lock();
+        assert(lock == 0);
+        assert(!is_granting && !is_pending);
+        if(remote_mode == LockMode::NONE){
+            // 远程没有持有锁
+            unlock_remote = 0;
+            mutex.unlock();
+        }
+        else if(remote_mode == LockMode::SHARED){
+            unlock_remote = 1;
+            remote_mode = LockMode::NONE;
+        }
+        else if(remote_mode == LockMode::EXCLUSIVE){
+            unlock_remote = 2;
+            remote_mode = LockMode::NONE;
+        }
+        else{
+            assert(false);
+        }
+        is_released = true;
+        return unlock_remote;
     }
 
     int UnlockAny(){
@@ -298,6 +330,7 @@ public:
         else{
             assert(false);
         }
+        is_released = true;
         return unlock_remote;
     }
 
@@ -319,6 +352,7 @@ public:
             if(lock == 0){
                 // 立刻在远程释放锁
                 unlock_remote = (remote_mode == LockMode::SHARED) ? 1 : 2;
+                is_released = true;
                 remote_mode = LockMode::NONE;
                 // 在函数外部unlock
             }

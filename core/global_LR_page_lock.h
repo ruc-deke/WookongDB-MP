@@ -498,6 +498,8 @@ public:
                 lock = EXCLUSIVE_LOCKED;
                 add_hold_lock_node(request.node_id);
                 x_request_num--;
+                // is_pending 是在 LockShared/Exclusive 里面设置为 true 的，表示 pending 开始，别人来了无法直接获取锁
+                // 在这里设置为 false，表示这轮授予锁结束了，该拿到锁的节点拿到锁了
                 is_pending = false;
                 // LOG(INFO) << "Transfer Exclusive Success: table_id: "<< table_id<< "page_id: " << page_id << " in node: " << request.node_id << " lock: " << lock;
             }
@@ -594,7 +596,7 @@ public:
         return;
     }
 
-    bool CheckIsHold(node_id_t node_id){
+    bool CheckIsHoldNoBlock(node_id_t node_id){
         return std::find(hold_lock_nodes.begin(), hold_lock_nodes.end(), node_id) != hold_lock_nodes.end();
     }
 

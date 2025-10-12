@@ -87,12 +87,25 @@ public:
         auto it = page_table.find(page_id);
 
         // Debug 用
-        bool should_release = should_release_buffer[page_id];
-        int pending_count = pending_operation_counts[page_id];
+        // bool should_release = should_release_buffer[page_id];
+        // int pending_count = pending_operation_counts[page_id];
         assert(it != page_table.end());
 
         frame_id_t frame_id = it->second;
         // 不需要 pin_count，因为我这个缓冲区是严格限制的，unpin 一定是用完了缓冲区
+        replacer->unpin(frame_id);
+    }
+
+    // BufferRelease 专用的
+    void unpin_special(page_id_t page_id){
+        std::lock_guard<std::mutex> lk(mtx);
+        auto it = page_table.find(page_id);
+        // 到达的时候已经被淘汰了，那不管了
+        if (it == page_table.end()){
+            std::cout << "Has been 淘汰\n";
+            return;
+        }
+        frame_id_t frame_id = it->second;
         replacer->unpin(frame_id);
     }
 
@@ -101,80 +114,104 @@ public:
         return (page_table.find(page_id) != page_table.end());
     }
 
-    // 这里只负责找到空闲的页面，填入到 frame_id 里
-    // is_from_lru：是否是从 LRU 中删除的，LRU 中存储的是持有，但未使用的页面，也就是最上面备注提到的第3类页面
-    bool find_victim_pages(frame_id_t &frame_id , 
-                bool& is_from_lru ,
-                int &try_cnt ,
-                const std::function<bool(page_id_t)> &try_begin_evict) {
-        if (free_lists.size() == 0){
-            // 走到这里说明已经没有空闲页面了，需要去淘汰掉因为延迟获取所有权而放在 LRU 里面的页面
-            is_from_lru = true; 
-            // 一直找到一个能够用的
-            bool need_loop = true;
-            while(need_loop){
-                bool res = replacer->tryVictim(&frame_id , try_cnt);
-                // res == false 代表缓冲区也没人换出去了，这种情况几乎不可能
-                // 开的线程数量和缓冲区容量差不多的时候，才可能出现这种情况
-                assert(res);
+    // // 这里只负责找到空闲的页面，填入到 frame_id 里
+    // // is_from_lru：是否是从 LRU 中删除的，LRU 中存储的是持有，但未使用的页面，也就是最上面备注提到的第3类页面
+    // bool find_victim_pages(frame_id_t &frame_id , 
+    //             bool& is_from_lru ,
+    //             int &try_cnt ,
+    //             const std::function<bool(page_id_t)> &try_begin_evict) {
+    //     if (free_lists.size() == 0){
+    //         // 走到这里说明已经没有空闲页面了，需要去淘汰掉因为延迟获取所有权而放在 LRU 里面的页面
+    //         is_from_lru = true; 
+    //         // 一直找到一个能够用的
+    //         bool need_loop = true;
+    //         while(need_loop){
+    //             bool res = replacer->tryVictim(&frame_id , try_cnt);
+    //             // res == false 代表缓冲区也没人换出去了，这种情况几乎不可能
+    //             // 开的线程数量和缓冲区容量差不多的时候，才可能出现这种情况
+    //             assert(res);
 
-                mtx.unlock();
+    //             mtx.unlock();
 
-                page_id_t victim_page_id = pages[frame_id]->page_id_;
-                assert(victim_page_id != INVALID_PAGE_ID);
+    //             page_id_t victim_page_id = pages[frame_id]->page_id_;
+    //             assert(victim_page_id != INVALID_PAGE_ID);
 
-                bool ok = try_begin_evict(victim_page_id);
-                replacer->endVictim(ok , &frame_id);
-                mtx.lock();
-                need_loop = (!ok);
-                if (!ok){
-                    // 需要再来一次
-                    try_cnt++;
-                }
+    //             bool ok = try_begin_evict(victim_page_id);
+    //             replacer->endVictim(ok , &frame_id);
+    //             mtx.lock();
+    //             need_loop = (!ok);
+    //             if (!ok){
+    //                 // 需要再来一次
+    //                 try_cnt++;
+    //             }
             
-            }
-        }else {
-            frame_id = free_lists.front();
-            free_lists.pop_front();
-        }
-        return true;
-    }
-
-    // bool checkIfDirectlyPutInBuffer(page_id_t page_id , frame_id_t &frame_id){
-    //     mtx.lock();
-    //     bool ret = false;
-    //     waitingForPushOver();
-    //     mtx.lock();
-    //     if (!free_lists.empty()){
-    //         ret = true;
+    //         }
+    //     }else {
     //         frame_id = free_lists.front();
     //         free_lists.pop_front();
     //     }
+    //     return true;
     // }
 
+    bool checkIfDirectlyPutInBuffer(page_id_t page_id , frame_id_t &frame_id){
+        bool ret = false;
+        waitingForPushOver(page_id);
+
+        std::lock_guard<std::mutex> lk(mtx);
+        if (!free_lists.empty()){
+            ret = true;
+            frame_id = free_lists.front();
+            free_lists.pop_front();
+        }
+        return ret;
+    }
+
     // bool：是否要替换页面，int：被替换掉的页面
-    std::pair<bool , int> need_to_replace(page_id_t page_id , 
+    int replace_page (page_id_t page_id , 
             frame_id_t &frame_id,
             int &try_cnt ,
             const std::function<bool(page_id_t)> &try_begin_evict ){
-        // frame_id_t frame_id;
-        bool need_replace = false;
-        // 先等这个页面推送给别人推完了再说
-        // TODO：这里其实可以优化下，读就不需要等，但是太麻烦了，有时间再说
-        waitingForPushOver(page_id);
-
-        // LJTag3
-        std::lock_guard<std::mutex> lk(mtx);
+        mtx.lock();
         assert(page_table.find(page_id) == page_table.end());
         if (pending_operation_counts[page_id] != 0){
             assert(!should_release_buffer[page_id]);
         }
 
-        // 除非开了和缓冲池容量一致的线程，不然一般不会满到用不了
-        // 为了满足原子性，所以需要把函数放到这里面来调用
-        assert(find_victim_pages(frame_id , need_replace , try_cnt , try_begin_evict));
-        page_id_t replaced_page = pages[frame_id]->page_id_;
-        return std::make_pair(need_replace , replaced_page);
+        bool need_loop = true;
+        while (need_loop){
+            bool res = replacer->tryVictim(&frame_id , try_cnt);
+            if (!res){
+                try_cnt++;
+                continue;
+            }
+
+            page_id_t victim_page_id = pages[frame_id]->page_id_;
+            assert(victim_page_id != INVALID_PAGE_ID);
+
+            // 这里是一个很巧妙的思想，可以直接解锁
+            // 在这个地方，缓冲池只是负责提供一个思路，告诉 PageLock，你试一下来淘汰这个
+            // 提供完思路之后，其实就没缓冲区什么事了，它可以直接解锁
+            // 在别的地方，都是先给 PageLock 加锁，再给缓冲区加锁的，所以不用担心并发的问题(因为下面设置了PageLock 为 is_evicating,所以别的线程拿不到 PageLock 的锁，自然拿不到缓冲区的锁)
+            mtx.unlock();
+
+            bool ok = try_begin_evict(victim_page_id);
+        
+            /*
+                有一个 Bug，走到 endVictim 里面的时候，帧已经不在 lru_lists 里面了
+                排除一下：
+                1. 是否是被 pin 了？false，try_begin_evict 排除了这种情况，一定是没在使用的页面
+                2. 是否被 release 了？
+            */
+            replacer->endVictim(ok , &frame_id);
+
+            if (ok){
+                break;
+            }else {
+                try_cnt++;
+                mtx.lock();
+            }
+        }
+        return pages[frame_id]->page_id_;
     }
 
     Page *insert_or_replace(page_id_t page_id , frame_id_t frame_id , bool need_to_replace , page_id_t replaced_page , const void *src){

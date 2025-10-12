@@ -225,27 +225,33 @@ public:
     
     void rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_id);
 
-    // Page* checkIfDirectlyPutInBuffer(table_id_t table_id , page_id_t page_id , const void *data){
-    //     frame_id_t frame_id = INVALID_FRAME_ID;
-    //     bool ans = node_->getBufferPoolByIndex(table_id)->checkIfDirectlyPutInBuffer(page_id , frame_id);
-    //     if (ans){
-    //         Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(
-    //             page_id ,
-    //             frame_id ,
-    //             false ,
-    //             INVALID_PAGE_ID ,
-    //             data
-    //         );
-    //         assert(page != nullptr);
-    //         return page;
-    //     }
-    //     return nullptr;
-    // }
+    Page* checkIfDirectlyPutInBuffer(table_id_t table_id , page_id_t page_id , const void *data){
+        frame_id_t frame_id = INVALID_FRAME_ID;
+        bool ans = node_->getBufferPoolByIndex(table_id)->checkIfDirectlyPutInBuffer(page_id , frame_id);
+        if (ans){
+            Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(
+                page_id ,
+                frame_id ,
+                false ,
+                INVALID_PAGE_ID ,
+                data
+            );
+            assert(page != nullptr);
+            return page;
+        }
+        return nullptr;
+    }
 
     // LJ
     Page *put_page_into_local_buffer(table_id_t table_id , page_id_t page_id , const void *data) {
         bool is_from_lru = false;
         frame_id_t frame_id;
+
+        // 先试试看能不能直接插入，可以的话直接插入就行
+        Page *ret = checkIfDirectlyPutInBuffer(table_id , page_id , data);
+        if (ret != nullptr){
+            return ret;
+        }
 
         // 传到 need_to_replace 里的，为了确保缓冲池中选择的页面之后在淘汰的过程中不会被本地的线程使用
         auto try_begin_evict = ([this , table_id](page_id_t victim_page_id) {
@@ -257,16 +263,9 @@ public:
         while(true){
             try_cnt++;
             // 先找到一个淘汰的页面，然后再真正淘汰它，
-            std::pair<bool , int> res = node_->getBufferPoolByIndex(table_id)->need_to_replace(page_id , frame_id , try_cnt , try_begin_evict);
+            page_id_t replaced_page_id = node_->getBufferPoolByIndex(table_id)->replace_page(page_id , frame_id , try_cnt , try_begin_evict);
             assert(frame_id >= 0);
-            // 不需要替换的话，直接拿到返回就行
-            if (!res.first){
-                Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(page_id , frame_id , false , res.second , data);
-                // std::cout << "No Need To SwapOut\n";
-                return page;
-            }
 
-            page_id_t replaced_page_id = res.second;
             assert(replaced_page_id != INVALID_PAGE_ID);
             LRLocalPageLock *lr_local_lock = node_->lazy_local_page_lock_tables[table_id]->GetLock(replaced_page_id);
             int unlock_remote = lr_local_lock->getUnlockType();
@@ -291,7 +290,9 @@ public:
                 }else if (response->is_chosen_push()){
                     std::cout << "This Page Is Rejected\n";
                     // 需要把之前缓冲区锁定的那个页面搞回来
-                    node_->getBufferPoolByIndex(table_id)->unpin_page(replaced_page_id);
+                    // 看 RemoteServer 释放缓冲区那块代码的备注，到达这里的时候
+                    // 页面是极大可能被淘汰的，因此 unpin_page 不需要这么严格，可以不在缓冲区内
+                    node_->getBufferPoolByIndex(table_id)->unpin_special(replaced_page_id);
                     // 如果在这个页面上，我被选中去推送页面了，那我就滚
                     lr_local_lock->EndEvict();
 
