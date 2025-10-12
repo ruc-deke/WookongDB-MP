@@ -107,10 +107,12 @@ void ComputeNodeServiceImpl::NotifyPushPage(::google::protobuf::RpcController* c
     assert(dest_node_id_size != 0);
     // std::cout << "Server Receive Push Page command, table_id = " << table_id << " page_id = " << page_id <<  " dest node : " << request->dest_node_ids(0) << "\n";
 
+    assert(server->get_node()->getBufferPoolByIndex(table_id)->getPendingCounts(page_id) == 0);
+    assert(server->get_node()->getBufferPoolByIndex(table_id)->getShouldReleaseBuffer(page_id) == false);
+    assert(server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->getIsNamedToPush() == false);
     // 能走到这里的，一定是已经被指定 PushPage 了
     // 计数 + n，释放是在 PushPageRpcDone 里面
     server->get_node()->getBufferPoolByIndex(table_id)->IncreasePendingOperations(page_id, dest_node_id_size);
-    assert(server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->getIsNamedToPush() == false);
     server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->setIsNamedToPush(true);
 
     // 在 Pending 阶段把计数 + 1 了，这里把那个+1 的还回去
@@ -158,13 +160,9 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
     bool xpending = (request->pending_type() == PendingType::XPending);
 
     // 把本页面标记为 pending，并看一下要不要释放锁(页面是否正在赖着不走)
-    int unlock_remote = server->get_node()->PendingPage(page_id, xpending, table_id);
 
-    assert(
-        server->get_node()->getBufferPoolByIndex(table_id)->getPendingCounts(page_id) == 0 && 
-        server->get_node()->getBufferPoolByIndex(table_id)->getShouldReleaseBuffer(page_id) == false && 
-        server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->getIsNamedToPush() == false
-    );
+    // LJTag2
+    int unlock_remote = server->get_node()->PendingPage(page_id, xpending, table_id);
 
     // 不在这里增加缓冲区计数了，改成在 LRPAnyUnlock 里面调用 NotifyPushPage 的时候增加计数
     // 出现这个 Bug 的原因在 NotifyPushPage 里面标注了
@@ -187,23 +185,26 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
             unlock_request.set_node_id(server->get_node()->getNodeID());
 
             brpc::Controller cntl;
+            /*
+                这里是同步的，等待 LRPAnyUnlock 执行完
+                此时持有 LocalPageLock 的锁，等待
+            */
             pagetable_stub.LRPAnyUnLock(&cntl, &unlock_request, unlock_response, NULL);
             if(cntl.Failed()){
                 LOG(ERROR) << "Fail to unlock page " << page_id << " in remote page table";
             }
             //! unlock remote ok and unlatch local
             if(SYSTEM_MODE == 1){
+                // 标记释放页面
+                server->get_node()
+                        ->getBufferPoolByIndex(table_id)
+                        ->MarkForBufferRelease(page_id);
                 server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->UnlockRemoteOK();
             }else{
                 assert(false);
             }
             // delete response;
             delete unlock_response;
-
-            // 标记释放页面
-            server->get_node()
-                    ->getBufferPoolByIndex(table_id)
-                    ->MarkForBufferRelease(page_id);
         }
 
         

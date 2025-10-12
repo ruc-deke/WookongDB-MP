@@ -117,15 +117,21 @@ public:
                 // res == false 代表缓冲区也没人换出去了，这种情况几乎不可能
                 // 开的线程数量和缓冲区容量差不多的时候，才可能出现这种情况
                 assert(res);
+
+                mtx.unlock();
+
                 page_id_t victim_page_id = pages[frame_id]->page_id_;
                 assert(victim_page_id != INVALID_PAGE_ID);
+
                 bool ok = try_begin_evict(victim_page_id);
+                replacer->endVictim(ok , &frame_id);
+                mtx.lock();
                 need_loop = (!ok);
                 if (!ok){
                     // 需要再来一次
                     try_cnt++;
                 }
-                replacer->endVictim(ok , &frame_id);
+            
             }
         }else {
             frame_id = free_lists.front();
@@ -133,6 +139,18 @@ public:
         }
         return true;
     }
+
+    // bool checkIfDirectlyPutInBuffer(page_id_t page_id , frame_id_t &frame_id){
+    //     mtx.lock();
+    //     bool ret = false;
+    //     waitingForPushOver();
+    //     mtx.lock();
+    //     if (!free_lists.empty()){
+    //         ret = true;
+    //         frame_id = free_lists.front();
+    //         free_lists.pop_front();
+    //     }
+    // }
 
     // bool：是否要替换页面，int：被替换掉的页面
     std::pair<bool , int> need_to_replace(page_id_t page_id , 
@@ -145,6 +163,7 @@ public:
         // TODO：这里其实可以优化下，读就不需要等，但是太麻烦了，有时间再说
         waitingForPushOver(page_id);
 
+        // LJTag3
         std::lock_guard<std::mutex> lk(mtx);
         assert(page_table.find(page_id) == page_table.end());
         if (pending_operation_counts[page_id] != 0){

@@ -2,12 +2,12 @@
   "local_compute_node": {
     "machine_num": 2,
 "machine_id": 1,
-"thread_num_per_machine": 4,
+"thread_num_per_machine": 2,
 "coroutine_num": 1,
 "txn_system": 1,
     "batch_size": 400
   },
-  "table_buffer_pool_size": 10000,
+  "table_buffer_pool_size": 1500,
   "remote_compute_nodes": {
     "remote_compute_node_ips": [
       "127.0.0.1",

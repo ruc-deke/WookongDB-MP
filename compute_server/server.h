@@ -225,6 +225,23 @@ public:
     
     void rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_id);
 
+    // Page* checkIfDirectlyPutInBuffer(table_id_t table_id , page_id_t page_id , const void *data){
+    //     frame_id_t frame_id = INVALID_FRAME_ID;
+    //     bool ans = node_->getBufferPoolByIndex(table_id)->checkIfDirectlyPutInBuffer(page_id , frame_id);
+    //     if (ans){
+    //         Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(
+    //             page_id ,
+    //             frame_id ,
+    //             false ,
+    //             INVALID_PAGE_ID ,
+    //             data
+    //         );
+    //         assert(page != nullptr);
+    //         return page;
+    //     }
+    //     return nullptr;
+    // }
+
     // LJ
     Page *put_page_into_local_buffer(table_id_t table_id , page_id_t page_id , const void *data) {
         bool is_from_lru = false;
@@ -273,10 +290,11 @@ public:
                     continue;
                 }else if (response->is_chosen_push()){
                     std::cout << "This Page Is Rejected\n";
-                    // 如果在这个页面上，我被选中去推送页面了，那我就滚
-                    lr_local_lock->EndEvict();
                     // 需要把之前缓冲区锁定的那个页面搞回来
                     node_->getBufferPoolByIndex(table_id)->unpin_page(replaced_page_id);
+                    // 如果在这个页面上，我被选中去推送页面了，那我就滚
+                    lr_local_lock->EndEvict();
+
                     delete response;
                     delete request;
                     continue;

@@ -180,17 +180,22 @@ class PageTableServiceImpl : public PageTableService {
         node_id_t node_id = request->node_id();
 
         LR_GlobalPageLock *gl = page_lock_table_list_->at(table_id)->LR_GetLock(page_id);
+        GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
         // 这里加锁，是为了确保获取 pending_src 和执行 Unlock 二者是连贯的，不能在二者中间让别人选中了一个新的 pending_src(在LockShared/Exclusive)
         gl->mutexLock();
-        if (gl->getPushSrc_NoBlock() == node_id){
+        if (gl->getIsPendingNoBlock()){
             gl->mutexUnlock();
             response->set_is_chosen_push(true);
             return ;
         }
+        if (!gl->CheckIsHold(node_id)){
+            gl->mutexUnlock();
+            response->set_is_chosen_push(true);
+            return;
+        }
         // 这里也先别释放锁，在后面会自己释放锁,要么在 TransferControl里，要么在 TranfserPending 里
         bool need_validate = gl->UnlockAnyNoBlock(node_id);
         response->set_is_chosen_push(false);
-        GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
         // 把页面所有权让给下一个节点
         // 会修改两个东西： 1. request_queue：把下一轮的清除，2. hold_lock_nodes：添加下一轮节点
         bool need_transfer = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferControl(table_id);
@@ -265,8 +270,6 @@ class PageTableServiceImpl : public PageTableService {
                 // true 表示需要等别人推送数据，这里是在锁释放里面的，就是需要 Push 的
                 std::vector<std::pair<bool , int>> res1 = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->SendComputenodeLockSuccess(table_id , valid_info , true);
 
-                // 需要 TransferPending，确保 is_pending = false 的时候，
-                // page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferPending(table_id, immedia_transfer , valid_info);
                 // 有一种情况是，当前持有者是 s 锁，然后本节点又申请了 x 锁，此时不能同意，还是得加入到请求队列里去
                 std::vector<std::pair<bool , int>> res2 = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->NotifyPushPage(table_id , valid_info);
 
@@ -284,7 +287,7 @@ class PageTableServiceImpl : public PageTableService {
                 // 在这里解锁 valid_info
                 page_valid_table_list_->at(table_id)->setNodeValidAndNewest(next_nodes.front(), page_id);
                 // 在这里解锁 LR_Lock
-                page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferPending(table_id , immedia_transfer , valid_info);
+                page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->setComputeNodePendingAfterTransfer(table_id , immedia_transfer ,valid_info);
                 page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->setPushSrc(-1);
             }
             // 把自己现在这个锁给释放了

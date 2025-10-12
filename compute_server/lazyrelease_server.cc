@@ -105,6 +105,8 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
 
     Page *page = nullptr;
     // 先在本地进行加锁
+
+    // LJTag1
     bool lock_remote = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->LockExclusive();
     
     if (!lock_remote){
@@ -205,96 +207,91 @@ void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_
     //LOG(INFO) << "Releasing S Page " << "table_id = " << table_id << " page_id = " << page_id << "\n";
     // release page
     // //LOG(INFO) << "node id: " << node_->node_id << " Release s table id: " << table_id << "page_id" << page_id;
-    std::pair<int, int> unlock_res = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockShared();
-    int unlock_remote = unlock_res.first;
-    if(unlock_remote > 0){
-        // rpc release page 
-        // //LOG(INFO) << "node id: " << node_->node_id << "remote Release s "<< " table id: " << table_id << "page_id" << page_id;
-        page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
-        page_table_service::PAnyUnLockRequest request;
-        page_table_service::PAnyUnLockResponse* response = new page_table_service::PAnyUnLockResponse();
-        page_table_service::PageID* page_id_pb = new page_table_service::PageID();
-        page_id_pb->set_page_no(page_id);
-        page_id_pb->set_table_id(table_id);
-        request.set_allocated_page_id(page_id_pb);
-        request.set_node_id(node_->node_id);
-
-        brpc::Controller cntl;
-        pagetable_stub.LRPAnyUnLock(&cntl, &request, response, NULL);
-        if(cntl.Failed()){
-            LOG(ERROR) << "Fail to unlock page " << page_id << " in remote page table";
-        }
-        node_->getBufferPoolByIndex(table_id)->MarkForBufferRelease(page_id);
-        node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockRemoteOK();
-        delete response;
-    } else {
-        // 无需远程解锁，由于采用 lazy_release，所以不释放掉本地缓存所有权，只是 unpin 一下
+    int unlock_remote = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->tryUnlockShared();
+    if (unlock_remote == 0){
+        // 在这里 unpin，如果在后面 unpin 有 bug，可能 lock 减为 0 的时候会被 Replacer 锁定
         node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
-        //LOG(INFO) << "Lazy Release S Page Over " << "table_id = " << table_id << " page_id = " << page_id << "\n";
+        node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockShared();
+        node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
+        return;
     }
+    node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockShared();
+    // rpc release page 
+    // //LOG(INFO) << "node id: " << node_->node_id << "remote Release s "<< " table id: " << table_id << "page_id" << page_id;
+    page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
+    page_table_service::PAnyUnLockRequest request;
+    page_table_service::PAnyUnLockResponse* response = new page_table_service::PAnyUnLockResponse();
+    page_table_service::PageID* page_id_pb = new page_table_service::PageID();
+    page_id_pb->set_page_no(page_id);
+    page_id_pb->set_table_id(table_id);
+    request.set_allocated_page_id(page_id_pb);
+    request.set_node_id(node_->node_id);
 
-
-    return;
+    brpc::Controller cntl;
+    pagetable_stub.LRPAnyUnLock(&cntl, &request, response, NULL);
+    if(cntl.Failed()){
+        LOG(ERROR) << "Fail to unlock page " << page_id << " in remote page table";
+    }
+    node_->getBufferPoolByIndex(table_id)->MarkForBufferRelease(page_id);
+    node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockRemoteOK();
+    delete response;
 }
 
 void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_id) {
     //LOG(INFO) << "Releasing X Page " << "table_id = " << table_id << " page_id = " << page_id << "\n";
     // release page
     // //LOG(INFO) << "node id: " << node_->node_id << " Release x table id: " << table_id << "page_id" << page_id;
-    std::pair<int, int> unlock_res = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockExclusive();
-    int unlock_remote = unlock_res.first;
-
-    if(unlock_remote > 0){
-        assert(unlock_remote == 2); 
-        page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
-        page_table_service::PAnyUnLockRequest unlock_request;
-        page_table_service::PAnyUnLockResponse* unlock_response = new page_table_service::PAnyUnLockResponse();
-        page_table_service::PageID* page_id_pb = new page_table_service::PageID();
-        page_id_pb->set_page_no(page_id);
-        page_id_pb->set_table_id(table_id);
-        unlock_request.set_allocated_page_id(page_id_pb);
-        unlock_request.set_node_id(node_->node_id);
-
-        brpc::Controller cntl;
-        pagetable_stub.LRPAnyUnLock(&cntl, &unlock_request, unlock_response, NULL);
-
-        if(cntl.Failed()){
-            LOG(ERROR) << "Fail to unlock page " << page_id << " in remote page table";
-        }
-
-        // 写回到存储层
-        {
-            Page *page = node_->fetch_page(table_id , page_id);
-            storage_service::StorageService_Stub storage_stub(get_storage_channel());
-            brpc::Controller cntl_wp;
-            storage_service::WritePageRequest req;
-            storage_service::WritePageResponse resp;
-            auto* pid = req.mutable_page_id();
-            pid->set_table_name(table_name_meta[table_id]);
-            pid->set_page_no(page_id);
-            req.set_data(page->get_data(), PAGE_SIZE);
-            storage_stub.WritePage(&cntl_wp, &req, &resp, NULL);
-            if (cntl_wp.Failed()) {
-                LOG(ERROR) << "WritePage RPC failed for table_id=" << table_id << " page_id=" << page_id
-                            << " err=" << cntl_wp.ErrorText();
-            }
-        }
-
-        node_->getBufferPoolByIndex(table_id)->MarkForBufferRelease(page_id);
-        //assert(node_->getBufferPoolByIndex(table_id)->is_in_bufferPool(page_id));
-        
-        //! unlock remote ok and unlatch local
-        node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockRemoteOK();
-
-        // delete response;
-        delete unlock_response;
-
-        //LOG(INFO) << "Immediate Release X Page over " << "table_id = " << table_id << " page_id = " << page_id << "\n";
-    }else {
-        // 不需要远程解锁，本地不需要释放掉缓冲区内的页面
+    int unlock_remote = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->tryUnlockExclusive();
+    if (unlock_remote == 0){
         node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
-        //LOG(INFO) << "Lazy Release X Page over " << "table_id = " << table_id << " page_id = " << page_id << "\n";
+        node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockExclusive();
+        node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
+        return ;
     }
+    node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockExclusive();
+    assert(unlock_remote == 2); 
+    page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
+    page_table_service::PAnyUnLockRequest unlock_request;
+    page_table_service::PAnyUnLockResponse* unlock_response = new page_table_service::PAnyUnLockResponse();
+    page_table_service::PageID* page_id_pb = new page_table_service::PageID();
+    page_id_pb->set_page_no(page_id);
+    page_id_pb->set_table_id(table_id);
+    unlock_request.set_allocated_page_id(page_id_pb);
+    unlock_request.set_node_id(node_->node_id);
+
+    brpc::Controller cntl;
+    pagetable_stub.LRPAnyUnLock(&cntl, &unlock_request, unlock_response, NULL);
+
+    if(cntl.Failed()){
+        LOG(ERROR) << "Fail to unlock page " << page_id << " in remote page table";
+    }
+
+    // 写回到存储层
+    {
+        Page *page = node_->fetch_page(table_id , page_id);
+        storage_service::StorageService_Stub storage_stub(get_storage_channel());
+        brpc::Controller cntl_wp;
+        storage_service::WritePageRequest req;
+        storage_service::WritePageResponse resp;
+        auto* pid = req.mutable_page_id();
+        pid->set_table_name(table_name_meta[table_id]);
+        pid->set_page_no(page_id);
+        req.set_data(page->get_data(), PAGE_SIZE);
+        storage_stub.WritePage(&cntl_wp, &req, &resp, NULL);
+        if (cntl_wp.Failed()) {
+            LOG(ERROR) << "WritePage RPC failed for table_id=" << table_id << " page_id=" << page_id
+                        << " err=" << cntl_wp.ErrorText();
+        }
+    }
+
+    node_->getBufferPoolByIndex(table_id)->MarkForBufferRelease(page_id);
+    //assert(node_->getBufferPoolByIndex(table_id)->is_in_bufferPool(page_id));
+    
+    //! unlock remote ok and unlatch local
+    node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockRemoteOK();
+
+    // delete response;
+    delete unlock_response;
 
     return;
 }

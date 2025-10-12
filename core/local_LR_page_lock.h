@@ -15,7 +15,6 @@ private:
     lock_t lock;                // 读写锁, 记录当前数据页的ref
     LockMode remote_mode;       // 这个计算节点申请的远程节点的锁模式
     bool is_pending = false;    // 是否正在pending
-    node_id_t dest_push_node = -1; // 需要push的目标节点, 如果不需要push, 则为-1
     bool is_granting = false;   // 是否正在授权
     bool success_return = false; // 成功加锁返回
     node_id_t update_node = -1;   // 是否需要更新
@@ -196,7 +195,7 @@ public:
     }
 
     bool TryBeginEvict(){
-        std::lock_guard<std::mutex> lk(mutex);
+        // std::lock_guard<std::mutex> lk(mutex);
         // is_evicting：我正在选这孩子淘汰，你们这些线程别来沾边
         // is_named_to_push_page：我正被要求淘汰掉页面呢，别来沾边
         // 第二个参数无法完全隔绝掉全部的情况，需要和 remote server 配合使用
@@ -204,16 +203,18 @@ public:
             return false;
         }
         // TODO：这里参数的选择可能有问题，后面优化下
-        if (lock == 0 && !is_granting){
+        if (lock == 0 && !is_granting && !is_pending){
             is_evicting = true;
             return true;
         }
+        mutex.unlock();
         return false;
     }
     void EndEvict(){
-        std::lock_guard<std::mutex> lk(mutex);
+        mutex.lock();
         assert(is_evicting);
         is_evicting = false;
+        mutex.unlock();
     }
 
     // 调用LockExclusive()或者LockShared()之后, 如果返回true, 则需要调用这个函数将granting状态转换为shared或者exclusive
@@ -234,54 +235,45 @@ public:
         mutex.unlock();
     }
 
-    // 返回<是否需要释放远程锁， 是否需要push页面>
-    std::pair<int, int> UnlockShared() {
-        // LOG(INFO) << "UnlockShared: " << page_id << std::endl;
-        int unlock_remote = 0; // 0表示不需要释放远程锁, 1表示需要释放S锁, 2表示需要释放X锁
-        int dest_node_id = -1; // 需要push的目标节点, 如果不需要push, 则为-1
+    int tryUnlockShared(){
+        int unlock_remote = 0;
         mutex.lock();
         assert(lock > 0);
         assert(lock != EXCLUSIVE_LOCKED);
-        assert(!is_granting); //当持有S锁时，其他线程一定没获取X锁，所以不会有is_granting
-        --lock;
-        if(lock == 0 && is_pending){
+        assert(!is_granting);
+        // 如果释放了当前锁后，可以释放了
+        if ((lock - 1) == 0 && is_pending){
             unlock_remote = (remote_mode == LockMode::SHARED) ? 1 : 2;
-            is_pending = false; // 释放远程锁后，将is_pending置为false
-            remote_mode = LockMode::NONE;
-            dest_node_id = dest_push_node; // 需要push的目标节点
-            dest_push_node = -1; // 重置dest_push_node
-            // LOG(INFO) << "Ulock S while is_pending";
-            // 此处释放远程锁应该阻塞其他线程再去获取锁，否则在远程可能该节点锁没释放又获取的情况
         }
-        else{
-            mutex.unlock();
-        }
-        return std::make_pair(unlock_remote, dest_node_id);
+        return unlock_remote;
     }
 
-    std::pair<int, int> UnlockExclusive(){
-        // LOG(INFO) << "UnlockExclusive: " << page_id << std::endl;
+    // 返回<是否需要释放远程锁， 是否需要push页面>
+    int UnlockShared() {
+        --lock;
+        if(lock == 0 && is_pending){
+            is_pending = false; // 释放远程锁后，将is_pending置为false
+            remote_mode = LockMode::NONE;
+        }
+    }
+
+    int tryUnlockExclusive(){
         int unlock_remote = 0;
-        int dest_node_id = -1; // 需要push的目标节点, 如果不需要push, 则为-1
         mutex.lock();
         assert(remote_mode == LockMode::EXCLUSIVE);
         assert(lock == EXCLUSIVE_LOCKED);
-        assert(!is_granting); 
+        assert(!is_granting);
+        if (is_pending){
+            unlock_remote = 2;
+        }
+        return unlock_remote;
+    }
+    void UnlockExclusive(){
         lock = 0;
         if(is_pending){
-            // assert(false);
-            unlock_remote = 2;
             is_pending = false; // 释放远程锁后，将is_pending置为false
             remote_mode = LockMode::NONE;
-            dest_node_id = dest_push_node; // 需要push的目标节点
-            dest_push_node = -1; // 重置dest_push_node
-            // LOG(INFO) << "Ulock X while is_pending";
-            // 此处释放远程锁应该阻塞其他线程再去获取锁，否则在远程可能该节点锁没释放又获取的情况
         }
-        else{
-            mutex.unlock();
-        }
-        return std::make_pair(unlock_remote, dest_node_id);
     }
 
     int UnlockAny(){
@@ -382,6 +374,13 @@ public:
             // s lock remote
             assert(remote_mode == LockMode::SHARED || remote_mode == LockMode::EXCLUSIVE);
         }
+        mutex.unlock();
+    }
+
+    void lockMtx(){
+        mutex.lock();
+    }
+    void UnlockMtx(){
         mutex.unlock();
     }
 
