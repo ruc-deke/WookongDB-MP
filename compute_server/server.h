@@ -230,6 +230,7 @@ public:
         bool ans = node_->getBufferPoolByIndex(table_id)->checkIfDirectlyPutInBuffer(page_id , frame_id);
         if (ans){
             Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(
+                table_id,
                 page_id ,
                 frame_id ,
                 false ,
@@ -248,9 +249,9 @@ public:
         frame_id_t frame_id;
 
         // 先试试看能不能直接插入，可以的话直接插入就行
-        Page *ret = checkIfDirectlyPutInBuffer(table_id , page_id , data);
-        if (ret != nullptr){
-            return ret;
+        Page *page = checkIfDirectlyPutInBuffer(table_id , page_id , data);
+        if (page != nullptr){
+            return page;
         }
 
         // 传到 need_to_replace 里的，为了确保缓冲池中选择的页面之后在淘汰的过程中不会被本地的线程使用
@@ -262,7 +263,7 @@ public:
         int try_cnt = -1;
         while(true){
             try_cnt++;
-            // 先找到一个淘汰的页面，然后再真正淘汰它，
+            // 先找到一个淘汰的页面，然后再真正淘汰它，这个函数并没有真正淘汰，只是选择了一个页面
             page_id_t replaced_page_id = node_->getBufferPoolByIndex(table_id)->replace_page(page_id , frame_id , try_cnt , try_begin_evict);
             assert(frame_id >= 0);
 
@@ -303,8 +304,9 @@ public:
                     // 允许你换出这个帧了
                     // 发现 Bug 了，这里还有一种边界情况，我在一开始排除了本地正在 PushPage，然后排除远程正在 PushPage
                     // 但是还有一种情况，一开始的时候本地还没被要求 PushPage，然后我检查完远程之后，被要求 PushPage 了，这个时候就很麻烦了，需要再等待 PushOver
-                    node_->getBufferPoolByIndex(table_id)->waitingForPushOver(replaced_page_id);
-                    std::cout << "One Page Swap Out , table_id = " << table_id << " page_id = " << page_id << "\n";
+                    // 没这个问题了，我在远程缓冲池里面排除了这种情况
+                    // node_->getBufferPoolByIndex(table_id)->waitingForPushOver(replaced_page_id);
+                    LOG(INFO) << "Type1: table_id = " << table_id << " page_id = " << page_id;
                     delete response;
                     delete request;
                 }
@@ -314,9 +316,35 @@ public:
 
             int unlock_remote2 = lr_local_lock->UnlockAny();
             if (unlock_remote2){
+                // 写锁释放时写回磁盘
+                if (unlock_remote2 == 2) {
+                    // 写回到磁盘
+                    Page *old_page = node_->fetch_page(table_id , replaced_page_id);
+                    storage_service::StorageService_Stub storage_stub(get_storage_channel());
+                    brpc::Controller cntl_wp;
+                    storage_service::WritePageRequest req;
+                    storage_service::WritePageResponse resp;
+                    auto* pid = req.mutable_page_id();
+                    pid->set_table_name(table_name_meta[table_id]);
+                    pid->set_page_no(replaced_page_id);
+                    req.set_data(old_page->get_data(), PAGE_SIZE);
+                    storage_stub.WritePage(&cntl_wp, &req, &resp, NULL);
+                    if (cntl_wp.Failed()) {
+                        LOG(ERROR) << "WritePage RPC failed for table_id=" << table_id
+                                   << " page_id=" << replaced_page_id
+                                   << " err=" << cntl_wp.ErrorText();
+                    }
+                }
                 lr_local_lock->UnlockRemoteOK();
             }
-            Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(page_id , frame_id , true , replaced_page_id , data);
+            Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(
+                table_id,
+                page_id ,
+                frame_id ,
+                true ,
+                replaced_page_id ,
+                data
+            );
             lr_local_lock->EndEvict();
             return page;
         }

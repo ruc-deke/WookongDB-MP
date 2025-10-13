@@ -62,6 +62,19 @@ public:
         return page;
     }
 
+    Page *fetch_page_special(page_id_t page_id){
+        std::lock_guard<std::mutex> lk(mtx);
+        auto it = page_table.find(page_id);
+        if (it == page_table.end()){
+            std::cout << "Pull Data has swap out\n";
+            return nullptr;
+        }
+        frame_id_t frame_id = it->second;
+        replacer->pin(frame_id);
+        Page *page = pages[frame_id];
+        return page;
+    }
+
     // 直接从缓冲区里面把这个页面删掉，这个是当节点释放页面所有权的时候调用的
     void release_page(page_id_t page_id){
         // std::lock_guard<std::mutex> lk(mtx);
@@ -214,7 +227,7 @@ public:
         return pages[frame_id]->page_id_;
     }
 
-    Page *insert_or_replace(page_id_t page_id , frame_id_t frame_id , bool need_to_replace , page_id_t replaced_page , const void *src){
+    Page *insert_or_replace(table_id_t table_id, page_id_t page_id , frame_id_t frame_id , bool need_to_replace , page_id_t replaced_page , const void *src){
         std::lock_guard<std::mutex> lock(mtx);
         if (need_to_replace){
             assert(replaced_page != INVALID_PAGE_ID);
@@ -231,6 +244,8 @@ public:
             std::memcpy(page->get_data() , src , PAGE_SIZE);
         }
         page->page_id_ = page_id;
+        page->id_.table_id = table_id;
+        page->id_.page_no = page_id;
 
         return page;
     }
@@ -242,8 +257,7 @@ public:
     }
 
     // count--，必要时直接释放缓冲区
-    void DecrementPendingOperations(page_id_t page_id , LRLocalPageLock *lr_lock){
-
+    void DecrementPendingOperations(table_id_t table_id , page_id_t page_id , LRLocalPageLock *lr_lock){
         std::lock_guard<std::mutex> lock(mtx);
         pending_operation_counts[page_id]--;
         assert(pending_operation_counts[page_id] >= 0);
@@ -258,6 +272,7 @@ public:
             lr_lock->setIsNamedToPush(false);
             if (should_release_buffer[page_id]){
                 should_release_buffer[page_id] = false;
+                LOG(INFO) << "Type2: table_id = " << table_id << " page_id = " << page_id;
                 release_page(page_id);
                 pushing_cv.notify_all();
             }

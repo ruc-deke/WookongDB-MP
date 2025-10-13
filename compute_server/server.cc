@@ -115,8 +115,7 @@ void ComputeNodeServiceImpl::NotifyPushPage(::google::protobuf::RpcController* c
     server->get_node()->getBufferPoolByIndex(table_id)->IncreasePendingOperations(page_id, dest_node_id_size);
     server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->setIsNamedToPush(true);
 
-    // 在 Pending 阶段把计数 + 1 了，这里把那个+1 的还回去
-    // server->get_node()->getBufferPoolByIndex(table_id)->DecrementPendingOperations(page_id , nullptr);
+
     assert(server->get_node()->getBufferPoolByIndex(table_id)->getPendingCounts(page_id) != 0);
 
     for (int i = 0 ; i < dest_node_id_size ; i++){
@@ -195,6 +194,25 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
             }
             //! unlock remote ok and unlatch local
             if(SYSTEM_MODE == 1){
+                // 其实不需要写回到存储层，因为走到这里，如果是释放写锁，那一定会要求这个节点把页面推送给对方，页面不会丢失
+                // if (unlock_remote == 2){
+                //     // 写回到存储层（释放写锁时）
+                //     Page* page = server->get_node()->fetch_page(table_id, page_id);
+                //     storage_service::StorageService_Stub storage_stub(server->get_storage_channel());
+                //     brpc::Controller cntl_wp;
+                //     storage_service::WritePageRequest req;
+                //     storage_service::WritePageResponse resp;
+                //     auto* pid = req.mutable_page_id();
+                //     pid->set_table_name(server->table_name_meta[table_id]);
+                //     pid->set_page_no(page_id);
+                //     req.set_data(page->get_data(), PAGE_SIZE);
+                //     storage_stub.WritePage(&cntl_wp, &req, &resp, NULL);
+                //     if (cntl_wp.Failed()) {
+                //         LOG(ERROR) << "WritePage RPC failed for table_id=" << table_id
+                //                    << " page_id=" << page_id
+                //                    << " err=" << cntl_wp.ErrorText();
+                //     }
+                // }
                 // 标记释放页面
                 server->get_node()
                         ->getBufferPoolByIndex(table_id)
@@ -223,13 +241,17 @@ void ComputeNodeServiceImpl::GetPage(::google::protobuf::RpcController* controll
         brpc::ClosureGuard done_guard(done);
         page_id_t page_id = request->page_id().page_no();
         // Page* page = server->get_node()->getBufferPool()->GetPage(page_id);
-        Page* page = server->get_node()->getBufferPoolByIndex(request->page_id().table_id())->fetch_page(page_id);
+        table_id_t table_id = request->page_id().table_id();
+        Page* page = server->get_node()->fetch_page_special(table_id , page_id);
+        if (page == nullptr){
+            response->set_need_to_storage(true);
+            return;
+        }
+        auto pid = page->get_page_id();
+        assert(pid.page_no == page_id);
+        assert(pid.table_id == table_id);
+        response->set_need_to_storage(false);
         response->set_page_data(page->get_data(), PAGE_SIZE);
-
-        // server->get_node()->getBufferPoolByIndex(request->page_id().table_id())->DecrementPendingOperations(page_id);
-
-        // 添加模拟延迟
-        // usleep(NetworkLatency); // 100us
         return;
     }
 
@@ -309,8 +331,15 @@ void ComputeServer::UpdatePageFromRemoteCompute(Page* page, table_id_t table_id,
     if(cntl.Failed()){
         LOG(ERROR) << "Fail to fetch page " << page_id << " from remote compute node";
     }
-    assert(response->page_data().size() == PAGE_SIZE);
-    memcpy(page->get_data(), response->page_data().c_str(), response->page_data().size());
+    // 如果对方提前把数据页给丢掉了，那你就自己去存储拿
+    if (response->need_to_storage()){
+        std::string data = rpc_fetch_page_from_storage(table_id , page_id);
+        memcpy(page->get_data() , data.c_str() , PAGE_SIZE);
+    }else {
+        assert(response->page_data().size() == PAGE_SIZE);
+        memcpy(page->get_data(), response->page_data().c_str(), response->page_data().size());
+    }
+
     // delete response;
     delete response;
     clock_gettime(CLOCK_REALTIME, &end_time);
@@ -439,5 +468,10 @@ void ComputeServer::PushPageRPCDone(compute_node_service::PushPageResponse* resp
     }
 
     LRLocalPageLock *lr_lock = server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id);
-    server->get_node()->getBufferPoolByIndex(table_id)->DecrementPendingOperations(page_id , lr_lock);
+    /*
+        在这里面有 Bug，在这里面的时候页面不在缓冲区里面，排除一下换出的情况
+        1. 被缓冲区换出了？
+        2. 自己主动换出？这个不太可能，
+    */
+    server->get_node()->getBufferPoolByIndex(table_id)->DecrementPendingOperations(table_id , page_id , lr_lock);
 }

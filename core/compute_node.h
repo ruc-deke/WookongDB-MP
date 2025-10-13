@@ -297,6 +297,11 @@ public:
         return local_buffer_pools[table_id]->fetch_page(page_id);
     }
 
+    // 专门给 Pull 用的，Pull 不到的时候，直接让对面去存储拿
+    Page *fetch_page_special(table_id_t table_id , page_id_t page_id){
+        return local_buffer_pools[table_id]->fetch_page_special(page_id);
+    }
+
     const std::atomic<int> &getFetchRemoteCnt() const {
         return fetch_remote_cnt;
     }

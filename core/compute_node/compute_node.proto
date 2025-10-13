@@ -53,6 +53,7 @@ message GetPageRequest {
 
 message GetPageResponse {
     bytes page_data = 1;
+    bool need_to_storage = 2;
 };
 
 message DTX{

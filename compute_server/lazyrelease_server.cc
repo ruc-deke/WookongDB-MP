@@ -8,7 +8,7 @@ static int lazy_cnt = 0;
 
 Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_id) {
     assert(page_id < ComputeNodeBufferPageSize);
-    std::cout << ++cnt << "\n";
+    // std::cout << ++cnt << "\n";
     //LOG(INFO) << "fetching S Page " << "table_id = " << table_id << " page_id = " << page_id << "\n";
     this->node_->fetch_allpage_cnt++;
     // LJTag
@@ -76,8 +76,8 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
             if (pull_node != -1) {
                 // 应该不会走到这里
                 assert(false);
-                page = put_page_into_local_buffer(table_id, page_id, nullptr);
-                UpdatePageFromRemoteCompute(page, table_id, page_id, pull_node);
+                // page = put_page_into_local_buffer(table_id, page_id, nullptr);
+                // UpdatePageFromRemoteCompute(page, table_id, page_id, pull_node);
             } else {
                 // 远端已推送或无需更新：缓冲区已就绪，直接获取
                 page = node_->fetch_page(table_id , page_id);
@@ -99,7 +99,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
 
 Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_id) {
     assert(page_id < ComputeNodeBufferPageSize);
-    std::cout << ++cnt << "\n";
+    // std::cout << ++cnt << "\n";
     // LOG(INFO) << "fetching X Page " << "table_id = " << table_id << " page_id = " << page_id << "\n";
     this->node_->fetch_allpage_cnt++;
 
@@ -174,8 +174,8 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
                 assert(false);
                 // 需要从远端拉取数据：先占位，再更新数据
                 // std::cout << "Pull data from node " << pull_node << " table_id = " << table_id << " page_id = " << page_id << "\n";
-                page = put_page_into_local_buffer(table_id, page_id, nullptr);
-                UpdatePageFromRemoteCompute(page, table_id, page_id, pull_node);
+                // page = put_page_into_local_buffer(table_id, page_id, nullptr);
+                // UpdatePageFromRemoteCompute(page, table_id, page_id, pull_node);
             } else {
                 // 两种情况会到这里：
                 // 1. 远程把数据推过来
