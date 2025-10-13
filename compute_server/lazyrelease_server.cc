@@ -357,7 +357,6 @@ void ComputeServer::rpc_lazy_release_all_page_async() {
     return;
 }
 
-
 // 这里用异步的方法实现释放所有数据页
 void ComputeServer::rpc_lazy_release_all_page_async_new() {
     std::vector<std::vector<std::pair<brpc::CallId, page_id_t>>> unlock_cids(node_->lazy_local_page_lock_tables.size());

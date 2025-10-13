@@ -151,7 +151,7 @@ class PageTableServiceImpl : public PageTableService {
 
             GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
             bool lock_success = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->LockShared(node_id,table_id, valid_info);
-
+  
             response->set_wait_lock_release(!lock_success);
 
             if(lock_success){
@@ -309,7 +309,6 @@ class PageTableServiceImpl : public PageTableService {
                 page_valid_table_list_->at(table_id)->setNodeValidAndNewest(next_nodes.front(), page_id);
                 // 在这里解锁 LR_Lock
                 page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->setComputeNodePendingAfterTransfer(table_id , immedia_transfer ,valid_info);
-                page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->setPushSrc(-1);
             }
             // 把自己现在这个锁给释放了
             for (auto hold_node : next_nodes){

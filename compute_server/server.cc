@@ -224,8 +224,6 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
             // delete response;
             delete unlock_response;
         }
-
-        
     }
 
     // 添加模拟延迟
@@ -471,7 +469,7 @@ void ComputeServer::PushPageRPCDone(compute_node_service::PushPageResponse* resp
     /*
         在这里面有 Bug，在这里面的时候页面不在缓冲区里面，排除一下换出的情况
         1. 被缓冲区换出了？
-        2. 自己主动换出？这个不太可能，
+        2. 自己主动换出？这个不可能，因为一轮只会释放一次页面，而本轮页面没释放的话，下一轮是拿不到锁的
     */
     server->get_node()->getBufferPoolByIndex(table_id)->DecrementPendingOperations(table_id , page_id , lr_lock);
 }

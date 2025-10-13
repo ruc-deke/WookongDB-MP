@@ -201,14 +201,12 @@ public:
             page_id_t victim_page_id = pages[frame_id]->page_id_;
             assert(victim_page_id != INVALID_PAGE_ID);
 
-            // 这里是一个很巧妙的思想，可以直接解锁
             // 在这个地方，缓冲池只是负责提供一个思路，告诉 PageLock，你试一下来淘汰这个
             // 提供完思路之后，其实就没缓冲区什么事了，它可以直接解锁
             // 在别的地方，都是先给 PageLock 加锁，再给缓冲区加锁的，所以不用担心并发的问题(因为下面设置了PageLock 为 is_evicating,所以别的线程拿不到 PageLock 的锁，自然拿不到缓冲区的锁)
             mtx.unlock();
 
             bool ok = try_begin_evict(victim_page_id);
-        
             /*
                 有一个 Bug，走到 endVictim 里面的时候，帧已经不在 lru_lists 里面了
                 排除一下：
@@ -271,9 +269,10 @@ public:
             // 只要计数 = 0 ，就把标记设置为 false，因为 PushPage 完成的时候，可能还没 markrelease
             lr_lock->setIsNamedToPush(false);
             if (should_release_buffer[page_id]){
+                // LOG(INFO) << "Type2: table_id = " << table_id << " page_id = " << page_id ;
                 should_release_buffer[page_id] = false;
-                LOG(INFO) << "Type2: table_id = " << table_id << " page_id = " << page_id;
                 release_page(page_id);
+                
                 pushing_cv.notify_all();
             }
         }

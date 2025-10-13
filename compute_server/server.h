@@ -302,11 +302,8 @@ public:
                     continue;
                 }else {
                     // 允许你换出这个帧了
-                    // 发现 Bug 了，这里还有一种边界情况，我在一开始排除了本地正在 PushPage，然后排除远程正在 PushPage
-                    // 但是还有一种情况，一开始的时候本地还没被要求 PushPage，然后我检查完远程之后，被要求 PushPage 了，这个时候就很麻烦了，需要再等待 PushOver
-                    // 没这个问题了，我在远程缓冲池里面排除了这种情况
-                    // node_->getBufferPoolByIndex(table_id)->waitingForPushOver(replaced_page_id);
-                    LOG(INFO) << "Type1: table_id = " << table_id << " page_id = " << page_id;
+                    // 
+                    // LOG(INFO) << "Type1: table_id = " << table_id << " page_id = " << page_id;
                     delete response;
                     delete request;
                 }

@@ -84,7 +84,7 @@
             ]
         },
         {
-            "name": "(gdb)compute-server1",
+            "name": "(gdb)compute-server2",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",

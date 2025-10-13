@@ -282,31 +282,6 @@ public:
         }
     }
 
-    int UnlockAnyNoBlock(){
-        // 这个函数在一个线程结束的时候调用，此时本地的锁已经释放，远程的锁也应该释放
-        int unlock_remote; // 0表示不需要释放远程锁, 1表示需要释放S锁, 2表示需要释放X锁
-        mutex.lock();
-        assert(lock == 0);
-        assert(!is_granting && !is_pending);
-        if(remote_mode == LockMode::NONE){
-            // 远程没有持有锁
-            unlock_remote = 0;
-            mutex.unlock();
-        }
-        else if(remote_mode == LockMode::SHARED){
-            unlock_remote = 1;
-            remote_mode = LockMode::NONE;
-        }
-        else if(remote_mode == LockMode::EXCLUSIVE){
-            unlock_remote = 2;
-            remote_mode = LockMode::NONE;
-        }
-        else{
-            assert(false);
-        }
-        is_released = true;
-        return unlock_remote;
-    }
 
     int UnlockAny(){
         // 这个函数在一个线程结束的时候调用，此时本地的锁已经释放，远程的锁也应该释放

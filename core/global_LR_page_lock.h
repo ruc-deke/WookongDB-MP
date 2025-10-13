@@ -36,24 +36,10 @@ private:
     // std::mutex mutex;    // 用于保护读写锁的互斥锁
     bthread::Mutex mutex;
     
-    // 选了哪个节点来推送数据
-    node_id_t push_src_node_id = -1;
-    // 功能和 push_src_node_id 一致，但是是用来 Debug 的：
     // 验证 SetComputeNodePending 阶段和真正 PushPage 选择推送页面的节点一致
     node_id_t pending_src_node_id = -1;
 
 public:
-    node_id_t getPushSrc_NoBlock() {
-        return push_src_node_id;
-    }
-    void setPushSrc(node_id_t value){
-        mutex.lock();
-        push_src_node_id = value;
-        mutex.unlock();
-    }
-    void setPushSrcNoBlock(node_id_t value){
-        push_src_node_id = value;
-    }
     bool getIsPendingNoBlock(){
         return is_pending;
     }
@@ -77,7 +63,6 @@ public:
         hold_lock_nodes.clear();
         is_pending = false;
         pending_src_node_id = -1;
-        push_src_node_id = -1;
     }
 
     std::list<node_id_t> get_hold_lock_nodes(){
@@ -140,25 +125,21 @@ public:
         page_id_pb->set_page_no(page_id);
         page_id_pb->set_table_id(table_id);
         request.set_allocated_page_id(page_id_pb);
+        // 这个参数其实已经没用了，现在是用来 DEBUG 的
         int trans_node_id = -1; // 从哪个节点发
         if(XPending) {
             assert(hold_lock_nodes.size() == 1);
             // 只有一个节点会持有X 锁，所以直接去队首拿就行
-            // 对于 X 锁来说，
             trans_node_id = hold_lock_nodes.front(); 
             request.set_pending_type(compute_node_service::PendingType::XPending);
         }
         else {
             request.set_pending_type(compute_node_service::PendingType::SPending);
             assert(hold_lock_nodes.size() >= 1); 
-            // 找到 bug 了，这里选择了一个节点，把它的 dest_node_id 设置为 n，然后把缓冲区计数 + 1
-            // 但是问题在于，真正 Push 页面的节点可能不是这里选择的节点，因此需要统一一下
-            
             // 看函数那里的注释，在 LockShared/LockExclusive 里，下一轮持有锁的节点
             if(!valid_info->IsValid(n)){
                 trans_node_id = valid_info->get_newest_nodeID();
             }
-            // trans_node_id = valid_info->get_newest_nodeID();
         }
 
         // Debug：记录下当前选择的节点
@@ -214,6 +195,7 @@ public:
         int trans_node_id = valid_info->get_newest_nodeID_NoBlock();
         request.set_src_node_id(trans_node_id);
 
+        // Debug
         if (pending_src_node_id != -1){
             assert(pending_src_node_id == trans_node_id);
         }
@@ -231,34 +213,22 @@ public:
             request.add_dest_node_ids(node_id);
         }
         if (!found) {
-            // assert(pending_src_node_id == -1);
-            setPushSrcNoBlock(-1);
-            // return ;
             return std::vector<std::pair<bool , int>>();
         }
 
-        setPushSrcNoBlock(trans_node_id);
-
         assert(pending_src_node_id != -1);
-        // pending_src_node_id = -1;   // 重置一下(其实不重置也无所谓)
 
         brpc::Channel* channel = compute_channels[trans_node_id];
         compute_node_service::ComputeNodeService_Stub computenode_stub(channel);
 
         brpc::Controller* cntl = new brpc::Controller();
         compute_node_service::NotifyPushPageResponse* response = new compute_node_service::NotifyPushPageResponse();
-        // computenode_stub.NotifyPushPage(cntl, &request, response,
-        //     brpc::NewCallback(NotifyPushPageRPCDone, response, cntl));
         // 同步调用
         computenode_stub.NotifyPushPage(cntl, &request, response, NULL);
         if (cntl->Failed()){
             LOG(ERROR) << "Fatal Error , brpc Failed";
             assert(false);
         }
-        // 通知完对面 PushPage 后，在 NotifyPushPage 
-        setPushSrcNoBlock(-1);
-        // 不是在这里放
-        // mutex.unlock();
 
         return ret;
     }
