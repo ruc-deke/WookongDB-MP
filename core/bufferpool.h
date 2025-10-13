@@ -211,7 +211,7 @@ public:
                 有一个 Bug，走到 endVictim 里面的时候，帧已经不在 lru_lists 里面了
                 排除一下：
                 1. 是否是被 pin 了？false，try_begin_evict 排除了这种情况，一定是没在使用的页面
-                2. 是否被 release 了？
+                2. 是否被 release 了？有可能，两个线程选中了同一个帧淘汰，可以设置一个标记位
             */
             replacer->endVictim(ok , &frame_id);
 
@@ -257,25 +257,16 @@ public:
     // count--，必要时直接释放缓冲区
     void DecrementPendingOperations(table_id_t table_id , page_id_t page_id , LRLocalPageLock *lr_lock){
         std::lock_guard<std::mutex> lock(mtx);
+        // pending_operation_counts[page_id]--;
+        int nextCount = pending_operation_counts[page_id] - 1;
+        assert(nextCount >= 0);
+
+        if (nextCount == 0 && should_release_buffer[page_id]){
+            release_page(page_id);
+            should_release_buffer[page_id] = false;
+            pushing_cv.notify_all();
+        }
         pending_operation_counts[page_id]--;
-        assert(pending_operation_counts[page_id] >= 0);
-
-        if (lr_lock == nullptr){
-            assert(pending_operation_counts[page_id] != 0);
-            return;
-        }
-
-        if (pending_operation_counts[page_id] == 0){
-            // 只要计数 = 0 ，就把标记设置为 false，因为 PushPage 完成的时候，可能还没 markrelease
-            lr_lock->setIsNamedToPush(false);
-            if (should_release_buffer[page_id]){
-                // LOG(INFO) << "Type2: table_id = " << table_id << " page_id = " << page_id ;
-                should_release_buffer[page_id] = false;
-                release_page(page_id);
-                
-                pushing_cv.notify_all();
-            }
-        }
     }
 
     // 当锁释放的时候，标记一下需要释放缓冲区了

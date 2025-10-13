@@ -38,7 +38,7 @@ public:
         assert(!lru_list.empty());
         int cnt = try_cnt % lru_list.size();
         auto it = lru_list.end();
-        std::cout << "LRU Size : " << lru_list.size() << "\n";
+        // std::cout << "LRU Size : " << lru_list.size() << "\n";
         while (cnt >= 0){
             --it;
             --cnt;

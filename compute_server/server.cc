@@ -109,11 +109,10 @@ void ComputeNodeServiceImpl::NotifyPushPage(::google::protobuf::RpcController* c
 
     assert(server->get_node()->getBufferPoolByIndex(table_id)->getPendingCounts(page_id) == 0);
     assert(server->get_node()->getBufferPoolByIndex(table_id)->getShouldReleaseBuffer(page_id) == false);
-    assert(server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->getIsNamedToPush() == false);
+    // assert(server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->getIsNamedToPush() == false);
     // 能走到这里的，一定是已经被指定 PushPage 了
     // 计数 + n，释放是在 PushPageRpcDone 里面
     server->get_node()->getBufferPoolByIndex(table_id)->IncreasePendingOperations(page_id, dest_node_id_size);
-    server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->setIsNamedToPush(true);
 
 
     assert(server->get_node()->getBufferPoolByIndex(table_id)->getPendingCounts(page_id) != 0);

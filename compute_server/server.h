@@ -301,8 +301,9 @@ public:
                     delete request;
                     continue;
                 }else {
-                    // 允许你换出这个帧了
-                    // 
+                    // 都到这里了，其实还是不能淘汰掉本页面
+                    // 举个例子，在远程已经做完仲裁，所有权已经发给新的节点了，
+
                     // LOG(INFO) << "Type1: table_id = " << table_id << " page_id = " << page_id;
                     delete response;
                     delete request;

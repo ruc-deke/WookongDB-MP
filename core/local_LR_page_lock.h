@@ -22,8 +22,6 @@ private:
     bool update_success = false; // 是否更新成功
 
     bool is_evicting;   // 是否正在驱逐页面
-    // 在之前是用 mutex 来管理并发性的，会有bug，改成用这个
-    std::atomic<bool> is_named_to_push;  // 是否正在被指定推送页面
     bool is_released;  // 表示是否真正释放所有权了(而非 lazyRelease 赖着的)
 
 private:
@@ -36,15 +34,7 @@ public:
         lock = 0;
         remote_mode = LockMode::NONE;
         is_evicting = false;
-        is_named_to_push = false;
         is_released = true;
-    }
-
-    void setIsNamedToPush(bool value){
-        is_named_to_push.store(value, std::memory_order_relaxed);
-    }
-    bool getIsNamedToPush(){
-        return is_named_to_push.load(std::memory_order_relaxed);
     }
     
     bool LockShared() {
@@ -198,13 +188,14 @@ public:
 
     bool TryBeginEvict(){
         // is_evicting：我正在选这孩子淘汰，你们这些线程别来沾边
-        // is_named_to_push_page：我正被要求淘汰掉页面呢，别来沾边
-        // 第二个参数无法完全隔绝掉全部的情况，需要和 remote server 配合使用
         std::lock_guard<std::mutex> lk(mutex);
-        if (is_evicting  || is_named_to_push || is_released){
+        if (is_evicting || is_released){
             mutex.unlock();
             return false;
         }
+        // lock = 0 -> 说明不持有远程锁或者持有远程锁但是对页面操作完释放了本地的 latch
+        // is_granting ==1 -> 一定是 lock > 0, 正在申请远程锁
+        // is_pending == 1 -> 你还在用， 让你放的时候没放掉， 等你用完自己放
         // TODO：这里参数的选择可能有问题，后面优化下
         if (lock == 0 && !is_granting && !is_pending){
             is_evicting = true;
@@ -320,7 +311,7 @@ public:
         // LOG(INFO) << "Pending: " << page_id ;
         assert(!is_pending);
 
-        // 如果远程还吃有所
+        // 如果远程还持有锁
         if(!is_granting && remote_mode != LockMode::NONE) {
             assert(remote_mode == LockMode::SHARED || remote_mode == LockMode::EXCLUSIVE);
             // 如果没人在用了，那就立刻释放锁

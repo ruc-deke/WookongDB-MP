@@ -197,13 +197,18 @@ class PageTableServiceImpl : public PageTableService {
             1. 如果到达这里了，但是不在 hold_lock_nodes(到达这里之前一定持有所有权)，说明在发送的过程中页面所有权被释放了
                那么这个节点就是危险的，因为你不知道它现在在主节点是什么状态，干脆直接不要了，反正这种情况发生概率非常低
             2. 如果到达这里，且在 hold_lock_nodes 中
-                2.1 is_pending = false，都到这里了，说明节点一定是不在用的，安全可以淘汰
-                2.2 is_pending = true：两种情况：
-                    2.2.1 下一轮没有 node_id 了，即将被淘汰掉
-                    2.2.2 下一轮还有自己，Nice
-                因此，如果 is_pending = true，也是危险了，不要了算了
-            总结：能到这里的，且满足下面两个条件的，一定是危险的
+                2.1 is_pending = true：绝对的危险，本节点可能是马上要被淘汰的(当然也可能继续在下一轮持有，反正比较危险，蒜鸟蒜鸟)
+                2.2 is_pending = false：节点持有本页面的所有权，且没有被淘汰的风险，这个是安全的可以被淘汰掉的
+            注意：虽然在 TransferControl 中就把 is_pending 设置为 false 了，但是 TransferControl 之后是全程持有锁的，不用担心 is_pending 是否安全的问题，这里也持有锁了
+
+            另外，在主节点那边做了处理，在这边解锁的过程中，一定不会有下一轮加锁的请求
         */
+       /*
+            上边全部搞错了，能够走到这里的，在主节点里面已经检查了 lock == 0 && !is_granting && !is_pending，然后隔绝了后续再申请锁的可能
+            上面做的这些已经能够确保走到这里的节点一定不在请求队列里，也就是一定不在请求锁，也不在使用锁
+            但是主节点无法确保不解锁，也就是这里发了 Pending 要主节点解锁，并释放缓冲区，这种情况下可以淘汰掉页面吗？ 
+       */
+
         if (!gl->CheckIsHoldNoBlock(node_id)){
             gl->mutexUnlock();
             response->set_is_chosen_push(true);
@@ -218,7 +223,8 @@ class PageTableServiceImpl : public PageTableService {
         bool need_validate = gl->UnlockAnyNoBlock(node_id);
         response->set_is_chosen_push(false);
         // 把页面所有权让给下一个节点
-        // 会修改两个东西： 1. request_queue：把下一轮的清除，2. hold_lock_nodes：添加下一轮节点
+        // 会修改两个东西： 1. request_queue：把下一轮的清除，2. hold_lock_nodes：添加下一轮节点】
+        // 从这里开始持有 LR_Glocal_Lock 的锁，一直到最后的锁成功
         bool need_transfer = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferControl(table_id);
         auto next_nodes = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->get_hold_lock_nodes();
 
