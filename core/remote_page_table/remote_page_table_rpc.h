@@ -11,6 +11,9 @@
 
 #include "remote_page_table.pb.h"
 
+static int agree_cnt = 0;
+static int reject_cnt = 0;
+
 namespace page_table_service{
 class PageTableServiceImpl : public PageTableService {
     public:
@@ -169,6 +172,7 @@ class PageTableServiceImpl : public PageTableService {
             return;
         }
 
+
     // 缓冲池释放的时候调用的，需要和 LRPAnyUnlock 作区别处理，所以不放在一起了
     virtual void BufferReleaseUnlock(::google::protobuf::RpcController* controller,
                 const ::page_table_service::BufferReleaseUnlockRequest* request,
@@ -183,52 +187,51 @@ class PageTableServiceImpl : public PageTableService {
         GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
         // 这里加锁，是为了确保获取 pending_src 和执行 Unlock 二者是连贯的，不能在二者中间让别人选中了一个新的 pending_src(在LockShared/Exclusive)
         gl->mutexLock();
+
         /*
-            开始之前先明确一下：能到达这里，节点一定不会获得下一轮的锁，因为在主节点那里做了处理，不允许节点再加锁
-
-            总结一下节点的几个状态，方便想，以是否在 hold_lock_nodes 为边界
-            1. 在 hold_lock_nodes 中：
-                1.1 is_pending = false，节点持有所有权，但是不知道在不在用，感觉也没办法知道
-                1.2 is_pending = true，节点持有所有权，但是已经进入到下一轮授予锁的阶段了，可能马上要丢掉所有权
-            2. 不在 hold_lock_nodes 中：
-                2.1 你这家伙谁啊？
-            
-            顺着这个思路走：
-            1. 如果到达这里了，但是不在 hold_lock_nodes(到达这里之前一定持有所有权)，说明在发送的过程中页面所有权被释放了
-               那么这个节点就是危险的，因为你不知道它现在在主节点是什么状态，干脆直接不要了，反正这种情况发生概率非常低
-            2. 如果到达这里，且在 hold_lock_nodes 中
-                2.1 is_pending = true：绝对的危险，本节点可能是马上要被淘汰的(当然也可能继续在下一轮持有，反正比较危险，蒜鸟蒜鸟)
-                2.2 is_pending = false：节点持有本页面的所有权，且没有被淘汰的风险，这个是安全的可以被淘汰掉的
-            注意：虽然在 TransferControl 中就把 is_pending 设置为 false 了，但是 TransferControl 之后是全程持有锁的，不用担心 is_pending 是否安全的问题，这里也持有锁了
-
-            另外，在主节点那边做了处理，在这边解锁的过程中，一定不会有下一轮加锁的请求
+                在主节点里面已经检查了 lock == 0 && !is_granting && !is_pending，然后隔绝了后续再申请锁的可能
+                上面做的这些已经能够确保走到这里的节点一定不在请求队列里，也就是一定不在请求锁，也能确保后续不可能再来申请锁
+                主节点没办法处理的是，如果远程已经让我推送页面了，那怎么把这种情况也排除掉
+                远程可能的情况
+                1. 远程已经把页面释放完了，此时本节点已经被释放了，后续情况很复杂，不如直接让主节点换一个
+                2. 远程正在释放页面的过程中，这种很危险，条件就是 is_pending
+                3. 除了上面两种情况，就是节点正常的情况了，我觉得是没啥问题了
         */
-       /*
-            上边全部搞错了，能够走到这里的，在主节点里面已经检查了 lock == 0 && !is_granting && !is_pending，然后隔绝了后续再申请锁的可能
-            上面做的这些已经能够确保走到这里的节点一定不在请求队列里，也就是一定不在请求锁，也不在使用锁
-            但是主节点无法确保不解锁，也就是这里发了 Pending 要主节点解锁，并释放缓冲区，这种情况下可以淘汰掉页面吗？ 
-       */
-
+        // 第一种情况：已经把页面释放完了(注意本节点的请求一定不会在请求队列里，所以不需要考虑请求队列的情况)
         if (!gl->CheckIsHoldNoBlock(node_id)){
-            gl->mutexUnlock();
-            response->set_is_chosen_push(true);
-            return;
-        } else if (gl->getIsPendingNoBlock()){
+            std::cout << "Rejected " << ++reject_cnt << " agree_cnt = " << agree_cnt << "\n";
             gl->mutexUnlock();
             response->set_is_chosen_push(true);
             return;
         }
-
-        // 这里也先别释放锁，在后面会自己释放锁,要么在 TransferControl里，要么在 TranfserPending 里
+        // 第二种情况：还在释放页面的过程中
+        if (gl->getIsPendingNoBlock()){
+            std::cout << "Rejected " << ++reject_cnt << " agree_cnt = " << agree_cnt << "\n";
+            gl->mutexUnlock();
+            response->set_is_chosen_push(true);
+            return;
+        }
+        agree_cnt++;
+        
+        // 第三种情况，可以安全释放锁了
+        // 这里也先别释放 mutex ，在后面会自己释放锁,要么在 TransferControl里，要么在 TranfserPending 里
         bool need_validate = gl->UnlockAnyNoBlock(node_id);
-        response->set_is_chosen_push(false);
-        // 把页面所有权让给下一个节点
-        // 会修改两个东西： 1. request_queue：把下一轮的清除，2. hold_lock_nodes：添加下一轮节点】
-        // 从这里开始持有 LR_Glocal_Lock 的锁，一直到最后的锁成功
+
+        // 把本节点的有效信息设置为false
+        assert(valid_info->IsValid(node_id));
+        valid_info->setNodeStatus(node_id , false);
+        
+        // 请求队列一定为空，否则 is_pending = true
+        assert(page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->is_request_queue_empty());
+
         bool need_transfer = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferControl(table_id);
         auto next_nodes = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->get_hold_lock_nodes();
 
         if(need_transfer){
+            /*
+                不可能走到这里面的，因此能走到这里，在调用这个函数之前，is_pending 一定等于 true，而我隔绝了这种情况的出现
+            */
+            assert(false);
             // 先取当前的 newest，用于通知下一轮节点的数据来源
             valid_info->Global_Lock();
             assert(!next_nodes.empty());
@@ -250,14 +253,8 @@ class PageTableServiceImpl : public PageTableService {
             // 在这里解锁 LR_Lock
             page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferPending(table_id , immedia_transfer , valid_info);
         }
-        // 把自己现在这个锁给释放了
-        for (auto hold_node : next_nodes){
-            if (hold_node == node_id) {
-                // 如果下一轮还有自己，那就不需要释放掉本页面的所有权
-                return ;
-            }
-        }
-        page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->ReleasePage(node_id);
+        response->set_is_chosen_push(false);
+
     }
     
     /*

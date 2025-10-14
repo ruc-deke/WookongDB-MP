@@ -147,7 +147,7 @@ public:
         return node_has_newest_page_status[node_id];
     }
 
-    void setNodeStatus(node_id_t node_id , bool status){
+    void setNodeStatusNoBlock(node_id_t node_id , bool status){
         node_has_newest_page_status[node_id] = status;
         // 如果将 newest_node 设置为无效，需要重置 newest_node
         if (!status && newest_node == node_id) {
@@ -161,8 +161,23 @@ public:
             }
         }
     }
+    void setNodeStatus(node_id_t node_id , bool status){
+        mutex.lock();
+        node_has_newest_page_status[node_id] = status;
+        if (!status && newest_node == node_id){
+            newest_node = -1;
+            for (int i =0 ; i < MaxComputeNodeCount ; i++){
+                if (node_has_newest_page_status[i]){
+                    newest_node = i;
+                    mutex.unlock();
+                    break;
+                }
+            }
+        }
+        mutex.unlock();
+    }
 
-    // 设置某节点为有效，并将 newest_node 指向该节点（不清空其他节点，支持 S 锁多副本）
+    // 设置某节点为有效，并将 newest_node 指向该节点
     void SetValidAndUpdateNewest(node_id_t node_id) {
         node_has_newest_page_status[node_id] = true;
         newest_node = node_id;
@@ -198,11 +213,11 @@ public:
     }
 
     void setNodeValid(node_id_t node_id , page_id_t page_id){
-        valid_table[page_id]->setNodeStatus(node_id , true);
+        valid_table[page_id]->setNodeStatusNoBlock(node_id , true);
     }
 
     void setNodeInvalid(node_id_t node_id , page_id_t page_id){
-        valid_table[page_id]->setNodeStatus(node_id , false);
+        valid_table[page_id]->setNodeStatusNoBlock(node_id , false);
     }
 
     // 新增：置该节点为有效并更新 newest_node

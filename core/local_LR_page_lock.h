@@ -22,7 +22,7 @@ private:
     bool update_success = false; // 是否更新成功
 
     bool is_evicting;   // 是否正在驱逐页面
-    bool is_released;  // 表示是否真正释放所有权了(而非 lazyRelease 赖着的)
+    bool is_released;   // 表示是否真正释放释放所有权了(而不是lazyRelease赖着的)
 
 private:
     std::mutex mutex;    // 用于保护读写锁的互斥锁

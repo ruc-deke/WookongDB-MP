@@ -66,7 +66,6 @@ public:
         std::lock_guard<std::mutex> lk(mtx);
         auto it = page_table.find(page_id);
         if (it == page_table.end()){
-            std::cout << "Pull Data has swap out\n";
             return nullptr;
         }
         frame_id_t frame_id = it->second;
@@ -127,45 +126,6 @@ public:
         return (page_table.find(page_id) != page_table.end());
     }
 
-    // // 这里只负责找到空闲的页面，填入到 frame_id 里
-    // // is_from_lru：是否是从 LRU 中删除的，LRU 中存储的是持有，但未使用的页面，也就是最上面备注提到的第3类页面
-    // bool find_victim_pages(frame_id_t &frame_id , 
-    //             bool& is_from_lru ,
-    //             int &try_cnt ,
-    //             const std::function<bool(page_id_t)> &try_begin_evict) {
-    //     if (free_lists.size() == 0){
-    //         // 走到这里说明已经没有空闲页面了，需要去淘汰掉因为延迟获取所有权而放在 LRU 里面的页面
-    //         is_from_lru = true; 
-    //         // 一直找到一个能够用的
-    //         bool need_loop = true;
-    //         while(need_loop){
-    //             bool res = replacer->tryVictim(&frame_id , try_cnt);
-    //             // res == false 代表缓冲区也没人换出去了，这种情况几乎不可能
-    //             // 开的线程数量和缓冲区容量差不多的时候，才可能出现这种情况
-    //             assert(res);
-
-    //             mtx.unlock();
-
-    //             page_id_t victim_page_id = pages[frame_id]->page_id_;
-    //             assert(victim_page_id != INVALID_PAGE_ID);
-
-    //             bool ok = try_begin_evict(victim_page_id);
-    //             replacer->endVictim(ok , &frame_id);
-    //             mtx.lock();
-    //             need_loop = (!ok);
-    //             if (!ok){
-    //                 // 需要再来一次
-    //                 try_cnt++;
-    //             }
-            
-    //         }
-    //     }else {
-    //         frame_id = free_lists.front();
-    //         free_lists.pop_front();
-    //     }
-    //     return true;
-    // }
-
     bool checkIfDirectlyPutInBuffer(page_id_t page_id , frame_id_t &frame_id){
         bool ret = false;
         waitingForPushOver(page_id);
@@ -211,7 +171,10 @@ public:
                 有一个 Bug，走到 endVictim 里面的时候，帧已经不在 lru_lists 里面了
                 排除一下：
                 1. 是否是被 pin 了？false，try_begin_evict 排除了这种情况，一定是没在使用的页面
-                2. 是否被 release 了？有可能，两个线程选中了同一个帧淘汰，可以设置一个标记位
+                2. 是否被 release 了
+                   2.1 可能是被别的线程淘汰的时候选中然后淘汰了，设置一个标记位，我选中了就不让对面选了
+                   2.2 可能是真的被淘汰了，加入到了 free_lists 里，在 LR_Local_Page_Lock 里加一个字段，is_released
+                3. 暂时 OK 了
             */
             replacer->endVictim(ok , &frame_id);
 
@@ -263,8 +226,10 @@ public:
 
         if (nextCount == 0 && should_release_buffer[page_id]){
             release_page(page_id);
+            pending_operation_counts[page_id]--;
             should_release_buffer[page_id] = false;
             pushing_cv.notify_all();
+            return;
         }
         pending_operation_counts[page_id]--;
     }

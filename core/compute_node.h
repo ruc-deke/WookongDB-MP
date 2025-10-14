@@ -297,7 +297,10 @@ public:
         return local_buffer_pools[table_id]->fetch_page(page_id);
     }
 
-    // 专门给 Pull 用的，Pull 不到的时候，直接让对面去存储拿
+    // 两个地方会调用这个：
+    // 1. 释放缓冲区，刷新到存储那里
+    // 2. Pull 数据的地方
+    // 两个地方为什么调用这个，各自的注释都写了
     Page *fetch_page_special(table_id_t table_id , page_id_t page_id){
         return local_buffer_pools[table_id]->fetch_page_special(page_id);
     }

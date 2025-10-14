@@ -22,7 +22,6 @@ public:
 private:
 };
 
-// 在这个项目里，LRU其实是没用的，因为缓冲池无法自主决定要淘汰掉哪些页面
 class LRU_Replacer : public ReplacerBase {
 public:
     std::shared_ptr<LRU_Replacer> ptr;
@@ -38,7 +37,6 @@ public:
         assert(!lru_list.empty());
         int cnt = try_cnt % lru_list.size();
         auto it = lru_list.end();
-        // std::cout << "LRU Size : " << lru_list.size() << "\n";
         while (cnt >= 0){
             --it;
             --cnt;

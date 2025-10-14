@@ -37,7 +37,7 @@ private:
     bthread::Mutex mutex;
     
     // 验证 SetComputeNodePending 阶段和真正 PushPage 选择推送页面的节点一致
-    node_id_t pending_src_node_id = -1;
+    // node_id_t pending_src_node_id = -1;
 
 public:
     bool getIsPendingNoBlock(){
@@ -62,11 +62,15 @@ public:
         lock = 0;
         hold_lock_nodes.clear();
         is_pending = false;
-        pending_src_node_id = -1;
+        // pending_src_node_id = -1;
     }
 
     std::list<node_id_t> get_hold_lock_nodes(){
         return hold_lock_nodes;
+    }
+
+    bool is_request_queue_empty() const {
+        return request_queue.empty();
     }
 
     void add_hold_lock_node(node_id_t node_id){
@@ -143,7 +147,7 @@ public:
         }
 
         // Debug：记录下当前选择的节点
-        pending_src_node_id = trans_node_id;
+        // pending_src_node_id = trans_node_id;
         // 向所有的持有锁的计算节点发送释放锁请求
         std::vector<brpc::CallId> cids;
         for(auto node_id : hold_lock_nodes){
@@ -196,9 +200,9 @@ public:
         request.set_src_node_id(trans_node_id);
 
         // Debug
-        if (pending_src_node_id != -1){
-            assert(pending_src_node_id == trans_node_id);
-        }
+        // if (pending_src_node_id != -1){
+        //     assert(pending_src_node_id == trans_node_id);
+        // }
 
         bool found = false;
         for (node_id_t node_id : hold_lock_nodes){
@@ -209,14 +213,14 @@ public:
             }
             ret.emplace_back(std::make_pair(true , node_id));
             found = true;
-            std::cout << "node:" << trans_node_id << " push page to node" << node_id << " table_id = " << table_id << " page_id = " << page_id << "\n";
+            // std::cout << "node:" << trans_node_id << " push page to node" << node_id << " table_id = " << table_id << " page_id = " << page_id << "\n";
             request.add_dest_node_ids(node_id);
         }
         if (!found) {
             return std::vector<std::pair<bool , int>>();
         }
 
-        assert(pending_src_node_id != -1);
+        // assert(pending_src_node_id != -1);
 
         brpc::Channel* channel = compute_channels[trans_node_id];
         compute_node_service::ComputeNodeService_Stub computenode_stub(channel);
@@ -290,7 +294,7 @@ public:
         }
 
         int trans_node_id = valid_info->get_newest_nodeID();
-        pending_src_node_id = trans_node_id;
+        // pending_src_node_id = trans_node_id;
         
         compute_node_service::PendingRequest rpc_req;
         compute_node_service::PageID* pid = new compute_node_service::PageID();
@@ -498,14 +502,15 @@ public:
             }
         }
         else{
+            // 走到这里说明上一轮持锁的还没全部释放完，先等着吧
             assert(is_pending);
             assert(hold_lock_nodes.size()>0);
             auto request = request_queue.front();
             // 这种情况很特殊，举个例子：
             /*
-                1. Node0 和 Node1 都持有 S 锁，然后 Node0 想要 X 锁
-                2. RemoteServer 向 Node0 和 Node1 发送 Pending ，Node1 先调用 LRPAnyUnlock
-                3. Node1 解锁了之后，只剩 Node0 持有了，就是下面这种情况，这种情况下直接给它所有权就行了
+                1. Node0 和 Node1 此时都持有 S 锁，然后 Node0 想要 X 锁，它向 RemoteServer 发送了 Lock 请求
+                2. 由于 Node0 本轮已经持有锁，所以 RemoteServer 只会向 Node1 发送 Pending，Node1 释放锁就会走到这个地方
+                3，此时直接授予所有权即可
             */
             if(lock == 1 && hold_lock_nodes.front() == request.node_id){
                 lock = EXCLUSIVE_LOCKED;
@@ -616,6 +621,10 @@ public:
             // 在Transfer Control中释放mutex
         }
         return need_validate;
+    }
+
+    int getLockNoBlock(){
+        return lock;
     }
 
     void InvalidOK(){

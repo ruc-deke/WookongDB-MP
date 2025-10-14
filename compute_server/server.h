@@ -263,13 +263,45 @@ public:
         int try_cnt = -1;
         while(true){
             try_cnt++;
-            // 先找到一个淘汰的页面，然后再真正淘汰它，这个函数并没有真正淘汰，只是选择了一个页面
+            // 先找到一个淘汰的页面，这个函数并没有真正淘汰，只是选择了一个页面
             page_id_t replaced_page_id = node_->getBufferPoolByIndex(table_id)->replace_page(page_id , frame_id , try_cnt , try_begin_evict);
             assert(frame_id >= 0);
 
             assert(replaced_page_id != INVALID_PAGE_ID);
             LRLocalPageLock *lr_local_lock = node_->lazy_local_page_lock_tables[table_id]->GetLock(replaced_page_id);
             int unlock_remote = lr_local_lock->getUnlockType();
+            if (unlock_remote == 2){
+                /*
+                    这里把页面写回到磁盘，至于为啥是先写回到磁盘，再去远程解锁呢，难道不怕远程不允许解锁吗？
+                    有两个方面的考虑：
+                    1. 有一个边界条件，如果先解锁远程，再写回到磁盘，加入远程解锁之后，没有节点持有页面所有权了，远程让
+                       这个节点去存储拿，但是这里可能还没写回到磁盘，导致节点读取到错误的数据
+                    2. 我去测试了一下，即使只开了 300 个页面作为缓冲区，发生远程拒绝的情况也只是 1/4000 左右
+                    所以这里先刷下去无所谓，即使远程解锁失败了，刷下去的页面开销也很小 
+                */
+                // 还有一种边界情况：就是到这里的时候，页面可能已经被释放了(PushPage 完成了)，这种情况的话
+                // 一定有别的节点持有所有权，别的节点申请页面一定不会让我来 Push，或者来我这 Pull，因为我已在远程释放，且远程申请解锁是一定失败的，所以直接跳过即可
+                Page *old_page = node_->fetch_page_special(table_id , replaced_page_id);
+                if (old_page == nullptr){
+                    // 换一个
+                    lr_local_lock->EndEvict();
+                    continue;
+                }
+                storage_service::StorageService_Stub storage_stub(get_storage_channel());
+                brpc::Controller cntl_wp;
+                storage_service::WritePageRequest req;
+                storage_service::WritePageResponse resp;
+                auto* pid = req.mutable_page_id();
+                pid->set_table_name(table_name_meta[table_id]);
+                pid->set_page_no(replaced_page_id);
+                req.set_data(old_page->get_data(), PAGE_SIZE);
+                storage_stub.WritePage(&cntl_wp, &req, &resp, NULL);
+                if (cntl_wp.Failed()) {
+                    LOG(ERROR) << "WritePage RPC failed for table_id=" << table_id
+                                << " page_id=" << replaced_page_id
+                                << " err=" << cntl_wp.ErrorText();
+                }
+            }
             if (unlock_remote){
                 page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
                 auto *request = new page_table_service::BufferReleaseUnlockRequest();
@@ -291,8 +323,7 @@ public:
                 }else if (response->is_chosen_push()){
                     std::cout << "This Page Is Rejected\n";
                     // 需要把之前缓冲区锁定的那个页面搞回来
-                    // 看 RemoteServer 释放缓冲区那块代码的备注，到达这里的时候
-                    // 页面是极大可能被淘汰的，因此 unpin_page 不需要这么严格，可以不在缓冲区内
+                    // 到这里的时候，页面有很大可能已经被淘汰，因此 unpin_page 不需要这么严格，可以不在缓冲区内
                     node_->getBufferPoolByIndex(table_id)->unpin_special(replaced_page_id);
                     // 如果在这个页面上，我被选中去推送页面了，那我就滚
                     lr_local_lock->EndEvict();
@@ -301,9 +332,6 @@ public:
                     delete request;
                     continue;
                 }else {
-                    // 都到这里了，其实还是不能淘汰掉本页面
-                    // 举个例子，在远程已经做完仲裁，所有权已经发给新的节点了，
-
                     // LOG(INFO) << "Type1: table_id = " << table_id << " page_id = " << page_id;
                     delete response;
                     delete request;
@@ -312,27 +340,8 @@ public:
                 // 不需要在远程解锁，直接用就行
             }
 
-            int unlock_remote2 = lr_local_lock->UnlockAny();
-            if (unlock_remote2){
-                // 写锁释放时写回磁盘
-                if (unlock_remote2 == 2) {
-                    // 写回到磁盘
-                    Page *old_page = node_->fetch_page(table_id , replaced_page_id);
-                    storage_service::StorageService_Stub storage_stub(get_storage_channel());
-                    brpc::Controller cntl_wp;
-                    storage_service::WritePageRequest req;
-                    storage_service::WritePageResponse resp;
-                    auto* pid = req.mutable_page_id();
-                    pid->set_table_name(table_name_meta[table_id]);
-                    pid->set_page_no(replaced_page_id);
-                    req.set_data(old_page->get_data(), PAGE_SIZE);
-                    storage_stub.WritePage(&cntl_wp, &req, &resp, NULL);
-                    if (cntl_wp.Failed()) {
-                        LOG(ERROR) << "WritePage RPC failed for table_id=" << table_id
-                                   << " page_id=" << replaced_page_id
-                                   << " err=" << cntl_wp.ErrorText();
-                    }
-                }
+            int lock_type1 = lr_local_lock->UnlockAny();
+            if (lock_type1){
                 lr_local_lock->UnlockRemoteOK();
             }
             Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(
