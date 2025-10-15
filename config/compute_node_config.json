@@ -7,7 +7,7 @@
 "txn_system": 1,
     "batch_size": 400
   },
-  "table_buffer_pool_size": 50,
+  "table_buffer_pool_size": 60,
   "remote_compute_nodes": {
     "remote_compute_node_ips": [
       "127.0.0.1",

@@ -111,11 +111,10 @@ void ComputeNodeServiceImpl::NotifyPushPage(::google::protobuf::RpcController* c
     assert(server->get_node()->getBufferPoolByIndex(table_id)->getShouldReleaseBuffer(page_id) == false);
     // assert(server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->getIsNamedToPush() == false);
     // 能走到这里的，一定是已经被指定 PushPage 了
+
     // 计数 + n，释放是在 PushPageRpcDone 里面
-    server->get_node()->getBufferPoolByIndex(table_id)->IncreasePendingOperations(page_id, dest_node_id_size);
-
-
-    assert(server->get_node()->getBufferPoolByIndex(table_id)->getPendingCounts(page_id) != 0);
+    // server->get_node()->getBufferPoolByIndex(table_id)->IncreasePendingOperations(page_id, dest_node_id_size);
+    // assert(server->get_node()->getBufferPoolByIndex(table_id)->getPendingCounts(page_id) != 0);
 
     for (int i = 0 ; i < dest_node_id_size ; i++){
         node_id_t dest_node = request->dest_node_ids(i);
@@ -194,6 +193,7 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
             if(SYSTEM_MODE == 1){
                 // 不需要在这里写回存储，因为走到这里一定会发生所有权的转移
                 // 标记释放页面
+                LOG(INFO) << "MarkRelease3 , table_id = " << table_id << " page_id = " << page_id;
                 server->get_node()
                         ->getBufferPoolByIndex(table_id)
                         ->MarkForBufferRelease(table_id , page_id);
@@ -444,5 +444,5 @@ void ComputeServer::PushPageRPCDone(compute_node_service::PushPageResponse* resp
         1. 被缓冲区换出了？
         2. 自己主动换出？这个不可能，因为一轮只会释放一次页面，而本轮页面没释放的话，下一轮是拿不到锁的
     */
-    server->get_node()->getBufferPoolByIndex(table_id)->DecrementPendingOperations(table_id , page_id , lr_lock);
+    // server->get_node()->getBufferPoolByIndex(table_id)->DecrementPendingOperations(table_id , page_id , lr_lock);
 }

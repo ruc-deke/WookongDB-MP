@@ -237,6 +237,7 @@ void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_
     if(cntl.Failed()){
         LOG(ERROR) << "Fail to unlock page " << page_id << " in remote page table";
     }
+    LOG(INFO) << "MarkRelease2 , table_id = " << table_id << " page_id = " << page_id;
     node_->getBufferPoolByIndex(table_id)->MarkForBufferRelease(table_id , page_id);
     node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockRemoteOK();
 
@@ -274,24 +275,25 @@ void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_
         LOG(ERROR) << "Fail to unlock page " << page_id << " in remote page table";
     }
 
-    // 写回到存储层
-    {
-        Page *page = node_->fetch_page(table_id , page_id);
-        storage_service::StorageService_Stub storage_stub(get_storage_channel());
-        brpc::Controller cntl_wp;
-        storage_service::WritePageRequest req;
-        storage_service::WritePageResponse resp;
-        auto* pid = req.mutable_page_id();
-        pid->set_table_name(table_name_meta[table_id]);
-        pid->set_page_no(page_id);
-        req.set_data(page->get_data(), PAGE_SIZE);
-        storage_stub.WritePage(&cntl_wp, &req, &resp, NULL);
-        if (cntl_wp.Failed()) {
-            LOG(ERROR) << "WritePage RPC failed for table_id=" << table_id << " page_id=" << page_id
-                        << " err=" << cntl_wp.ErrorText();
-        }
-    }
+    // 不需要写回到存储层，能到这里的，说明页面肯定会发给别人
+    // {
+    //     Page *page = node_->fetch_page(table_id , page_id);
+    //     storage_service::StorageService_Stub storage_stub(get_storage_channel());
+    //     brpc::Controller cntl_wp;
+    //     storage_service::WritePageRequest req;
+    //     storage_service::WritePageResponse resp;
+    //     auto* pid = req.mutable_page_id();
+    //     pid->set_table_name(table_name_meta[table_id]);
+    //     pid->set_page_no(page_id);
+    //     req.set_data(page->get_data(), PAGE_SIZE);
+    //     storage_stub.WritePage(&cntl_wp, &req, &resp, NULL);
+    //     if (cntl_wp.Failed()) {
+    //         LOG(ERROR) << "WritePage RPC failed for table_id=" << table_id << " page_id=" << page_id
+    //                     << " err=" << cntl_wp.ErrorText();
+    //     }
+    // }
 
+    LOG(INFO) << "MarkRelease1 , table_id = " << table_id << " page_id = " << page_id;
     node_->getBufferPoolByIndex(table_id)->MarkForBufferRelease(table_id , page_id);
     //assert(node_->getBufferPoolByIndex(table_id)->is_in_bufferPool(page_id));
     

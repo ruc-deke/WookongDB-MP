@@ -270,6 +270,11 @@ public:
             assert(replaced_page_id != INVALID_PAGE_ID);
             LRLocalPageLock *lr_local_lock = node_->lazy_local_page_lock_tables[table_id]->GetLock(replaced_page_id);
             int unlock_remote = lr_local_lock->getUnlockType();
+            // 如果 unlock_remote = 0，代表已经释放了，不可控
+            if (unlock_remote == 0){
+                lr_local_lock->EndEvict();
+                continue;
+            }
             if (unlock_remote == 2){
                 /*
                     这里把页面写回到磁盘，至于为啥是先写回到磁盘，再去远程解锁呢，难道不怕远程不允许解锁吗？
@@ -305,6 +310,8 @@ public:
                 request->set_allocated_page_id(pid);
                 request->set_node_id(node_->node_id);
 
+                LOG(INFO) << "Try , table_id = " << table_id << " page_id = " << page_id;
+
                 brpc::Controller cntl;
                 pagetable_stub.BufferReleaseUnlock(&cntl , request , response , NULL);
                 if (cntl.Failed()){
@@ -321,29 +328,23 @@ public:
                     delete request;
                     continue;
                 }else {
-                    // LOG(INFO) << "Type1: table_id = " << table_id << " page_id = " << page_id;
                     delete response;
                     delete request;
                 }
-            }else {
-                // 不需要在远程解锁，直接用就行
             }
 
             LOG(INFO) << "Evicting a page success , table_id = " << table_id << " page_id = " << page_id << " replaced table_id = " << table_id << " page_id = " << replaced_page_id;
 
-            // 这里需要等待推送数据完成，原因是已经 Unlock ，但是还在 Push 的页面会被标记为可替换的(主节点其实没法感知到是否正在 Push)
-            // 因此这里可能会把正在 Push 的页面给释放了，等待对方 Push 完成，再插入
-            bool is_wait = node_->getBufferPoolByIndex(table_id)->waitingForPushOver(replaced_page_id);
             Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(
                 table_id,
                 page_id ,
                 frame_id ,
-                !is_wait ,
+                true ,
                 replaced_page_id ,
                 data
             );
+            LOG(INFO) << "Evicting a page success after insert , table_id = " << table_id << " page_id = " << page_id << " replaced table_id = " << table_id << " page_id = " << replaced_page_id;
 
-            // LOG(INFO) << "Release : table_id = " << table_id << " page_id = " << page_id << " node_id : " << node_->getNodeID();
             int lock_type1 = lr_local_lock->UnlockAny();
             if (lock_type1){
                 lr_local_lock->UnlockRemoteOK();
