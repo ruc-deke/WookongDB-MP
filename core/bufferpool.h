@@ -92,6 +92,14 @@ public:
         free_lists.push_back(frame_id);
     }
 
+    void release_page_from_page_table(page_id_t page_id){
+        auto it = page_table.find(page_id);
+        assert(it != page_table.end());
+        frame_id_t frame_id = it->second;
+        page_table.erase(it);
+        // 不需要 pin，也不需要放回到 free_lists 里
+    }
+
 
     void pin_page(page_id_t page_id){
         std::lock_guard<std::mutex> lk(mtx);
@@ -204,11 +212,17 @@ public:
         std::lock_guard<std::mutex> lock(mtx);
         if (need_to_replace){
             assert(replaced_page != INVALID_PAGE_ID);
-            assert(page_table.find(replaced_page) != page_table.end());
-            // LOG(INFO) << "Need to replace , table_id = " << table_id << " page_id = " << page_id; 
-            page_table.erase(replaced_page);
+            // assert(page_table.find(replaced_page) != page_table.end());
+            // page_table.erase(replaced_page);
+            // 到这里的时候，页面是有可能不在缓冲池里的，我举个流程：
+            // 1. 节点被指定 PushPage，然后在 PushPage 的过程中被选中了用来淘汰
+            // 2. 到这里的时候，淘汰已经完成了，因此 waitforpushover 返回 false，但是其实页面已经被淘汰了
+            if (page_table.find(replaced_page) != page_table.end()){
+                page_table.erase(replaced_page);
+            }
         }                                                                                           
 
+        assert(page_table.find(replaced_page) == page_table.end());
         page_table[page_id] = frame_id;
         replacer->pin(frame_id);
         Page *page = pages[frame_id];
@@ -234,12 +248,28 @@ public:
     // count--，必要时直接释放缓冲区
     void DecrementPendingOperations(table_id_t table_id , page_id_t page_id , LRLocalPageLock *lr_lock){
         std::lock_guard<std::mutex> lock(mtx);
-        // pending_operation_counts[page_id]--;
+        assert(lr_lock != nullptr);
         int nextCount = pending_operation_counts[page_id] - 1;
         assert(nextCount >= 0);
 
         if (nextCount == 0 && should_release_buffer[page_id]){
-            // LOG(INFO) << "Decrement : table_id = " << table_id << " page_id = " << page_id;
+            LOG(INFO) << "Decrement : table_id = " << table_id << " page_id = " << page_id;
+
+            /*
+                为什么做这一步呢？
+                假设我正在淘汰页面，远程也同意淘汰了，结果发现被淘汰的页面正在 Push，于是等待
+                可是被淘汰的页面淘汰完成后，如果执行了 release_page，那就会把当前页面放到 free_lists 里面
+                然后别的线程发现 free_lists 里面有东西，于是直接拿来用了，可是这个页面本来应该是给去淘汰页面的线程用的
+                因此在这里检查是否在 is_evicting，如果在的话，不执行 release_page，把这个页面留给淘汰的那个用
+            */
+            if (lr_lock->isEvicting()){
+                // 注意还是得把页面从 page_table 移除的，不然会被搞
+                release_page_from_page_table(page_id);
+                pending_operation_counts[page_id]--;
+                should_release_buffer[page_id] = false;
+                pushing_cv.notify_all();
+                return;
+            }
             release_page(page_id);
             pending_operation_counts[page_id]--;
             should_release_buffer[page_id] = false;
@@ -255,7 +285,7 @@ public:
         std::lock_guard<std::mutex> lock(mtx);
         if (pending_operation_counts[page_id] == 0){
             should_release_buffer[page_id] = false;
-            // LOG(INFO) << "MarkRelease , table_id = " << table_id << " page_id = " << page_id;
+            LOG(INFO) << "MarkRelease , table_id = " << table_id << " page_id = " << page_id;
             release_page(page_id);
         } else {
             should_release_buffer[page_id] = true;
@@ -276,16 +306,18 @@ public:
     }
 
     // 等待 Push 页面的操作完成
-    void waitingForPushOver(page_id_t page_id){
+    bool waitingForPushOver(page_id_t page_id){
         std::unique_lock<std::mutex> lk(mtx);
         // 如果还没标记释放的话，就返回
         if (!should_release_buffer[page_id] || pending_operation_counts[page_id] == 0){
-            return;
+            return false;
         }
 
         pushing_cv.wait(lk , [this , page_id]{
             return (pending_operation_counts[page_id] == 0 || !should_release_buffer[page_id]);
         });
+
+        return true;
     }
 
 private:

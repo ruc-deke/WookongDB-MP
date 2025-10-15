@@ -134,6 +134,10 @@ class PageTableServiceImpl : public PageTableService {
                 page_table_service::PageID *page_id_pb = new page_table_service::PageID();
                 page_id_pb->set_page_no(page_id);
                 response->set_allocated_page_id(page_id_pb);
+
+                LOG(INFO) << "Lock Success Directly , node_id = " << node_id << " table_id = " 
+                    << table_id << " page_id = " << page_id
+                    << " need_from_storage " << need_from_storage;
             }
 
             // 添加模拟延迟
@@ -167,6 +171,10 @@ class PageTableServiceImpl : public PageTableService {
                 page_table_service::PageID *page_id_pb = new page_table_service::PageID();
                 page_id_pb->set_page_no(page_id);
                 response->set_allocated_page_id(page_id_pb);
+
+                LOG(INFO) << "Lock Success Directly , node_id = " << node_id << " table_id = " 
+                    << table_id << " page_id = " << page_id
+                    << " need_from_storage " << need_from_storage;
             }
             // std::cout << "LRPSLock End\n";
             return;
@@ -229,6 +237,8 @@ class PageTableServiceImpl : public PageTableService {
         assert(page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->is_request_queue_empty());
         gl->mutexUnlock();
         response->set_agree(true);
+
+        return;
     }
     
     /*
@@ -237,7 +247,7 @@ class PageTableServiceImpl : public PageTableService {
         2. 远程 LRPSLock 调用 LockShared/Exclusive，发现无法上锁，调用 SetComputeNodePending，给持有锁的节点发送 Pending 信号
         3. 节点收到 Pending 信号后，尽可能快地释放锁，释放先在本地(设置 is_pending = true，防止本地再加锁)，锁用完后调用 LRPAnyUnlock
         4. LRPAnyUnLock 先把当前节点的远程所有权给取消，如果自己解锁后，可以转移所有权给下一轮节点了，那就转移所有权
-        5. 转移完成后，先向下一轮节点广播获得锁成功了，然后通知之前选中的 src_node 推送页面给下一轮持有锁的节点(跳过本轮持有，下一轮也持有的)
+        5. 转移完成后，先向下一轮节点广播获得锁成功了，然后通知最后一个解锁的节点将页面推送给下一轮持有锁的节点(跳过本轮持有，下一轮也持有的)
         6. 由于 request_queue 中可能有很多节点的请求，这些请求可能无法在本轮获取锁中拿到锁，因此在解锁之后，如果 request_queue还有元素，需要再调用一次 SetComputeNodePending(Transfer Pending 做的事情)
     */
     virtual void LRPAnyUnLock(::google::protobuf::RpcController* controller,
@@ -249,20 +259,23 @@ class PageTableServiceImpl : public PageTableService {
             table_id_t table_id = request->page_id().table_id();
             node_id_t node_id = request->node_id();
 
+
+            LOG(INFO) << "LRPAnyUnlock , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
+
             // 简单粗暴：如果 X 锁，need_valid = true,否则 need_validate = false
             // 在这里加速，后面解锁
             bool need_valid = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->UnlockAny(node_id);
             GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
-            
-            // 把页面所有权让给下一个节点
-            // 会修改两个东西： 1. request_queue：把下一轮的清除，2. hold_lock_nodes：添加下一轮节点
+                                                               
+            // 当解锁了本节点后，能够进行下一轮所有权授予的时候，会做两件事情：
+            // 1. request_queue：把下一轮的清除，2. hold_lock_nodes：添加下一轮节点
             bool need_transfer = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferControl(table_id);
-            auto next_nodes = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->get_hold_lock_nodes();
+            
 
             if(need_transfer){
                 // 先取当前的 newest，用于通知下一轮节点的数据来源
                 valid_info->Global_Lock();
-                // auto next_nodes = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->get_hold_lock_nodes();
+                auto next_nodes = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->get_hold_lock_nodes();
                 assert(!next_nodes.empty());
                 
                 // true 表示需要等别人推送数据，这里是在锁释放里面的，就是需要 Push 的
@@ -286,13 +299,6 @@ class PageTableServiceImpl : public PageTableService {
                 page_valid_table_list_->at(table_id)->setNodeValidAndNewest(next_nodes.front(), page_id);
                 // 在这里解锁 LR_Lock
                 page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->setComputeNodePendingAfterTransfer(table_id , immedia_transfer ,valid_info);
-            }
-            // 把自己现在这个锁给释放了
-            for (auto hold_node : next_nodes){
-                if (hold_node == node_id) {
-                    // 如果下一轮还有自己，那就不需要释放掉本页面的所有权
-                    return ;
-                }
             }
             // 把自己所有权给放了，所以选择推送的节点都是最后一个解锁的节点，因为前边的都已经释放掉了
             page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->ReleasePage(node_id);

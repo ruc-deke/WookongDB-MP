@@ -65,7 +65,7 @@ public:
         // pending_src_node_id = -1;
     }
 
-    std::list<node_id_t> get_hold_lock_nodes(){
+    std::list<node_id_t> get_hold_lock_nodes() {
         return hold_lock_nodes;
     }
 
@@ -154,7 +154,7 @@ public:
         for(auto node_id : hold_lock_nodes){
             /*
                 这里的 node_id == n continue 是一个很精妙的设计，如果下一轮就有自己的话，不需要向自己发送 Pending 请求
-                那么问题就来了：如果不给自己 Pending，那如果没人 Pending 了导致没人执行 LRPAnyUnlock 怎么办？汪哥有话说：
+                那么问题就来了：如果不给自己 Pending，那如果没人 Pending 了导致没人执行 LRPAnyUnlock 怎么办？
                 走到这里两个路径(先不考虑 LRPAnyLock 的那个，那个我觉得有点问题，后边改改)
                 ⚠️⚠️：先明确一个观点，能走到这个函数里的 n，一定是下一轮能拿到所有权的节点，具体自己去看 LockExclusive/Shared
                 1. LockExclusive：
@@ -167,6 +167,8 @@ public:
                 而 node_id == n 的节点不会删除
             */
             if(node_id == n) continue; // 不需要向自己发送请求
+
+            LOG(INFO) << "Send Pending to node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
 
             // LOG(INFO) << "Send Pending to node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
             
@@ -202,11 +204,6 @@ public:
         int trans_node_id = valid_info->get_newest_nodeID_NoBlock();
         request.set_src_node_id(trans_node_id);
 
-        // Debug
-        // if (pending_src_node_id != -1){
-        //     assert(pending_src_node_id == trans_node_id);
-        // }
-
         bool found = false;
         for (node_id_t node_id : hold_lock_nodes){
             // 如果本轮持有锁的节点下一轮还有，那他不需要 PushPage，直接用就行
@@ -230,6 +227,7 @@ public:
 
         brpc::Controller* cntl = new brpc::Controller();
         compute_node_service::NotifyPushPageResponse* response = new compute_node_service::NotifyPushPageResponse();
+        LOG(INFO) << "NotifyPushPage , node_id = " << trans_node_id << " table_id = " << table_id << " page_id = " << page_id;
         // 同步调用
         computenode_stub.NotifyPushPage(cntl, &request, response, NULL);
         if (cntl->Failed()){
@@ -415,7 +413,9 @@ public:
             page_id_pb->set_page_no(page_id);
             page_id_pb->set_table_id(table_id);
             request.set_allocated_page_id(page_id_pb);
-            request.set_xlock_succeess(xlock);            
+            request.set_xlock_succeess(xlock); 
+            
+            LOG(INFO) << "LockSuccess , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
 
             // 表示下一轮还是我获取锁，不需要取拉取页面了
             if (valid_info->IsValid_NoBlock(node_id)){

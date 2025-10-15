@@ -11,7 +11,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
     if (cnt++ % 10000 == 0){
         std::cout << cnt << "\n";
     }
-    // LOG(INFO) << "fetching S Page " << "table_id = " << table_id << " page_id = " << page_id << "\n";
+    LOG(INFO) << "fetching S Page " << "table_id = " << table_id << " page_id = " << page_id << "\n";
     this->node_->fetch_allpage_cnt++;
     // LJTag
     // 这里不能先拿，因为现在在这个位置的不一定是我要的那个页面
@@ -94,7 +94,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
         delete response;
     }
     assert(page);
-    // LOG(INFO) << "fetch S Over " << "table_id = " << table_id << " page_id = " << page_id << "\n";
+    LOG(INFO) << "fetch S Over " << "table_id = " << table_id << " page_id = " << page_id << "\n";
 
     return page;
 }

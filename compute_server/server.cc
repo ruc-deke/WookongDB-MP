@@ -137,8 +137,6 @@ void ComputeNodeServiceImpl::NotifyPushPage(::google::protobuf::RpcController* c
         compute_node_stub.PushPage(push_cntl, &push_request, push_response,
             brpc::NewCallback(ComputeServer::PushPageRPCDone, push_response, push_cntl, table_id, page_id, server));
     }
-
-    // std::cout << "Server Receive Push Page command Over\n";
 }
 
 // 只有一个地方会调用这个，就是 SetComputeNodePending，这个函数是解锁的时候调用的
@@ -164,9 +162,6 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
     // LJTag2
     int unlock_remote = server->get_node()->PendingPage(page_id, xpending, table_id);
 
-    // 不在这里增加缓冲区计数了，改成在 LRPAnyUnlock 里面调用 NotifyPushPage 的时候增加计数
-    // 出现这个 Bug 的原因在 NotifyPushPage 里面标注了
-
     if(unlock_remote > 0){
         // ToDO：这里我把传输数据延后到 Unlock 了，可能会导致性能问题
 
@@ -175,7 +170,7 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
         assert(unlock_remote != 3);
         if(unlock_remote != 3){
             // 这个 pin 一下，减少页面换出的时候，选中本页面的可能(但是不能完全排除)
-            server->get_node()->getBufferPoolByIndex(table_id)->pin_page(page_id);
+            // server->get_node()->getBufferPoolByIndex(table_id)->pin_page(page_id);
             // std::cout << "Got Here3\n";
             page_table_service::PageTableService_Stub pagetable_stub(server->get_pagetable_channel());
             page_table_service::PAnyUnLockRequest unlock_request;
@@ -197,26 +192,7 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
             }
             //! unlock remote ok and unlatch local
             if(SYSTEM_MODE == 1){
-                // 其实不需要写回到存储层，因为走到这里，如果是释放写锁，那一定会要求这个节点把页面推送给对方，页面不会丢失
-                // if (unlock_remote == 2){
-                //     // 写回到存储层（释放写锁时）
-                //     Page* page = server->get_node()->fetch_page(table_id, page_id);
-                //     storage_service::StorageService_Stub storage_stub(server->get_storage_channel());
-                //     brpc::Controller cntl_wp;
-                //     storage_service::WritePageRequest req;
-                //     storage_service::WritePageResponse resp;
-                //     auto* pid = req.mutable_page_id();
-                //     pid->set_table_name(server->table_name_meta[table_id]);
-                //     pid->set_page_no(page_id);
-                //     req.set_data(page->get_data(), PAGE_SIZE);
-                //     storage_stub.WritePage(&cntl_wp, &req, &resp, NULL);
-                //     if (cntl_wp.Failed()) {
-                //         LOG(ERROR) << "WritePage RPC failed for table_id=" << table_id
-                //                    << " page_id=" << page_id
-                //                    << " err=" << cntl_wp.ErrorText();
-                //     }
-                // }
-
+                // 不需要在这里写回存储，因为走到这里一定会发生所有权的转移
                 // 标记释放页面
                 server->get_node()
                         ->getBufferPoolByIndex(table_id)
@@ -268,13 +244,6 @@ void ComputeNodeServiceImpl::PushPage(::google::protobuf::RpcController* control
 
         node_id_t src_node_id = request->src_node_id();
         node_id_t dest_node_id = request->dest_node_id();
-
-        // 由于接受 PushPage 是异步的，所以接收到的时候，可能已经 NotifyLockSuccess 了
-        // 也就是拿到了所有权，所以下面这句断言不可用
-        // assert(!server->get_node()
-        //             ->getLazyPageLockTable(table_id)
-        //             ->GetLock(page_id)
-        //             ->HasOwner());
 
         assert(src_node_id != dest_node_id);
         assert(server->get_node()->getNodeID() == dest_node_id);

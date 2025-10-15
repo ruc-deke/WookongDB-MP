@@ -260,9 +260,6 @@ public:
             return lock->TryBeginEvict();
         });
 
-        // std::cout << "Evictting a page\n";
-        // LOG(INFO) << "Evicting a page , table_id = " << table_id << " page_id = " << page_id;
-
         int try_cnt = -1;
         while(true){
             try_cnt++;
@@ -332,13 +329,16 @@ public:
                 // 不需要在远程解锁，直接用就行
             }
 
-            // LOG(INFO) << "Evicting a page success , table_id = " << table_id << " page_id = " << page_id << " replaced table_id = " << table_id << " page_id = " << replaced_page_id;
+            LOG(INFO) << "Evicting a page success , table_id = " << table_id << " page_id = " << page_id << " replaced table_id = " << table_id << " page_id = " << replaced_page_id;
 
+            // 这里需要等待推送数据完成，原因是已经 Unlock ，但是还在 Push 的页面会被标记为可替换的(主节点其实没法感知到是否正在 Push)
+            // 因此这里可能会把正在 Push 的页面给释放了，等待对方 Push 完成，再插入
+            bool is_wait = node_->getBufferPoolByIndex(table_id)->waitingForPushOver(replaced_page_id);
             Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(
                 table_id,
                 page_id ,
                 frame_id ,
-                true ,
+                !is_wait ,
                 replaced_page_id ,
                 data
             );

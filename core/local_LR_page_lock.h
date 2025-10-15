@@ -209,6 +209,11 @@ public:
         is_evicting = false;
     }
 
+    bool isEvicting() {
+        std::lock_guard<std::mutex> lk(mutex);
+        return is_evicting;
+    }
+
     // 调用LockExclusive()或者LockShared()之后, 如果返回true, 则需要调用这个函数将granting状态转换为shared或者exclusive
     void LockRemoteOK(node_id_t node_id){
         // LOG(INFO) << "LockRemoteOK: " << page_id << std::endl;
@@ -326,13 +331,9 @@ public:
                 mutex.unlock();
             }
         }
-        else if(!is_granting && remote_mode == LockMode::NONE){ // 如果远程没锁了，按道理不会到这里，但是有特殊情况，看下边
-            // 举个例子：
-            /*
-                1. 节点 A 持有页面 1 的 S 锁，然后准备释放，先把本地的 remote_mode 设置为 None，然后给 Lock Fusion 发送 Unlock 请求
-                2. Unlock 请求还没到 Lock Fusion 呢，然后节点 2 也向 Lock Fusion 申请 X 锁
-                3. 由于 X 锁是排他的，
-            */
+        else if(!is_granting && remote_mode == LockMode::NONE){ 
+            // 我魔改之后，这种应该不会出现了，因为一定只有一个节点会发送 Pending
+            assert(false);
             unlock_remote = 3; 
             mutex.unlock();
         }
