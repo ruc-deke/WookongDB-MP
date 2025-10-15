@@ -187,13 +187,15 @@ class PageTableServiceImpl : public PageTableService {
         GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
         // 这里加锁，是为了确保获取 pending_src 和执行 Unlock 二者是连贯的，不能在二者中间让别人选中了一个新的 pending_src(在LockShared/Exclusive)
         gl->mutexLock();
-
         /*
                 在主节点里面已经检查了 lock == 0 && !is_granting && !is_pending，然后隔绝了后续再申请锁的可能
                 上面做的这些已经能够确保走到这里的节点一定不在请求队列里，也就是一定不在请求锁，也能确保后续不可能再来申请锁
                 主节点没办法处理的是，如果远程已经让我推送页面了，那怎么把这种情况也排除掉
                 远程可能的情况
-                1. 远程已经把页面释放完了，此时本节点已经被释放了，后续情况很复杂，不如直接让主节点换一个
+                1. 远程已经把页面释放完了，此时本节点已经被释放了，节点此时(物理上同一时间)可能有几种状态：
+                    1.1 被通知 NotifyPushPage，且还在 Push
+                    1.2 被通知 NotifyPushPage，但是 Push 完了
+                    1.3 仅仅是
                 2. 远程正在释放页面的过程中，这种很危险，条件就是 is_pending
                 3. 除了上面两种情况，就是节点正常的情况了，我觉得是没啥问题了
         */
@@ -201,60 +203,32 @@ class PageTableServiceImpl : public PageTableService {
         if (!gl->CheckIsHoldNoBlock(node_id)){
             std::cout << "Rejected " << ++reject_cnt << " agree_cnt = " << agree_cnt << "\n";
             gl->mutexUnlock();
-            response->set_is_chosen_push(true);
+            response->set_agree(false);
             return;
         }
         // 第二种情况：还在释放页面的过程中
         if (gl->getIsPendingNoBlock()){
             std::cout << "Rejected " << ++reject_cnt << " agree_cnt = " << agree_cnt << "\n";
             gl->mutexUnlock();
-            response->set_is_chosen_push(true);
+            response->set_agree(false);
             return;
         }
         agree_cnt++;
-        
-        // 第三种情况，可以安全释放锁了
-        // 这里也先别释放 mutex ，在后面会自己释放锁,要么在 TransferControl里，要么在 TranfserPending 里
-        bool need_validate = gl->UnlockAnyNoBlock(node_id);
+
+        LOG(INFO) << "Agree Release , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
 
         // 把本节点的有效信息设置为false
         assert(valid_info->IsValid(node_id));
         valid_info->setNodeStatus(node_id , false);
         
+        // 第三种情况，可以安全释放锁了
+        // 这里也先别释放 mutex ，在后面会自己释放锁,要么在 TransferControl里，要么在 TranfserPending 里
+        bool need_validate = gl->UnlockAnyNoBlock(node_id);
+        
         // 请求队列一定为空，否则 is_pending = true
         assert(page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->is_request_queue_empty());
-
-        bool need_transfer = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferControl(table_id);
-        auto next_nodes = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->get_hold_lock_nodes();
-
-        if(need_transfer){
-            /*
-                不可能走到这里面的，因此能走到这里，在调用这个函数之前，is_pending 一定等于 true，而我隔绝了这种情况的出现
-            */
-            assert(false);
-            // 先取当前的 newest，用于通知下一轮节点的数据来源
-            valid_info->Global_Lock();
-            assert(!next_nodes.empty());
-            std::vector<std::pair<bool , int>> res1 = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->SendComputenodeLockSuccess(table_id , valid_info , true);
-            std::vector<std::pair<bool , int>> res2 = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->NotifyPushPage(table_id , valid_info);
-            // debug
-            assert(res1.size() == res2.size());
-            for (size_t i = 0 ; i < res1.size() ; i++){
-                assert(res1[i].first == res2[i].first);
-                assert(res1[i].second == res2[i].second);
-            }
-
-            // 设置完了，更新有效性信息
-            for(auto nid : next_nodes){
-                page_valid_table_list_->at(table_id)->setNodeValid(nid, page_id);
-            }
-            // 在这里解锁 valid_info
-            page_valid_table_list_->at(table_id)->setNodeValidAndNewest(next_nodes.front(), page_id);
-            // 在这里解锁 LR_Lock
-            page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferPending(table_id , immedia_transfer , valid_info);
-        }
-        response->set_is_chosen_push(false);
-
+        gl->mutexUnlock();
+        response->set_agree(true);
     }
     
     /*
@@ -320,6 +294,7 @@ class PageTableServiceImpl : public PageTableService {
                     return ;
                 }
             }
+            // 把自己所有权给放了，所以选择推送的节点都是最后一个解锁的节点，因为前边的都已经释放掉了
             page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->ReleasePage(node_id);
             // std::cout << "Unlock End\n";
         }

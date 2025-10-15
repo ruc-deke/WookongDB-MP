@@ -190,7 +190,6 @@ public:
         // is_evicting：我正在选这孩子淘汰，你们这些线程别来沾边
         std::lock_guard<std::mutex> lk(mutex);
         if (is_evicting || is_released){
-            mutex.unlock();
             return false;
         }
         // lock = 0 -> 说明不持有远程锁或者持有远程锁但是对页面操作完释放了本地的 latch

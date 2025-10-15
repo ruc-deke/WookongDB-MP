@@ -92,6 +92,16 @@ public:
         free_lists.push_back(frame_id);
     }
 
+
+    void pin_page(page_id_t page_id){
+        std::lock_guard<std::mutex> lk(mtx);
+        auto it = page_table.find(page_id);
+        assert(it != page_table.end());
+        frame_id_t frame_id = it->second;
+        replacer->pin(frame_id);
+    }
+
+
     // 这个是使用完，而没有 pending(也就是不用立刻释放页面所有权)的时候调用的
     // 把仍然持有所有权，但是没在使用的页面放在 LRU 中
     void unpin_page(page_id_t page_id) {
@@ -127,16 +137,15 @@ public:
     }
 
     bool checkIfDirectlyPutInBuffer(page_id_t page_id , frame_id_t &frame_id){
-        bool ret = false;
         waitingForPushOver(page_id);
 
         std::lock_guard<std::mutex> lk(mtx);
         if (!free_lists.empty()){
-            ret = true;
             frame_id = free_lists.front();
             free_lists.pop_front();
+            return true;
         }
-        return ret;
+        return false;
     }
 
     // bool：是否要替换页面，int：被替换掉的页面
@@ -185,15 +194,20 @@ public:
                 mtx.lock();
             }
         }
-        return pages[frame_id]->page_id_;
+        page_id_t ret = pages[frame_id]->page_id_;
+        // assert(page_table.find(ret) != page_table.end());
+        // assert(page_table[ret] == frame_id);
+        return ret;
     }
 
     Page *insert_or_replace(table_id_t table_id, page_id_t page_id , frame_id_t frame_id , bool need_to_replace , page_id_t replaced_page , const void *src){
         std::lock_guard<std::mutex> lock(mtx);
         if (need_to_replace){
             assert(replaced_page != INVALID_PAGE_ID);
+            assert(page_table.find(replaced_page) != page_table.end());
+            // LOG(INFO) << "Need to replace , table_id = " << table_id << " page_id = " << page_id; 
             page_table.erase(replaced_page);
-        }
+        }                                                                                           
 
         page_table[page_id] = frame_id;
         replacer->pin(frame_id);
@@ -225,6 +239,7 @@ public:
         assert(nextCount >= 0);
 
         if (nextCount == 0 && should_release_buffer[page_id]){
+            // LOG(INFO) << "Decrement : table_id = " << table_id << " page_id = " << page_id;
             release_page(page_id);
             pending_operation_counts[page_id]--;
             should_release_buffer[page_id] = false;
@@ -236,10 +251,11 @@ public:
 
     // 当锁释放的时候，标记一下需要释放缓冲区了
     // 返回 true 表示需要立刻释放，否则表示延迟释放
-    void MarkForBufferRelease(page_id_t page_id){
+    void MarkForBufferRelease(table_id_t table_id , page_id_t page_id){
         std::lock_guard<std::mutex> lock(mtx);
         if (pending_operation_counts[page_id] == 0){
             should_release_buffer[page_id] = false;
+            // LOG(INFO) << "MarkRelease , table_id = " << table_id << " page_id = " << page_id;
             release_page(page_id);
         } else {
             should_release_buffer[page_id] = true;

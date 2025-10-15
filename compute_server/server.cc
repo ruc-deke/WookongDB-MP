@@ -157,6 +157,8 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
     table_id_t table_id = request->page_id().table_id();
     bool xpending = (request->pending_type() == PendingType::XPending);
 
+    // LOG(INFO) << "Pending , table_id = " << table_id << " page_id = " << page_id;
+
     // 把本页面标记为 pending，并看一下要不要释放锁(页面是否正在赖着不走)
 
     // LJTag2
@@ -172,6 +174,8 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
         // 只有两个主节点的时候，不会出现 unlock_remote = 3 的情况，这里先 assert 一下 debug
         assert(unlock_remote != 3);
         if(unlock_remote != 3){
+            // 这个 pin 一下，减少页面换出的时候，选中本页面的可能(但是不能完全排除)
+            server->get_node()->getBufferPoolByIndex(table_id)->pin_page(page_id);
             // std::cout << "Got Here3\n";
             page_table_service::PageTableService_Stub pagetable_stub(server->get_pagetable_channel());
             page_table_service::PAnyUnLockRequest unlock_request;
@@ -212,10 +216,11 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
                 //                    << " err=" << cntl_wp.ErrorText();
                 //     }
                 // }
+
                 // 标记释放页面
                 server->get_node()
                         ->getBufferPoolByIndex(table_id)
-                        ->MarkForBufferRelease(page_id);
+                        ->MarkForBufferRelease(table_id , page_id);
                 server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->UnlockRemoteOK();
             }else{
                 assert(false);

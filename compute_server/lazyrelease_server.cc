@@ -1,15 +1,17 @@
 #include "server.h"
 
 #include "thread"
+#include "atomic"
 
-static int cnt = 0;
-static int lazy_cnt = 0;
+std::atomic<int> cnt{0};
 
 
 Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_id) {
     assert(page_id < ComputeNodeBufferPageSize);
-    std::cout << ++cnt << "\n";
-    //LOG(INFO) << "fetching S Page " << "table_id = " << table_id << " page_id = " << page_id << "\n";
+    if (cnt++ % 10000 == 0){
+        std::cout << cnt << "\n";
+    }
+    // LOG(INFO) << "fetching S Page " << "table_id = " << table_id << " page_id = " << page_id << "\n";
     this->node_->fetch_allpage_cnt++;
     // LJTag
     // 这里不能先拿，因为现在在这个位置的不一定是我要的那个页面
@@ -92,15 +94,17 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
         delete response;
     }
     assert(page);
-    //LOG(INFO) << "fetch S Page Over" << "table_id = " << table_id << " page_id = " << page_id << "\n";
+    // LOG(INFO) << "fetch S Over " << "table_id = " << table_id << " page_id = " << page_id << "\n";
 
     return page;
 }
 
 Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_id) {
     assert(page_id < ComputeNodeBufferPageSize);
-    std::cout << ++cnt << "\n";
-    // LOG(INFO) << "fetching X Page " << "table_id = " << table_id << " page_id = " << page_id << "\n";
+    if (cnt++ % 10000 == 0){
+        std::cout << cnt << "\n";
+    }
+    // LOG(INFO) << "fetching X Page " << "table_id = " << table_id << " page_id = " << page_id << " node_id " << node_->getNodeID();
     this->node_->fetch_allpage_cnt++;
 
     Page *page = nullptr;
@@ -197,19 +201,20 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
     // if (table_id == 1 && page_id == 2724){
     //     std::cout << "fetching x page over\n";
     // }
-    //LOG(INFO) << "fetch X Page over" << "table_id = " << table_id << " page_id = " << page_id << "\n";
+    // LOG(INFO) << "fetch X Page over " << "table_id = " << table_id << " page_id = " << page_id;
 
 
     return page;
 }
 
 void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_id) {
-    //LOG(INFO) << "Releasing S Page " << "table_id = " << table_id << " page_id = " << page_id << "\n";
+    // LOG(INFO) << "Releasing S Page " << "table_id = " << table_id << " page_id = " << page_id;
     // release page
     // //LOG(INFO) << "node id: " << node_->node_id << " Release s table id: " << table_id << "page_id" << page_id;
     int unlock_remote = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->tryUnlockShared();
     if (unlock_remote == 0){
         // 在这里 unpin，如果在后面 unpin 有 bug，可能 lock 减为 0 的时候会被 Replacer 锁定
+        // LOG(INFO) << "Lazy release S Page , table_id = " << table_id << " page_id = " << page_id;
         node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
         node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockShared();
         node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
@@ -232,17 +237,20 @@ void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_
     if(cntl.Failed()){
         LOG(ERROR) << "Fail to unlock page " << page_id << " in remote page table";
     }
-    node_->getBufferPoolByIndex(table_id)->MarkForBufferRelease(page_id);
+    node_->getBufferPoolByIndex(table_id)->MarkForBufferRelease(table_id , page_id);
     node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockRemoteOK();
+
+    // LOG(INFO) << "Immediate Release S page , table_id = " << table_id << " page_id = " << page_id;
     delete response;
 }
 
 void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_id) {
-    //LOG(INFO) << "Releasing X Page " << "table_id = " << table_id << " page_id = " << page_id << "\n";
+    // LOG(INFO) << "Releasing X Page " << "table_id = " << table_id << " page_id = " << page_id;
     // release page
     // //LOG(INFO) << "node id: " << node_->node_id << " Release x table id: " << table_id << "page_id" << page_id;
     int unlock_remote = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->tryUnlockExclusive();
     if (unlock_remote == 0){
+        // LOG(INFO) << "Lazy Release X , table_id = " << table_id << " page_id = " << page_id;
         node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
         node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockExclusive();
         node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
@@ -284,11 +292,13 @@ void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_
         }
     }
 
-    node_->getBufferPoolByIndex(table_id)->MarkForBufferRelease(page_id);
+    node_->getBufferPoolByIndex(table_id)->MarkForBufferRelease(table_id , page_id);
     //assert(node_->getBufferPoolByIndex(table_id)->is_in_bufferPool(page_id));
     
     //! unlock remote ok and unlatch local
     node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockRemoteOK();
+
+    // LOG(INFO) << "Immediate Release X Page , table_id = " << table_id << " page_id = " << page_id;
 
     // delete response;
     delete unlock_response;

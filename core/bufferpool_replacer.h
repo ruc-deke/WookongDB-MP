@@ -52,13 +52,14 @@ public:
 
     void endVictim(bool success , frame_id_t *frame_id) override {
         std::lock_guard<std::mutex> lk(mtx);
-        is_evicting[*frame_id] = false;
         if (success){
+            // 把这个从 lru_hash 里面拿出来，这样即使 is_evicing = false,别人也拿不到锁
             auto it = lru_hash.find(*frame_id);
             assert(it != lru_hash.end());
             lru_list.erase(it->second);
             lru_hash.erase(*frame_id);
         }
+        is_evicting[*frame_id] = false;
     }
 
     // 锁定一个页面

@@ -63,7 +63,7 @@ message BufferReleaseUnlockRequest {
     sint32 node_id = 2;
 };
 message BufferReleaseUnlockResponse {
-    bool is_chosen_push = 1;    // 是否被选中要去推送页面
+    bool agree = 1; // 是否允许释放这个页面
 };
 
 

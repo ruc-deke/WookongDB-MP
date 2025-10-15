@@ -246,7 +246,7 @@ public:
     // LJ
     Page *put_page_into_local_buffer(table_id_t table_id , page_id_t page_id , const void *data) {
         bool is_from_lru = false;
-        frame_id_t frame_id;
+        frame_id_t frame_id = -1;
 
         // 先试试看能不能直接插入，可以的话直接插入就行
         Page *page = checkIfDirectlyPutInBuffer(table_id , page_id , data);
@@ -259,6 +259,9 @@ public:
             LRLocalPageLock *lock = this->node_->lazy_local_page_lock_tables[table_id]->GetLock(victim_page_id);
             return lock->TryBeginEvict();
         });
+
+        // std::cout << "Evictting a page\n";
+        // LOG(INFO) << "Evicting a page , table_id = " << table_id << " page_id = " << page_id;
 
         int try_cnt = -1;
         while(true){
@@ -279,14 +282,7 @@ public:
                     2. 我去测试了一下，即使只开了 300 个页面作为缓冲区，发生远程拒绝的情况也只是 1/4000 左右
                     所以这里先刷下去无所谓，即使远程解锁失败了，刷下去的页面开销也很小 
                 */
-                // 还有一种边界情况：就是到这里的时候，页面可能已经被释放了(PushPage 完成了)，这种情况的话
-                // 一定有别的节点持有所有权，别的节点申请页面一定不会让我来 Push，或者来我这 Pull，因为我已在远程释放，且远程申请解锁是一定失败的，所以直接跳过即可
-                Page *old_page = node_->fetch_page_special(table_id , replaced_page_id);
-                if (old_page == nullptr){
-                    // 换一个
-                    lr_local_lock->EndEvict();
-                    continue;
-                }
+                Page *old_page = node_->fetch_page(table_id , replaced_page_id);
                 storage_service::StorageService_Stub storage_stub(get_storage_channel());
                 brpc::Controller cntl_wp;
                 storage_service::WritePageRequest req;
@@ -316,15 +312,11 @@ public:
                 pagetable_stub.BufferReleaseUnlock(&cntl , request , response , NULL);
                 if (cntl.Failed()){
                     LOG(ERROR) << "Fatal Error , brpc Failed";
-                    lr_local_lock->EndEvict();
-                    delete response;
-                    delete request;
-                    continue;
-                }else if (response->is_chosen_push()){
-                    std::cout << "This Page Is Rejected\n";
+                    assert(false);
+                }else if (!response->agree()){
+                    // std::cout << "This Page Is Rejected\n";
                     // 需要把之前缓冲区锁定的那个页面搞回来
-                    // 到这里的时候，页面有很大可能已经被淘汰，因此 unpin_page 不需要这么严格，可以不在缓冲区内
-                    node_->getBufferPoolByIndex(table_id)->unpin_special(replaced_page_id);
+                    // node_->getBufferPoolByIndex(table_id)->unpin_special(replaced_page_id);
                     // 如果在这个页面上，我被选中去推送页面了，那我就滚
                     lr_local_lock->EndEvict();
 
@@ -340,10 +332,8 @@ public:
                 // 不需要在远程解锁，直接用就行
             }
 
-            int lock_type1 = lr_local_lock->UnlockAny();
-            if (lock_type1){
-                lr_local_lock->UnlockRemoteOK();
-            }
+            // LOG(INFO) << "Evicting a page success , table_id = " << table_id << " page_id = " << page_id << " replaced table_id = " << table_id << " page_id = " << replaced_page_id;
+
             Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(
                 table_id,
                 page_id ,
@@ -352,6 +342,12 @@ public:
                 replaced_page_id ,
                 data
             );
+
+            // LOG(INFO) << "Release : table_id = " << table_id << " page_id = " << page_id << " node_id : " << node_->getNodeID();
+            int lock_type1 = lr_local_lock->UnlockAny();
+            if (lock_type1){
+                lr_local_lock->UnlockRemoteOK();
+            }
             lr_local_lock->EndEvict();
             return page;
         }

@@ -129,6 +129,7 @@ public:
         page_id_pb->set_page_no(page_id);
         page_id_pb->set_table_id(table_id);
         request.set_allocated_page_id(page_id_pb);
+
         // 这个参数其实已经没用了，现在是用来 DEBUG 的
         int trans_node_id = -1; // 从哪个节点发
         if(XPending) {
@@ -166,6 +167,8 @@ public:
                 而 node_id == n 的节点不会删除
             */
             if(node_id == n) continue; // 不需要向自己发送请求
+
+            // LOG(INFO) << "Send Pending to node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
             
             brpc::Channel* channel = compute_channels[node_id];
             // std::string remote_node = "127.0.0.1:" + std::to_string(34002 + node_id);
