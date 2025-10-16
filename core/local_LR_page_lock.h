@@ -397,7 +397,7 @@ public:
     }
 
     int getUnlockType(){
-        std::lock_guard<std::mutex> lk(mutex);
+        mutex.lock();
         if (remote_mode == LockMode::NONE){
             return 0;
         }else if (remote_mode == LockMode::EXCLUSIVE){

@@ -11,7 +11,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
     if (cnt++ % 10000 == 0){
         std::cout << cnt << "\n";
     }
-    LOG(INFO) << "fetching S Page " << "table_id = " << table_id << " page_id = " << page_id << "\n";
+    // LOG(INFO) << "fetching S Page " << "table_id = " << table_id << " page_id = " << page_id << "\n";
     this->node_->fetch_allpage_cnt++;
     // LJTag
     // 这里不能先拿，因为现在在这个位置的不一定是我要的那个页面
@@ -94,7 +94,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
         delete response;
     }
     assert(page);
-    LOG(INFO) << "fetch S Over " << "table_id = " << table_id << " page_id = " << page_id << "\n";
+    // LOG(INFO) << "fetch S Over " << "table_id = " << table_id << " page_id = " << page_id << "\n";
 
     return page;
 }
@@ -184,6 +184,7 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
                 // 两种情况会到这里：
                 // 1. 远程把数据推过来
                 // 2. 数据本来就在自己本地了，直接去拿就行
+                // WrongTag
                 page = node_->fetch_page(table_id , page_id);
             }
             
@@ -237,7 +238,7 @@ void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_
     if(cntl.Failed()){
         LOG(ERROR) << "Fail to unlock page " << page_id << " in remote page table";
     }
-    LOG(INFO) << "MarkRelease2 , table_id = " << table_id << " page_id = " << page_id;
+    // LOG(INFO) << "MarkRelease2 , table_id = " << table_id << " page_id = " << page_id;
     node_->getBufferPoolByIndex(table_id)->MarkForBufferRelease(table_id , page_id);
     node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockRemoteOK();
 
@@ -293,7 +294,7 @@ void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_
     //     }
     // }
 
-    LOG(INFO) << "MarkRelease1 , table_id = " << table_id << " page_id = " << page_id;
+    // LOG(INFO) << "MarkRelease1 , table_id = " << table_id << " page_id = " << page_id;
     node_->getBufferPoolByIndex(table_id)->MarkForBufferRelease(table_id , page_id);
     //assert(node_->getBufferPoolByIndex(table_id)->is_in_bufferPool(page_id));
     

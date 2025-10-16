@@ -272,9 +272,11 @@ public:
             int unlock_remote = lr_local_lock->getUnlockType();
             // 如果 unlock_remote = 0，代表已经释放了，不可控
             if (unlock_remote == 0){
+                lr_local_lock->UnlockMtx();
                 lr_local_lock->EndEvict();
                 continue;
             }
+
             if (unlock_remote == 2){
                 /*
                     这里把页面写回到磁盘，至于为啥是先写回到磁盘，再去远程解锁呢，难道不怕远程不允许解锁吗？
@@ -300,40 +302,41 @@ public:
                                 << " err=" << cntl_wp.ErrorText();
                 }
             }
-            if (unlock_remote){
-                page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
-                auto *request = new page_table_service::BufferReleaseUnlockRequest();
-                auto *response = new page_table_service::BufferReleaseUnlockResponse();
-                auto *pid = new page_table_service::PageID();
-                pid->set_page_no(replaced_page_id);
-                pid->set_table_id(table_id);
-                request->set_allocated_page_id(pid);
-                request->set_node_id(node_->node_id);
+            // 写回到磁盘后，再解锁，防止别人拿到锁之后把页面换了
+            lr_local_lock->UnlockMtx();
 
-                LOG(INFO) << "Try , table_id = " << table_id << " page_id = " << page_id;
+            page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
+            auto *request = new page_table_service::BufferReleaseUnlockRequest();
+            auto *response = new page_table_service::BufferReleaseUnlockResponse();
+            auto *pid = new page_table_service::PageID();
+            pid->set_page_no(replaced_page_id);
+            pid->set_table_id(table_id);
+            request->set_allocated_page_id(pid);
+            request->set_node_id(node_->node_id);
 
-                brpc::Controller cntl;
-                pagetable_stub.BufferReleaseUnlock(&cntl , request , response , NULL);
-                if (cntl.Failed()){
-                    LOG(ERROR) << "Fatal Error , brpc Failed";
-                    assert(false);
-                }else if (!response->agree()){
-                    // std::cout << "This Page Is Rejected\n";
-                    // 需要把之前缓冲区锁定的那个页面搞回来
-                    // node_->getBufferPoolByIndex(table_id)->unpin_special(replaced_page_id);
-                    // 如果在这个页面上，我被选中去推送页面了，那我就滚
-                    lr_local_lock->EndEvict();
+            // LOG(INFO) << "Try , table_id = " << table_id << " page_id = " << page_id;
 
-                    delete response;
-                    delete request;
-                    continue;
-                }else {
-                    delete response;
-                    delete request;
-                }
+            brpc::Controller cntl;
+            pagetable_stub.BufferReleaseUnlock(&cntl , request , response , NULL);
+            if (cntl.Failed()){
+                LOG(ERROR) << "Fatal Error , brpc Failed";
+                assert(false);
+            }else if (!response->agree()){
+                // std::cout << "This Page Is Rejected\n";
+                // 需要把之前缓冲区锁定的那个页面搞回来
+                // node_->getBufferPoolByIndex(table_id)->unpin_special(replaced_page_id);
+                // 如果在这个页面上，我被选中去推送页面了，那我就滚
+                lr_local_lock->EndEvict();
+
+                delete response;
+                delete request;
+                continue;
+            }else {
+                delete response;
+                delete request;
             }
 
-            LOG(INFO) << "Evicting a page success , table_id = " << table_id << " page_id = " << page_id << " replaced table_id = " << table_id << " page_id = " << replaced_page_id;
+            // LOG(INFO) << "Evicting a page success , table_id = " << table_id << " page_id = " << page_id << " replaced table_id = " << table_id << " page_id = " << replaced_page_id;
 
             Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(
                 table_id,
@@ -343,7 +346,6 @@ public:
                 replaced_page_id ,
                 data
             );
-            LOG(INFO) << "Evicting a page success after insert , table_id = " << table_id << " page_id = " << page_id << " replaced table_id = " << table_id << " page_id = " << replaced_page_id;
 
             int lock_type1 = lr_local_lock->UnlockAny();
             if (lock_type1){

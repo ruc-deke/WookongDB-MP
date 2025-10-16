@@ -168,7 +168,7 @@ public:
             */
             if(node_id == n) continue; // 不需要向自己发送请求
 
-            LOG(INFO) << "Send Pending to node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
+            // LOG(INFO) << "Send Pending to node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
 
             // LOG(INFO) << "Send Pending to node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
             
@@ -227,7 +227,7 @@ public:
 
         brpc::Controller* cntl = new brpc::Controller();
         compute_node_service::NotifyPushPageResponse* response = new compute_node_service::NotifyPushPageResponse();
-        LOG(INFO) << "NotifyPushPage , node_id = " << trans_node_id << " table_id = " << table_id << " page_id = " << page_id;
+        // LOG(INFO) << "NotifyPushPage , node_id = " << trans_node_id << " table_id = " << table_id << " page_id = " << page_id;
         // 同步调用
         computenode_stub.NotifyPushPage(cntl, &request, response, NULL);
         if (cntl->Failed()){
@@ -415,7 +415,7 @@ public:
             request.set_allocated_page_id(page_id_pb);
             request.set_xlock_succeess(xlock); 
             
-            LOG(INFO) << "LockSuccess , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
+            // LOG(INFO) << "LockSuccess , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
 
             // 表示下一轮还是我获取锁，不需要取拉取页面了
             if (valid_info->IsValid_NoBlock(node_id)){

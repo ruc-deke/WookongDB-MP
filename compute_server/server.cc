@@ -193,7 +193,7 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
             if(SYSTEM_MODE == 1){
                 // 不需要在这里写回存储，因为走到这里一定会发生所有权的转移
                 // 标记释放页面
-                LOG(INFO) << "MarkRelease3 , table_id = " << table_id << " page_id = " << page_id;
+                // LOG(INFO) << "MarkRelease3 , table_id = " << table_id << " page_id = " << page_id;
                 server->get_node()
                         ->getBufferPoolByIndex(table_id)
                         ->MarkForBufferRelease(table_id , page_id);

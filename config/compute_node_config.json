@@ -1,23 +1,23 @@
 {
   "local_compute_node": {
-    "machine_num": 2,
-"machine_id": 1,
-"thread_num_per_machine": 8,
+    "machine_num": 3,
+"machine_id": 2,
+"thread_num_per_machine": 10,
 "coroutine_num": 1,
 "txn_system": 1,
     "batch_size": 400
   },
-  "table_buffer_pool_size": 60,
+  "table_buffer_pool_size": 200,
   "remote_compute_nodes": {
     "remote_compute_node_ips": [
       "127.0.0.1",
+      "127.0.0.1",
       "127.0.0.1"
-      // "127.0.0.1"
     ],
     "remote_compute_node_port": [
       42340,
-      42341
-      // 42342
+      42341,
+      42342
     ]
   },
   "remote_server_nodes": {
