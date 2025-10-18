@@ -33,7 +33,7 @@ void LogManager::write_batch_log_to_disk(std::string batch_log) {
     // std::this_thread::sleep_for(std::chrono::milliseconds(2));
     assert(bytes_write == (ssize_t)(batch_log.length() * sizeof(char)));
 
-    // RDMA_LOG(INFO) << "Write batch log's size is " << bytes_write;
+    // RDMA_// LOG(INFO) << "Write batch log's size is " << bytes_write;
 
     log_replay_->add_max_replay_off_(bytes_write);
 }
@@ -55,7 +55,7 @@ void LogManager::write_batch_log_to_disk(char* batch_log, size_t size) {
     ssize_t bytes_write = write(log_file_fd_, batch_log, size);
     assert(bytes_write == (ssize_t)size);
 
-    // RDMA_LOG(INFO) << "Write batch log's size is " << bytes_write;
+    // RDMA_// LOG(INFO) << "Write batch log's size is " << bytes_write;
 
     log_replay_->add_max_replay_off_(bytes_write);
 }

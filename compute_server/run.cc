@@ -10,6 +10,8 @@
 int main(int argc, char* argv[]) {
 
     std::string log_path = "./computeserver.log" + std::to_string(getpid()); // 设置日志路径
+
+    if (std::ifstream(log_path)) { std::remove(log_path.c_str()); }
     ::logging::LoggingSettings log_setting;  // 创建LoggingSetting对象进行设置
     log_setting.log_file = log_path.c_str(); // 设置日志路径
     log_setting.logging_dest = logging::LOG_TO_FILE; // 设置日志写到文件，不写的话不生效

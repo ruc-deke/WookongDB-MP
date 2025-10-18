@@ -111,7 +111,7 @@ MetaManager::MetaManager(std::string bench_name, IndexCache* index_cache, PageCa
     int remote_port = (int)remote_storage_ports.get(index).get_int64();
     remote_storage_nodes.push_back(RemoteNode{.node_id = remote_machine_id, .ip = remote_ip, .port = remote_port});
   }
-  LOG(INFO) << "All storage meta received";
+  // LOG(INFO) << "All storage meta received";
 
   // prefetch index
   for (auto& table : table_name_map) {
@@ -126,7 +126,7 @@ MetaManager::MetaManager(std::string bench_name, IndexCache* index_cache, PageCa
           page_cache_->Insert(item_table_id,it_rid.page_no_,it_key);
       }
   }
-  LOG(INFO) << "All index prefetched";
+  // LOG(INFO) << "All index prefetched";
 }
 
 node_id_t MetaManager::GetRemoteStorageMeta(std::string& remote_ip, int remote_port) {

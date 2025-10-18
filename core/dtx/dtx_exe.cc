@@ -9,12 +9,12 @@
 
 bool DTX::TxExe(coro_yield_t& yield, bool fail_abort) {
   // MV2PL+No-wait
-  //  LOG(INFO) << "TxExe" ;
+  //  // LOG(INFO) << "TxExe" ;
   int sleep_time = 0;
   struct timespec start_time, end_time;
   clock_gettime(CLOCK_REALTIME, &start_time);
 
-  // LOG(INFO) << "TxExe: " << tx_id;
+  // // LOG(INFO) << "TxExe: " << tx_id;
 
   // new dtx exe logic
   std::vector<std::future<void>> futures;
@@ -32,7 +32,7 @@ bool DTX::TxExe(coro_yield_t& yield, bool fail_abort) {
         read_only_set.erase(read_only_set.begin() + i);
         i--; // Move back one step
         tx_status = TXStatus::TX_VAL_NOTFOUND; // Value not found
-        // LOG(INFO) << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " not found ";
+        // // LOG(INFO) << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " not found ";
         continue;
       }
       ro_fetch_tasks.emplace_back(i, std::make_pair(rid, &read_only_set[i]));
@@ -48,10 +48,10 @@ bool DTX::TxExe(coro_yield_t& yield, bool fail_abort) {
         read_write_set.erase(read_write_set.begin() + i);
         i--; // Move back one step
         tx_status = TXStatus::TX_VAL_NOTFOUND; // Value not found
-        // LOG(INFO) << "Thread id:" << local_t_id << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " not found ";
+        // // LOG(INFO) << "Thread id:" << local_t_id << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " not found ";
         continue;
       }
-      // LOG(INFO) << "Thread id:" << local_t_id << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " found on page: " << rid.page_no_;
+      // // LOG(INFO) << "Thread id:" << local_t_id << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " found on page: " << rid.page_no_;
       rw_fetch_tasks.emplace_back(i, std::make_pair(rid, &read_write_set[i]));
     }
   }
@@ -107,16 +107,16 @@ bool DTX::TxExe(coro_yield_t& yield, bool fail_abort) {
         *item.item_ptr = *GetDataItemFromPageRW(item.item_ptr->table_id, data, rid, orginal_item);
         if(orginal_item->lock == UNLOCKED) {
           orginal_item->lock = EXCLUSIVE_LOCKED;
-          // LOG(INFO) << "lock ok on table: " << item.item_ptr->table_id << "on page: " << rid.page_no_ << " key: " << item.item_ptr->key;
-          // LOG(INFO) << "release ok ";
+          // // LOG(INFO) << "lock ok on table: " << item.item_ptr->table_id << "on page: " << rid.page_no_ << " key: " << item.item_ptr->key;
+          // // LOG(INFO) << "release ok ";
           if(item.release_imme) {
             orginal_item->lock = UNLOCKED;
           }
           ReleaseXPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page
         } else{
           // lock conflict
-          // LOG(INFO) << "lock fail on table: " << item.item_ptr->table_id << "on page: " << rid.page_no_ << " key: " << item.item_ptr->key << "hold lock: " << item.item_ptr->version << "node_id: " << item.item_ptr->node_id;
-          // LOG(INFO) << "release fail ";
+          // // LOG(INFO) << "lock fail on table: " << item.item_ptr->table_id << "on page: " << rid.page_no_ << " key: " << item.item_ptr->key << "hold lock: " << item.item_ptr->version << "node_id: " << item.item_ptr->node_id;
+          // // LOG(INFO) << "release fail ";
           ReleaseXPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page
           tx_status = TXStatus::TX_ABORTING; // Transaction is aborting due to lock conflict
           return; 
@@ -139,7 +139,7 @@ bool DTX::TxExe(coro_yield_t& yield, bool fail_abort) {
         assert(data_item->table_id == item.item_ptr->table_id);
         *item.item_ptr = *data_item;
         item.is_fetched = true;
-        // LOG(INFO) << "Thread id:" << local_t_id << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " found on page: " << rid.page_no_ << " node_id: " << node_id << "successfully locked";
+        // // LOG(INFO) << "Thread id:" << local_t_id << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " found on page: " << rid.page_no_ << " node_id: " << node_id << "successfully locked";
       }
       else assert(false);
     }));
@@ -178,8 +178,8 @@ bool DTX::TxCommit(coro_yield_t& yield){
 
 bool DTX::TxCommitSingle(coro_yield_t& yield) {
   // get commit timestamp
-    //  LOG(INFO) << "TxCommit" ;
-  // LOG(INFO) << "DTX: " << tx_id << " TxCommit. coro: " << coro_id;
+    //  // LOG(INFO) << "TxCommit" ;
+  // // LOG(INFO) << "DTX: " << tx_id << " TxCommit. coro: " << coro_id;
   struct timespec start_time, end_ts_time;
   clock_gettime(CLOCK_REALTIME, &start_time);
   commit_ts = GetTimestampRemote();
@@ -232,7 +232,7 @@ void DTX::TxAbort(coro_yield_t& yield) {
     struct timespec start_time, end_time;
     clock_gettime(CLOCK_REALTIME, &start_time);
   if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3){
-    // LOG(INFO) << "TxAbort";
+    // // LOG(INFO) << "TxAbort";
     for(size_t i=0; i<read_write_set.size(); i++){
       DataSetItem& data_item = read_write_set[i];
       if(data_item.is_fetched){ 
@@ -340,7 +340,7 @@ bool DTX::Tx2PCCommit(coro_yield_t &yield){
 }
 
 void DTX::Tx2PCCommitAll(coro_yield_t &yield){
-  // LOG(INFO) << "Tx2PCCommitAll";
+  // // LOG(INFO) << "Tx2PCCommitAll";
   // 2pc 方法的commit阶段
     struct timespec start_time, end_time;
     clock_gettime(CLOCK_REALTIME, &start_time);
@@ -359,12 +359,12 @@ void DTX::Tx2PCCommitAll(coro_yield_t &yield){
     }
   }
   two_latency_c = compute_server->Commit_2pc(node_data_map, tx_id);
-  // LOG(INFO) << "2PC commit latency: " << two_latency_c;
+  // // LOG(INFO) << "2PC commit latency: " << two_latency_c;
   return;
 }
 
 void DTX::Tx2PCAbortAll(coro_yield_t &yield){
- // LOG(INFO) << "Tx2PCAbortAll";
+ // // LOG(INFO) << "Tx2PCAbortAll";
   // 2pc 方法的abort阶段
   std::unordered_map<node_id_t, std::vector<std::pair<table_id_t, Rid>>> node_data_map;
   for(size_t i=0; i<read_write_set.size(); i++){
@@ -373,7 +373,7 @@ void DTX::Tx2PCAbortAll(coro_yield_t &yield){
       // this data item is fetched and locked
       Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
       node_id_t node_id = compute_server->get_node_id_by_page_id_new(data_item.item_ptr->table_id, rid.page_no_);
-      // LOG(INFO) <<  "Remote release data item " << data_item.item_ptr->table_id << " " << rid.page_no_ << " " << rid.slot_no_;
+      // // LOG(INFO) <<  "Remote release data item " << data_item.item_ptr->table_id << " " << rid.page_no_ << " " << rid.slot_no_;
       // remote page
       if(node_data_map.find(node_id) == node_data_map.end()){
         node_data_map[node_id] = std::vector<std::pair<table_id_t, Rid>>();

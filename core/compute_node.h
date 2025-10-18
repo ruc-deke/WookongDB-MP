@@ -48,7 +48,7 @@ public:
     */
     ComputeNode(int nodeid, std::string remote_server_ip, int remote_server_port, MetaManager* meta_manager = nullptr) :node_id(nodeid), meta_manager_(meta_manager) {
         // connect to remote pagetable&bufferpool server
-        LOG(INFO) << "brpc connect to remote pagetable&bufferpool server: " << remote_server_ip << ":" << remote_server_port;
+        // LOG(INFO) << "brpc connect to remote pagetable&bufferpool server: " << remote_server_ip << ":" << remote_server_port;
         brpc::ChannelOptions options;
         options.use_rdma = use_rdma;
         // options.timeout_ms = 5000; // 5s超时
@@ -281,11 +281,10 @@ public:
     }
 
     // 远程通知此节点获取页面控制权成功
-    void NotifyLockPageSuccess(table_id_t table_id, page_id_t page_id, bool xlock, node_id_t newest_id, bool push_or_pull) {
+    void NotifyLockPageSuccess(table_id_t table_id, page_id_t page_id, bool xlock , bool need_wait) {
       if(SYSTEM_MODE == 1){ // lazy release
         assert(lazy_local_page_lock_tables[table_id] != nullptr && local_page_lock_tables[table_id] == nullptr);
-        lazy_local_page_lock_tables[table_id]->GetLock(page_id)->RemoteNotifyLockSuccess(xlock, newest_id, push_or_pull);
-        
+        lazy_local_page_lock_tables[table_id]->GetLock(page_id)->RemoteNotifyLockSuccess(xlock, need_wait);
       }
       else{
         assert(false);

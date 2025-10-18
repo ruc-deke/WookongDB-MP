@@ -17,6 +17,7 @@ enum PendingType {
 message PendingRequest {
     PageID page_id = 1;
     PendingType pending_type = 2;
+    sint32 dest_node_id = 4;   // 发送 Pending 的时候，同时通知对方需要向哪个节点推送数据
 };
 
 message PendingResponse{}
@@ -41,8 +42,8 @@ message NotifyPushPageResponse{}
 message LockSuccessRequest{
     PageID page_id = 1;
     bool xlock_succeess = 2; // 1为排他锁加锁成功, 2为共享锁加锁成功
-    sint32 newest_id = 3; // 最新的持有锁的节点ID
-    bool push_or_pull = 4; // 是否需要推送页面数据, true表示推送页面数据, false表示不推送页面数据
+    bool need_wait = 3;     // 是否需要等待推送页面
+    repeated sint32 dest_node_ids = 4; // 通知锁成功的时候，同时需要通知某个节点向别人推送数据页
 }
 
 message LockSuccessResponse{}

@@ -55,9 +55,15 @@ public:
         if (success){
             // 把这个从 lru_hash 里面拿出来，这样即使 is_evicing = false,别人也拿不到锁
             auto it = lru_hash.find(*frame_id);
-            assert(it != lru_hash.end());
-            lru_list.erase(it->second);
-            lru_hash.erase(*frame_id);
+            // 这里是有可能找不到的，在 Pending 里有可能fetchpage，然后pin住
+            // 这种时候就跳过就行了，反正触发概率很低，远程一定不会同意
+            if (it != lru_hash.end()){
+                lru_list.erase(it->second);
+                lru_hash.erase(*frame_id);
+            }
+            // assert(it != lru_hash.end());
+            // lru_list.erase(it->second);
+            // lru_hash.erase(*frame_id);
         }
         is_evicting[*frame_id] = false;
     }

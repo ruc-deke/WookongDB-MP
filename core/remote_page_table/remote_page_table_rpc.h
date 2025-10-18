@@ -134,10 +134,6 @@ class PageTableServiceImpl : public PageTableService {
                 page_table_service::PageID *page_id_pb = new page_table_service::PageID();
                 page_id_pb->set_page_no(page_id);
                 response->set_allocated_page_id(page_id_pb);
-
-                LOG(INFO) << "Lock Success Directly , node_id = " << node_id << " table_id = " 
-                    << table_id << " page_id = " << page_id
-                    << " need_from_storage " << need_from_storage;
             }
 
             // 添加模拟延迟
@@ -160,7 +156,7 @@ class PageTableServiceImpl : public PageTableService {
             bool lock_success = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->LockShared(node_id,table_id, valid_info);
   
             response->set_wait_lock_release(!lock_success);
-
+            
             if(lock_success){
                 bool need_from_storage = false;
                 node_id_t newest_node = valid_info->GetValid(node_id , need_from_storage);
@@ -172,9 +168,9 @@ class PageTableServiceImpl : public PageTableService {
                 page_id_pb->set_page_no(page_id);
                 response->set_allocated_page_id(page_id_pb);
 
-                LOG(INFO) << "Lock Success Directly , node_id = " << node_id << " table_id = " 
-                    << table_id << " page_id = " << page_id
-                    << " need_from_storage " << need_from_storage;
+                 // LOG(INFO) << "LRPSLock LockSuccess Directly , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
+            }else{
+                 // LOG(INFO) << "LRPSLock Wait Lock, node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id << " LockSuccess ? " << lock_success;
             }
             // std::cout << "LRPSLock End\n";
             return;
@@ -223,7 +219,7 @@ class PageTableServiceImpl : public PageTableService {
         }
         agree_cnt++;
 
-        LOG(INFO) << "Agree Release , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
+        // LOG(INFO) << "Agree Release , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
 
         // 把本节点的有效信息设置为false
         assert(valid_info->IsValid(node_id));
@@ -259,8 +255,7 @@ class PageTableServiceImpl : public PageTableService {
             table_id_t table_id = request->page_id().table_id();
             node_id_t node_id = request->node_id();
 
-
-            LOG(INFO) << "LRPAnyUnlock , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
+            // LOG(INFO) << "LRPAnyUnlock , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
 
             // 简单粗暴：如果 X 锁，need_valid = true,否则 need_validate = false
             // 在这里加速，后面解锁
@@ -270,7 +265,6 @@ class PageTableServiceImpl : public PageTableService {
             // 当解锁了本节点后，能够进行下一轮所有权授予的时候，会做两件事情：
             // 1. request_queue：把下一轮的清除，2. hold_lock_nodes：添加下一轮节点
             bool need_transfer = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferControl(table_id);
-            
 
             if(need_transfer){
                 // 先取当前的 newest，用于通知下一轮节点的数据来源
@@ -279,17 +273,10 @@ class PageTableServiceImpl : public PageTableService {
                 assert(!next_nodes.empty());
                 
                 // true 表示需要等别人推送数据，这里是在锁释放里面的，就是需要 Push 的
-                std::vector<std::pair<bool , int>> res1 = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->SendComputenodeLockSuccess(table_id , valid_info , true);
+                page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->SendComputenodeLockSuccess(table_id , valid_info , true);
 
                 // 有一种情况是，当前持有者是 s 锁，然后本节点又申请了 x 锁，此时不能同意，还是得加入到请求队列里去
-                std::vector<std::pair<bool , int>> res2 = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->NotifyPushPage(table_id , valid_info);
-
-                // debug
-                assert(res1.size() == res2.size());
-                for (size_t i = 0 ; i < res1.size() ; i++){
-                    assert(res1[i].first == res2[i].first);
-                    assert(res1[i].second == res2[i].second);
-                }
+                // std::vector<std::pair<bool , int>> res2 = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->NotifyPushPage(table_id , valid_info);
 
                 // 设置完了，更新有效性信息
                 for(auto nid : next_nodes){
@@ -298,61 +285,63 @@ class PageTableServiceImpl : public PageTableService {
                 // 在这里解锁 valid_info
                 page_valid_table_list_->at(table_id)->setNodeValidAndNewest(next_nodes.front(), page_id);
                 // 在这里解锁 LR_Lock
-                page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->setComputeNodePendingAfterTransfer(table_id , immedia_transfer ,valid_info);
+                // std::cout << "Next Pending\n";
+                page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferPending(table_id , immedia_transfer ,valid_info);
             }
-            // 把自己所有权给放了，所以选择推送的节点都是最后一个解锁的节点，因为前边的都已经释放掉了
+
             page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->ReleasePage(node_id);
-            // std::cout << "Unlock End\n";
+
+            // LOG(INFO) << "LRPAnyUnlock Over , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
         }
 
-    virtual void LRPAnyUnLocks(::google::protobuf::RpcController* controller,
-                       const ::page_table_service::PAnyUnLocksRequest* request,
-                       ::page_table_service::PAnyUnLockResponse* response,
-                       ::google::protobuf::Closure* done){
-            brpc::ClosureGuard done_guard(done);
-            for(int i=0; i<request->pages_id_size(); i++){
-                page_id_t page_id = request->pages_id(i).page_no();
-                table_id_t table_id = request->pages_id(i).table_id();
-                node_id_t node_id = request->node_id();
-                // bool need_valid = page_lock_table_->LR_GetLock(page_id)->UnlockAny(node_id);
-                // LOG(INFO) << "**table_id: " << table_id << " page_id: " << page_id << " node_id: " << node_id << " try to release any lock";
-                GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
-                bool need_valid = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->UnlockAny(node_id);
+    // virtual void LRPAnyUnLocks(::google::protobuf::RpcController* controller,
+    //                    const ::page_table_service::PAnyUnLocksRequest* request,
+    //                    ::page_table_service::PAnyUnLockResponse* response,
+    //                    ::google::protobuf::Closure* done){
+    //         brpc::ClosureGuard done_guard(done);
+    //         for(int i=0; i<request->pages_id_size(); i++){
+    //             page_id_t page_id = request->pages_id(i).page_no();
+    //             table_id_t table_id = request->pages_id(i).table_id();
+    //             node_id_t node_id = request->node_id();
+    //             // bool need_valid = page_lock_table_->LR_GetLock(page_id)->UnlockAny(node_id);
+    //             // // LOG(INFO) << "**table_id: " << table_id << " page_id: " << page_id << " node_id: " << node_id << " try to release any lock";
+    //             GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
+    //             bool need_valid = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->UnlockAny(node_id);
 
-                bool need_transfer = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferControl(table_id);
-                auto next_nodes = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->get_hold_lock_nodes();
-                // 此时的 hold_lock_nodes 一定不包含自己的，因为此时本节点的全部事务已经跑完了
-                if(need_transfer){
-                    valid_info->Global_Lock();
-                    node_id_t current_newest = valid_info->get_newest_nodeID_NoBlock();
-                    assert(current_newest != -1);
-                    assert(!next_nodes.empty());
+    //             bool need_transfer = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferControl(table_id);
+    //             auto next_nodes = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->get_hold_lock_nodes();
+    //             // 此时的 hold_lock_nodes 一定不包含自己的，因为此时本节点的全部事务已经跑完了
+    //             if(need_transfer){
+    //                 valid_info->Global_Lock();
+    //                 node_id_t current_newest = valid_info->get_newest_nodeID_NoBlock();
+    //                 assert(current_newest != -1);
+    //                 assert(!next_nodes.empty());
                     
-                    std::vector<std::pair<bool , int>> res1 = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->SendComputenodeLockSuccess(table_id , valid_info , true);
-                    std::vector<std::pair<bool , int>> res2 = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->NotifyPushPage(table_id , valid_info);
+    //                 std::vector<std::pair<bool , int>> res1 = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->SendComputenodeLockSuccess(table_id , valid_info , true);
+    //                 std::vector<std::pair<bool , int>> res2 = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->NotifyPushPage(table_id , valid_info);
 
-                    assert(res1.size() == res2.size());
-                    for (size_t i = 0 ; i < res1.size() ; i++){
-                        assert(res1[i].first == res2[i].first);
-                        assert(res1[i].second == res2[i].second);
-                    }
+    //                 assert(res1.size() == res2.size());
+    //                 for (size_t i = 0 ; i < res1.size() ; i++){
+    //                     assert(res1[i].first == res2[i].first);
+    //                     assert(res1[i].second == res2[i].second);
+    //                 }
 
-                    // 设置完了，更新有效性信息
-                    for(auto nid : next_nodes){
-                        page_valid_table_list_->at(table_id)->setNodeValid(nid, page_id);
-                    }
-                    // 在这里解锁 valid_info
-                    page_valid_table_list_->at(table_id)->setNodeValidAndNewest(next_nodes.front(), page_id);
-                    // 在这里解锁 LR_Lock
-                    page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferPending(table_id , immedia_transfer , valid_info);
-                }
+    //                 // 设置完了，更新有效性信息
+    //                 for(auto nid : next_nodes){
+    //                     page_valid_table_list_->at(table_id)->setNodeValid(nid, page_id);
+    //                 }
+    //                 // 在这里解锁 valid_info
+    //                 page_valid_table_list_->at(table_id)->setNodeValidAndNewest(next_nodes.front(), page_id);
+    //                 // 在这里解锁 LR_Lock
+    //                 page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->TransferPending(table_id , immedia_transfer , valid_info);
+    //             }
 
-                for (node_id_t next_node : next_nodes){
-                    assert(next_node != node_id);
-                }
-                page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->ReleasePage(node_id);
-            }
-        }
+    //             for (node_id_t next_node : next_nodes){
+    //                 assert(next_node != node_id);
+    //             }
+    //             page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->ReleasePage(node_id);
+    //         }
+    //     }
 
     private:
     std::vector<GlobalLockTable*>* page_lock_table_list_;

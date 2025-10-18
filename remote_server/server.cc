@@ -1,5 +1,6 @@
 #include <brpc/channel.h>
 #include <brpc/server.h>
+#include <fstream>
 #include <gflags/gflags.h>
 #include <thread>
 
@@ -131,7 +132,7 @@ int socket_start_server(Server *server) {
         clientSockets[i] = accept(serverSocket, nullptr, nullptr);
         // 接收客户端发送的节点数目
         recv(clientSockets[i], &ComputeNodeCount, sizeof(ComputeNodeCount), 0);
-        LOG(INFO) << "Receive: ComputeNodeCount: " << ComputeNodeCount;
+        // LOG(INFO) << "Receive: ComputeNodeCount: " << ComputeNodeCount;
     }
 
     // 计算节点已经启动，建立连接
@@ -147,7 +148,7 @@ int socket_start_server(Server *server) {
         send(clientSockets[i], "SYN-BEGIN", 9, 0);
         close(clientSockets[i]);
     }
-    LOG(INFO) << "Send SYN message to compute nodes";
+    // LOG(INFO) << "Send SYN message to compute nodes";
 
     // 关闭套接字
     close(serverSocket);
@@ -230,6 +231,10 @@ int main(int argc, char* argv[]) {
     gflags::ParseCommandLineFlags(&argc, &argv, true);
 
     std::string log_path = "LOG.log";
+    if (std::ifstream(log_path)){
+        std::remove(log_path.c_str());
+    }
+
     ::logging::LoggingSettings log_setting;  // 创建LoggingSetting对象进行设置
     log_setting.log_file = log_path.c_str(); // 设置日志路径
     log_setting.logging_dest = logging::LOG_TO_FILE; // 设置日志写到文件，不写的话不生效

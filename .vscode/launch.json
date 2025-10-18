@@ -103,6 +103,25 @@
             ]
         },
         {
+            "name": "(gdb)compute-server3",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/compute_server/compute_server",
+            "args": ["smallbank", "lazy", "6", "1", "0", "0.5" , "3"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build/compute_server/",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
             "name": "(gdb)storage-server",
             "type": "cppdbg",
             "request": "launch",

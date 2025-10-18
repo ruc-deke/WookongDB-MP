@@ -75,8 +75,8 @@ public:
     }
 
     // 直接从缓冲区里面把这个页面删掉，这个是当节点释放页面所有权的时候调用的
-    void release_page(page_id_t page_id){
-        // std::lock_guard<std::mutex> lk(mtx);
+    void release_page(table_id_t table_id , page_id_t page_id){
+        // LOG(INFO) << "now release page , table_id = " << table_id << " page_id = " << page_id ; 
         auto it = page_table.find(page_id);
         assert(it != page_table.end());
 
@@ -146,8 +146,9 @@ public:
         return false;
     }
 
-    // bool：是否要替换页面，int：被替换掉的页面
-    int replace_page (page_id_t page_id , 
+    // 第一个:选中要淘汰的页面
+    // 返回的时候，被选中的这个页面的真实状态
+    std::pair<node_id_t , node_id_t> replace_page (page_id_t page_id , 
             frame_id_t &frame_id,
             int &try_cnt ,
             const std::function<bool(page_id_t)> &try_begin_evict ){
@@ -158,6 +159,7 @@ public:
         }
 
         bool need_loop = true;
+        node_id_t victim_page_id = INVALID_PAGE_ID;
         while (need_loop){
             bool res = replacer->tryVictim(&frame_id , try_cnt);
             if (!res){
@@ -165,7 +167,7 @@ public:
                 continue;
             }
 
-            page_id_t victim_page_id = pages[frame_id]->page_id_;
+            victim_page_id = pages[frame_id]->page_id_;
             assert(victim_page_id != INVALID_PAGE_ID);
 
             // 在这个地方，缓冲池只是负责提供一个思路，告诉 PageLock，你试一下来淘汰这个
@@ -181,7 +183,6 @@ public:
                 2. 是否被 release 了
                    2.1 可能是被别的线程淘汰的时候选中然后淘汰了，设置一个标记位，我选中了就不让对面选了
                    2.2 可能是真的被淘汰了，加入到了 free_lists 里，在 LR_Local_Page_Lock 里加一个字段，is_released
-                3. 暂时 OK 了
             */
             replacer->endVictim(ok , &frame_id);
 
@@ -192,10 +193,7 @@ public:
                 mtx.lock();
             }
         }
-        page_id_t ret = pages[frame_id]->page_id_;
-        // assert(page_table.find(ret) != page_table.end());
-        // assert(page_table[ret] == frame_id);
-        return ret;
+        return std::make_pair(victim_page_id , pages[frame_id]->page_id_);
     }
 
     Page *insert_or_replace(table_id_t table_id, page_id_t page_id , frame_id_t frame_id , bool need_to_replace , page_id_t replaced_page , const void *src){
@@ -238,7 +236,7 @@ public:
     //     assert(nextCount >= 0);
 
     //     if (nextCount == 0 && should_release_buffer[page_id]){
-    //         LOG(INFO) << "Decrement : table_id = " << table_id << " page_id = " << page_id;
+    //         // LOG(INFO) << "Decrement : table_id = " << table_id << " page_id = " << page_id;
 
     //         /*
     //             为什么做这一步呢？
@@ -271,11 +269,17 @@ public:
         if (pending_operation_counts[page_id] == 0){
             should_release_buffer[page_id] = false;
             
-            release_page(page_id);
+            release_page(table_id , page_id);
         } else {
             should_release_buffer[page_id] = true;
         }
     }
+
+    void releaseBufferPage(table_id_t table_id , page_id_t page_id) {
+        std::lock_guard<std::mutex> lock(mtx);
+        release_page(table_id , page_id);
+    }
+
     void resetPending(){
         pending_operation_counts = std::vector<int>(max_page_num , 0);
         should_release_buffer = std::vector<bool>(max_page_num, false);

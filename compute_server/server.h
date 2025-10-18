@@ -67,6 +67,8 @@ class ComputeNodeServiceImpl : public ComputeNodeService {
                        ::compute_node_service::TransferDTXResponse* response,
                        ::google::protobuf::Closure* done);
 
+    
+
     private:
     ComputeServer* server;
 };
@@ -182,6 +184,8 @@ public:
         t.detach();
     }
 
+    void PushPageToOther(table_id_t table_id , page_id_t page_id , node_id_t dest_node_id);
+
     ~ComputeServer(){}
     static void InvalidRPCDone(partition_table_service::InvalidResponse* response, brpc::Controller* cntl);
 
@@ -264,11 +268,18 @@ public:
         while(true){
             try_cnt++;
             // 先找到一个淘汰的页面，这个函数并没有真正淘汰，只是选择了一个页面
-            page_id_t replaced_page_id = node_->getBufferPoolByIndex(table_id)->replace_page(page_id , frame_id , try_cnt , try_begin_evict);
+            std::pair<node_id_t , node_id_t> res = node_->getBufferPoolByIndex(table_id)->replace_page(page_id , frame_id , try_cnt , try_begin_evict);
+            node_id_t replaced_page_id = res.first;
             assert(frame_id >= 0);
-
             assert(replaced_page_id != INVALID_PAGE_ID);
             LRLocalPageLock *lr_local_lock = node_->lazy_local_page_lock_tables[table_id]->GetLock(replaced_page_id);
+            if (res.second == INVALID_PAGE_ID){
+                lr_local_lock->UnlockMtx();
+                lr_local_lock->EndEvict();
+                continue;
+            }
+            
+
             int unlock_remote = lr_local_lock->getUnlockType();
             // 如果 unlock_remote = 0，代表已经释放了，不可控
             if (unlock_remote == 0){
@@ -314,7 +325,7 @@ public:
             request->set_allocated_page_id(pid);
             request->set_node_id(node_->node_id);
 
-            // LOG(INFO) << "Try , table_id = " << table_id << " page_id = " << page_id;
+            // // LOG(INFO) << "Try , table_id = " << table_id << " page_id = " << page_id;
 
             brpc::Controller cntl;
             pagetable_stub.BufferReleaseUnlock(&cntl , request , response , NULL);
@@ -336,7 +347,7 @@ public:
                 delete request;
             }
 
-            // LOG(INFO) << "Evicting a page success , table_id = " << table_id << " page_id = " << page_id << " replaced table_id = " << table_id << " page_id = " << replaced_page_id;
+            // // LOG(INFO) << "Evicting a page success , table_id = " << table_id << " page_id = " << page_id << " replaced table_id = " << table_id << " page_id = " << replaced_page_id;
 
             Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(
                 table_id,
