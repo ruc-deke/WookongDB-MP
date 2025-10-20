@@ -17,6 +17,7 @@ message PXLockResponse{
     sint32 newest_node = 1; // 返回最新的数据页所在节点, 如果当前已经是最新的, 则返回-1
     PageID page_id = 2;
     bool wait_lock_release = 3; // 如果返回为true，则加锁不成功
+    bool need_storage_fetch = 4;   // 是否需要去存储层获取数据
 }
 
 message PXUnlockRequest {
@@ -34,7 +35,8 @@ message PSLockRequest {
 message PSLockResponse{
     sint32 newest_node = 1; // 返回最新的数据页所在节点, 如果当前已经是最新的, 则返回-1
     PageID page_id = 2;
-    bool wait_lock_release = 3; // 如果返回为true，则加锁不成功
+    bool wait_lock_release = 3; //  如果返回为true，则加锁不成功
+    bool need_storage_fetch = 4; // 返回 true 代表需要向 storage 拉取数据
 }
 
 message PSUnlockRequest {
@@ -54,8 +56,16 @@ message PAnyUnLocksRequest {
     repeated PageID pages_id = 1;
     sint32 node_id = 2;
 }
-
 message PAnyUnLockResponse{}
+
+message BufferReleaseUnlockRequest {
+    PageID page_id = 1;
+    sint32 node_id = 2;
+};
+message BufferReleaseUnlockResponse {
+    bool agree = 1; // 是否允许释放这个页面
+};
+
 
 service PageTableService {
     rpc PXLock(PXLockRequest) returns (PXLockResponse);
@@ -70,4 +80,5 @@ service PageTableService {
     rpc LRPSUnlock(PSUnlockRequest) returns (PSUnlockResponse); // unused now 
     rpc LRPAnyUnLock(PAnyUnLockRequest) returns (PAnyUnLockResponse);
     rpc LRPAnyUnLocks(PAnyUnLocksRequest) returns (PAnyUnLockResponse);
-};
+    rpc BufferReleaseUnlock(BufferReleaseUnlockRequest) returns (BufferReleaseUnlockResponse);
+}

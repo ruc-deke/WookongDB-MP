@@ -94,6 +94,7 @@
         "locale": "cpp",
         "queue": "cpp",
         "stack": "cpp",
-        "future": "cpp"
+        "future": "cpp",
+        "forward_list": "cpp"
     }
 }

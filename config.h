@@ -68,7 +68,7 @@ enum class OperationType {READ, WRITE};
 
 #define BatchTimeStamp 200 
 
-#define UniformHot true
+#define UniformHot false 
 
 #define LongTxnSize 10 // 长事务大小
 

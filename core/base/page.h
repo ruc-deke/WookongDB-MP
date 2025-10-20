@@ -53,6 +53,7 @@ struct hash<PageId> {
 };
 }  // namespace std
 
+
 // PageId的自定义哈希算法, 用于构建unordered_map<PageId, frame_id_t, PageIdHash>
 struct PageIdHash {
     size_t operator()(const PageId &x) const { return (x.table_id << 16) | x.page_no; }
@@ -62,6 +63,7 @@ struct PageIdHash {
 class Page {
     friend class StorageBufferPoolManager;
     friend class BufferFusion;
+    friend class BufferPool;
    public:
     
     Page() { reset_memory(); }
@@ -73,6 +75,7 @@ class Page {
     inline char *get_data() { return data_; }
 
     bool is_dirty() const { return is_dirty_; }
+    void set_dirty(bool d) {is_dirty_ = d;}
 
    private:
     void reset_memory() { memset(data_, 0, PAGE_SIZE); }  // 将data_的PAGE_SIZE个字节填充为0

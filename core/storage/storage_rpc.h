@@ -39,6 +39,12 @@ class StoragePoolImpl : public StorageService{
                        ::storage_service::GetBatchIndexResponse* response,
                        ::google::protobuf::Closure* done);
 
+    // LJ
+    virtual void WritePage(::google::protobuf::RpcController* controller,
+                       const ::storage_service::WritePageRequest* request,
+                       ::storage_service::WritePageResponse* response,
+                       ::google::protobuf::Closure* done);
+
   private:
     LogManager* log_manager_;
     DiskManager* disk_manager_;

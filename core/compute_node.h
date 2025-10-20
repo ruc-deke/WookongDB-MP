@@ -9,6 +9,11 @@
 #include <condition_variable>
 #include <mutex>
 #include <brpc/channel.h>
+#include "unordered_map"
+#include "atomic"
+#include "chrono"
+#include "algorithm"
+#include "iterator"
 
 #include "util/json_config.h"
 #include "storage/storage_service.pb.h"
@@ -34,11 +39,16 @@ struct Txn_request_info{
 
 class ComputeNode {
 friend class ComputeServer;
-
+friend class ComputeNodeServiceImpl;
 public:
+    /*
+        1. 初始化和 Lock Fusion 以及 storage node 的 brpc 连接
+        2. 初始化本地的 Lock
+        3. 根据不同的 WORKLOAD，创建不同的表(元数据)，然后为每张表创建各自的本地缓冲池，并把这个表的部分页从存储中加载到本地内存(预加载)
+    */
     ComputeNode(int nodeid, std::string remote_server_ip, int remote_server_port, MetaManager* meta_manager = nullptr) :node_id(nodeid), meta_manager_(meta_manager) {
         // connect to remote pagetable&bufferpool server
-        LOG(INFO) << "brpc connect to remote pagetable&bufferpool server: " << remote_server_ip << ":" << remote_server_port;
+        // LOG(INFO) << "brpc connect to remote pagetable&bufferpool server: " << remote_server_ip << ":" << remote_server_port;
         brpc::ChannelOptions options;
         options.use_rdma = use_rdma;
         // options.timeout_ms = 5000; // 5s超时
@@ -68,6 +78,19 @@ public:
             LOG(ERROR) << "SYSTEM_MODE ERROR!";
             exit(1);
         }
+        // 读取统一的每表缓冲池大小配置
+        size_t table_pool_size_cfg = 0; 
+        bool has_table_pool_size_cfg = false;
+        {
+            std::string config_filepath = "../../config/compute_node_config.json";
+            auto json_config = JsonConfig::load_file(config_filepath);
+            auto pool_size_node = json_config.get("table_buffer_pool_size");
+            if (pool_size_node.exists() && pool_size_node.is_int64()) {
+                table_pool_size_cfg = (size_t)pool_size_node.get_int64();
+                has_table_pool_size_cfg = true;
+            }
+            std::cout << "Table BufferPool Size : " << table_pool_size_cfg << "\n";
+        }
         if(WORKLOAD_MODE == 0) {
             if (SYSTEM_MODE == 0) {
                 eager_local_page_lock_tables.reserve(2);
@@ -94,43 +117,49 @@ public:
             } 
             else assert(false);
 
+            // 读取每张表能够存储的最大页数
             std::vector<int> max_page_per_table;
             std::copy(meta_manager->max_page_num_per_tables.begin(), meta_manager->max_page_num_per_tables.end(),
                       std::back_inserter(max_page_per_table));
             assert(meta_manager->max_page_num_per_tables.size() == 2);
             local_buffer_pools.reserve(2);
+            // 修复：在后续使用下标赋值之前，必须 resize 到目标大小
+            local_buffer_pools.resize(2);
             std::vector<std::string> table_name;
             table_name.resize(2);
             table_name[0] = "../storage_server/smallbank_savings";
             table_name[1] = "../storage_server/smallbank_checking";
+            // 因为要测试 primary <-> buffer <-> storage 交互的功能，所以这里就不预加载了
             for(int table_id = 0; table_id < 2;table_id++) {
-                brpc::Controller cntl;
-                storage_service::GetPageRequest request;
-                storage_service::GetPageRequest::PageID *page_id;
-                // 对于过大的表，每次只获取部分页
-                local_buffer_pools[table_id] = new BufferPool(max_page_per_table[table_id] + 100);
-                for (int32_t i = 0; i < max_page_per_table[table_id]; i++) {
-                    page_id = request.add_page_id();
-                    page_id->set_table_name(table_name[table_id]);
-                    page_id->set_page_no(i);
-                    auto *response = new storage_service::GetPageResponse;
-                    auto storagepool_stub = new storage_service::StorageService_Stub(&storage_channel);
-                    storagepool_stub->GetPage(&cntl, &request, response, NULL);
-                    if (cntl.Failed()) {
-                        LOG(ERROR) << "Fail to get date from " << table_name[table_id];
-                    }
-                    size_t total_length = response->data().size();
-                    size_t page_length = PAGE_SIZE;
-                    size_t num_pages = (total_length + page_length - 1) / page_length;
-                    assert(num_pages == 1);
-                    for (size_t j = 0; j < num_pages; ++j) {
-                        size_t copy_length = std::min(page_length, total_length - j * page_length);
-                        std::memcpy(local_buffer_pools[table_id]->pages_[i].get_data(), response->data().c_str(),
-                                    copy_length);
-                    }
-                    cntl.Reset();
-                    request.clear_page_id();
-                }
+            //     brpc::Controller cntl;
+            //     storage_service::GetPageRequest request;
+            //     storage_service::·‘·::PageID *page_id;
+            //     // 对于过大的表，每次只获取部分页
+                size_t pool_sz = has_table_pool_size_cfg ? table_pool_size_cfg : (size_t)(max_page_per_table[table_id] / 5);
+                // pool_sz = max_page_per_table[table_id];
+                local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id]);
+            //     for (int32_t i = 0; i < max_page_per_table[table_id]; i++) {
+            //         page_id = request.add_page_id();
+            //         page_id->set_table_name(table_name[table_id]);
+            //         page_id->set_page_no(i);
+            //         auto *response = new storage_service::GetPageResponse;
+            //         auto storagepool_stub = new storage_service::StorageService_Stub(&storage_channel);
+            //         storagepool_stub->GetPage(&cntl, &request, response, NULL);
+            //         if (cntl.Failed()) {
+            //             LOG(ERROR) << "Fail to get date from " << table_name[table_id];
+            //         }
+            //         size_t total_length = response->data().size();
+            //         size_t page_length = PAGE_SIZE;
+            //         size_t num_pages = (total_length + page_length - 1) / page_length;
+            //         assert(num_pages == 1);
+            //         for (size_t j = 0; j < num_pages; ++j) {
+            //             size_t copy_length = std::min(page_length, total_length - j * page_length);
+            //             std::memcpy(local_buffer_pools[table_id]->fetch_page(j)->get_data(), response->data().c_str(),
+            //                         copy_length);
+            //         }
+            //         cntl.Reset();
+            //         request.clear_page_id();
+            //     }
             }
         } else if(WORKLOAD_MODE == 1) {
             if(SYSTEM_MODE == 0) {
@@ -166,50 +195,55 @@ public:
                         std::back_inserter(max_page_per_table));;
             assert(meta_manager->max_page_num_per_tables.size() == 11);
             local_buffer_pools.reserve(11);
+            // 修复：在后续使用下标赋值之前，必须 resize 到目标大小
+            local_buffer_pools.resize(11);
             std::vector<std::string> table_name;
-            table_name.resize(11);
-            table_name[0] = "../storage_server/TPCC_warehouse";
-            table_name[1] = "../storage_server/TPCC_district";
-            table_name[2] = "../storage_server/TPCC_customer";
-            table_name[3] = "../storage_server/TPCC_customerhistory";
-            table_name[4] = "../storage_server/TPCC_ordernew";
-            table_name[5] = "../storage_server/TPCC_order";
-            table_name[6] = "../storage_server/TPCC_orderline";
-            table_name[7] = "../storage_server/TPCC_item";
-            table_name[8] = "../storage_server/TPCC_stock";
-            table_name[9] = "../storage_server/TPCC_customerindex";
-            table_name[10] = "../storage_server/TPCC_orderindex";
+            // table_name.resize(11);
+            // table_name[0] = "../storage_server/TPCC_warehouse";
+            // table_name[1] = "../storage_server/TPCC_district";
+            // table_name[2] = "../storage_server/TPCC_customer";
+            // table_name[3] = "../storage_server/TPCC_customerhistory";
+            // table_name[4] = "../storage_server/TPCC_ordernew";
+            // table_name[5] = "../storage_server/TPCC_order";
+            // table_name[6] = "../storage_server/TPCC_orderline";
+            // table_name[7] = "../storage_server/TPCC_item";
+            // table_name[8] = "../storage_server/TPCC_stock";
+            // table_name[9] = "../storage_server/TPCC_customerindex";
+            // table_name[10] = "../storage_server/TPCC_orderindex";
             for(int table_id = 0; table_id < 11;table_id++) {
-                brpc::Controller cntl;
-                storage_service::GetPageRequest request;
-                storage_service::GetPageRequest::PageID *page_id;
-                // 对于过大的表，每次只获取部分页
-                local_buffer_pools[table_id] = new BufferPool(max_page_per_table[table_id] + 100);
-                for (int32_t i = 0; i < max_page_per_table[table_id]; i++) {
-                    page_id = request.add_page_id();
-                    page_id->set_table_name(table_name[table_id]);
-                    page_id->set_page_no(i);
-                    auto *response = new storage_service::GetPageResponse;
-                    auto storagepool_stub = new storage_service::StorageService_Stub(&storage_channel);
-                    storagepool_stub->GetPage(&cntl, &request, response, NULL);
-                    if (cntl.Failed()) {
-                        LOG(ERROR) << "Fail to get date from " << table_name[table_id];
-                    }
-                    size_t total_length = response->data().size();
-                    size_t page_length = PAGE_SIZE;
-                    size_t num_pages = (total_length + page_length - 1) / page_length;
-                    assert(num_pages == 1);
-                    for (size_t j = 0; j < num_pages; ++j) {
-                        size_t copy_length = std::min(page_length, total_length - j * page_length);
-                        std::memcpy(local_buffer_pools[table_id]->pages_[i].get_data(), response->data().c_str(),
-                                    copy_length);
-                    }
-                    cntl.Reset();
-                    request.clear_page_id();
-                }
+            //     brpc::Controller cntl;
+            //     storage_service::GetPageRequest request;
+            //     storage_service::GetPageRequest::PageID *page_id;
+            //     // 对于过大的表，每次只获取部分页
+                size_t pool_sz = has_table_pool_size_cfg ? table_pool_size_cfg : (size_t)(max_page_per_table[table_id] / 5);
+                // pool_sz = max_page_per_table[table_id];
+                local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id]);
+            //     for (int32_t i = 0; i < max_page_per_table[table_id]; i++) {
+            //         page_id = request.add_page_id();
+            //         page_id->set_table_name(table_name[table_id]);
+            //         page_id->set_page_no(i);
+            //         auto *response = new storage_service::GetPageResponse;
+            //         auto storagepool_stub = new storage_service::StorageService_Stub(&storage_channel);
+            //         storagepool_stub->GetPage(&cntl, &request, response, NULL);
+            //         if (cntl.Failed()) {
+            //             LOG(ERROR) << "Fail to get date from " << table_name[table_id];
+            //         }
+            //         size_t total_length = response->data().size();
+            //         size_t page_length = PAGE_SIZE;
+            //         size_t num_pages = (total_length + page_length - 1) / page_length;
+            //         assert(num_pages == 1);
+            //         for (size_t j = 0; j < num_pages; ++j) {
+            //             size_t copy_length = std::min(page_length, total_length - j * page_length);
+            //             std::memcpy(local_buffer_pools[table_id]->fetch_page(j)->get_data(), response->data().c_str(),
+            //                         copy_length);
+            //         }
+            //         cntl.Reset();
+            //         request.clear_page_id();
+            //     }
             }
         }
-        local_buffer_pool = new BufferPool(ComputeNodeBufferPageSize);
+        // 不知道干啥的，这里先给他设置 10000 吧
+        local_buffer_pool = new BufferPool(ComputeNodeBufferPageSize , 10000);
         fetch_remote_cnt = 0;
         fetch_allpage_cnt = 0;
         lock_remote_cnt = 0;
@@ -223,11 +257,11 @@ public:
     }
 
     // 远程通知此节点释放数据页（不主动释放数据页策略下）
-    int PendingPage(page_id_t page_id, bool xpending, table_id_t table_id, node_id_t dest_node_id = -1) {
+    int PendingPage(page_id_t page_id, bool xpending, table_id_t table_id) {
       int unlock_remote;
       if(SYSTEM_MODE == 1){ // lazy release
         assert(lazy_local_page_lock_tables[table_id] != nullptr && local_page_lock_tables[table_id] == nullptr);
-        unlock_remote = lazy_local_page_lock_tables[table_id]->GetLock(page_id)->Pending(node_id, xpending, dest_node_id);
+        unlock_remote = lazy_local_page_lock_tables[table_id]->GetLock(page_id)->Pending(node_id, xpending);
       }
       else{
         assert(false);
@@ -247,14 +281,27 @@ public:
     }
 
     // 远程通知此节点获取页面控制权成功
-    void NotifyLockPageSuccess(table_id_t table_id, page_id_t page_id, bool xlock, node_id_t newest_id, bool push_or_pull) {
+    void NotifyLockPageSuccess(table_id_t table_id, page_id_t page_id, bool xlock , bool need_wait) {
       if(SYSTEM_MODE == 1){ // lazy release
         assert(lazy_local_page_lock_tables[table_id] != nullptr && local_page_lock_tables[table_id] == nullptr);
-        lazy_local_page_lock_tables[table_id]->GetLock(page_id)->RemoteNotifyLockSuccess(xlock, newest_id, push_or_pull);
+        lazy_local_page_lock_tables[table_id]->GetLock(page_id)->RemoteNotifyLockSuccess(xlock, need_wait);
       }
       else{
         assert(false);
       }
+    }
+
+
+    Page *fetch_page(table_id_t table_id , page_id_t page_id){
+        return local_buffer_pools[table_id]->fetch_page(page_id);
+    }
+
+    // 两个地方会调用这个：
+    // 1. 释放缓冲区，刷新到存储那里
+    // 2. Pull 数据的地方
+    // 两个地方为什么调用这个，各自的注释都写了
+    Page *fetch_page_special(table_id_t table_id , page_id_t page_id){
+        return local_buffer_pools[table_id]->fetch_page_special(page_id);
     }
 
     const std::atomic<int> &getFetchRemoteCnt() const {
@@ -333,10 +380,12 @@ private:
     LocalPageLockTable* local_page_lock_table = nullptr;
     ERLocalPageLockTable* eager_local_page_lock_table = nullptr;
     LRLocalPageLockTable* lazy_local_page_lock_table = nullptr;
+
+    // 本地的缓冲池，每个表一个 BufferPool
+    std::vector<BufferPool*> local_buffer_pools;
     BufferPool* local_buffer_pool;
 
     std::unordered_map<table_id_t ,int> buffer_pool_index;
-    std::vector<BufferPool*> local_buffer_pools;
     std::vector<LocalPageLockTable*> local_page_lock_tables;
     std::vector<ERLocalPageLockTable*> eager_local_page_lock_tables;
     std::vector<LRLocalPageLockTable*> lazy_local_page_lock_tables;

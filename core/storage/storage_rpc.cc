@@ -29,7 +29,7 @@ namespace storage_service{
                        ::google::protobuf::Closure* done){
             
         brpc::ClosureGuard done_guard(done);
-        // RDMA_LOG(INFO) << "handle write log request, log is " << request->log();
+        // RDMA_// LOG(INFO) << "handle write log request, log is " << request->log();
         log_manager_->write_batch_log_to_disk(request->log());
 
 # if RAFT
@@ -47,7 +47,7 @@ namespace storage_service{
         }
         for(auto cid:cids1){
             brpc::Join(cid);
-            // LOG(INFO) << "storage node write raft prepare log. ";
+            // // LOG(INFO) << "storage node write raft prepare log. ";
         }
 
         // write raft commit log
@@ -64,7 +64,7 @@ namespace storage_service{
         }
         for(auto cid:cids2){
             brpc::Join(cid);
-            // LOG(INFO) << "storage node write raft commit log. ";
+            // // LOG(INFO) << "storage node write raft commit log. ";
         }
 # endif
         std::unordered_map<std::string, int> table_fd_map;
@@ -99,7 +99,7 @@ namespace storage_service{
                        ::google::protobuf::Closure* done){
 
         brpc::ClosureGuard done_guard(done);
-        // RDMA_LOG(INFO) << "handle write log request, log is " << request->log();
+        // RDMA_// LOG(INFO) << "handle write log request, log is " << request->log();
         log_manager_->write_raft_log_to_disk(request->raft_log());
         // LOG(INFO) << "Receive Raft log";
 
@@ -119,6 +119,7 @@ namespace storage_service{
         std::string return_data;
         for(int i=0; i<request->page_id().size(); i++){
             std::string table_name = request->page_id()[i].table_name();
+            
             int fd;
             if(table_fd_map.find(table_name) == table_fd_map.end()){
                 fd = disk_manager_->open_file(table_name);
@@ -128,17 +129,18 @@ namespace storage_service{
                 fd = table_fd_map[table_name];
             }
             page_id_t page_no = request->page_id()[i].page_no();
+            // std::cout << "Getting Page " << "table_name = " << table_name << " page_id = " << page_no << "\n";
             PageId page_id(fd, page_no);
             batch_id_t request_batch_id = request->require_batch_id();
             LogReplay* log_replay = log_manager_->log_replay_;
 
-            // RDMA_LOG(INFO) << "handle GetPage request";
-            // RDMA_LOG(INFO) << "request_batch_id: " << request_batch_id << ", persist_batch_id: " << log_replay->get_persist_batch_id();
+            // RDMA_// LOG(INFO) << "handle GetPage request";
+            // RDMA_// LOG(INFO) << "request_batch_id: " << request_batch_id << ", persist_batch_id: " << log_replay->get_persist_batch_id();
             char data[PAGE_SIZE];
             // TODO, 这里逻辑要重新梳理一下
             // while(log_replay->get_persist_batch_id()+1 < request_batch_id) {
             //     // wait
-            //     RDMA_LOG(INFO) << "the batch_id requirement is not satisfied...." << "  persist id: "<<
+            //     RDMA_// LOG(INFO) << "the batch_id requirement is not satisfied...." << "  persist id: "<<
             //         log_replay->get_persist_batch_id() << "  request id: " << request_batch_id;
             //     usleep(10);
             // }
@@ -147,7 +149,7 @@ namespace storage_service{
             log_replay->pageid_batch_count_[page_id].first.lock();
             while (log_replay->pageid_batch_count_[page_id].second > 0) {
                 // wait
-                LOG(INFO) << "the log replay queue is has another item...." << "  batch item cnt: "<<
+                // LOG(INFO) << "the log replay queue is has another item...." << "  batch item cnt: "<<
                     log_replay->pageid_batch_count_[page_id].second;
                 usleep(10);
             }
@@ -155,14 +157,16 @@ namespace storage_service{
             log_replay->latch3_.unlock();
 
             disk_manager_->read_page(fd, page_no, data, PAGE_SIZE);
+            // std::cout << "Got Here\n\n";
             return_data.append(std::string(data, PAGE_SIZE));
+            // std::cout << return_data << "\n";
         }
 
         response->set_data(return_data);
         for(auto it = table_fd_map.begin(); it != table_fd_map.end(); it++){
             disk_manager_->close_file(it->second);
         }
-        // RDMA_LOG(INFO) << "success to GetPage";
+        // RDMA_// LOG(INFO) << "success to GetPage";
         return;
     };
 
@@ -172,7 +176,7 @@ namespace storage_service{
                        ::google::protobuf::Closure* done){
         brpc::ClosureGuard done_guard(done);
         std::unordered_map<std::string, int> table_fd_map;
-        // LOG(INFO) << "handle PrefetchIndex request" << request->table_name() << "  " << request->batch_id();
+        // // LOG(INFO) << "handle PrefetchIndex request" << request->table_name() << "  " << request->batch_id();
         std::string table_name = request->table_name();
         std::string index_file_name = table_name + "_index.txt";
         std::ifstream file(index_file_name);
@@ -205,6 +209,27 @@ namespace storage_service{
             // std::cout << "Read line: " << line << std::endl;
         }
         file.close();
+        return;
+    };
+
+    void StoragePoolImpl::WritePage(::google::protobuf::RpcController* controller,
+                       const ::storage_service::WritePageRequest* request,
+                       ::storage_service::WritePageResponse* response,
+                       ::google::protobuf::Closure* done){
+        brpc::ClosureGuard done_guard(done);
+
+        // std::cout << "Got Here\n";
+
+        std::string table_name = request->page_id().table_name();
+        int fd = disk_manager_->open_file(table_name);
+        page_id_t page_no = request->page_id().page_no();
+
+        const std::string& payload = request->data();
+        assert(payload.size() == PAGE_SIZE);
+        
+        disk_manager_->write_page(fd, page_no, payload.data(), PAGE_SIZE);
+
+        disk_manager_->close_file(fd);
         return;
     };
 }

@@ -18,7 +18,7 @@ void LoadData(node_id_t machine_id,
                       std::string& workload,
                       RmManager* rm_manager) {
   /************************************* Load Data ***************************************/
-  LOG(INFO) << "Start loading database data...";
+  // LOG(INFO) << "Start loading database data...";
   if (workload == "SmallBank") {
     SmallBank* smallbank_server = new SmallBank(rm_manager);
     smallbank_server->LoadTable(machine_id, machine_num);
@@ -30,7 +30,7 @@ void LoadData(node_id_t machine_id,
     LOG(ERROR) << "Unsupported workload: " << workload;
     assert(false);
   }
-  LOG(INFO) << "Loading table successfully!";
+  // LOG(INFO) << "Loading table successfully!";
 }
 
 void Server::SendMeta(node_id_t machine_id, size_t compute_node_num, std::string workload) {
@@ -147,20 +147,20 @@ void Server::SendStorageMeta(char* hash_meta_buffer, size_t& total_meta_size) {
     close(listen_socket);
     return;
   }
-  LOG(INFO) << "Server creates socket success";
+  // LOG(INFO) << "Server creates socket success";
   if (bind(listen_socket, (const struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
     LOG(ERROR) << "Server binds socket error: " << strerror(errno);
     close(listen_socket);
     return;
   }
-  LOG(INFO) << "Server binds socket success";
+  // LOG(INFO) << "Server binds socket success";
   int max_listen_num = 10;
   if (listen(listen_socket, max_listen_num) < 0) {
     LOG(ERROR) << "Server listens error: " << strerror(errno);
     close(listen_socket);
     return;
   }
-  LOG(INFO) << "Server listens success";
+  // LOG(INFO) << "Server listens success";
   int from_client_socket = accept(listen_socket, NULL, NULL);
   // int from_client_socket = accept(listen_socket, (struct sockaddr*) &client_addr, &client_socket_length);
   if (from_client_socket < 0) {
@@ -169,7 +169,7 @@ void Server::SendStorageMeta(char* hash_meta_buffer, size_t& total_meta_size) {
     close(listen_socket);
     return;
   }
-  LOG(INFO) << "Server accepts success";
+  // LOG(INFO) << "Server accepts success";
 
   /* --------------- Sending hash metadata ----------------- */
   auto retlen = send(from_client_socket, hash_meta_buffer, total_meta_size, 0);
@@ -179,7 +179,7 @@ void Server::SendStorageMeta(char* hash_meta_buffer, size_t& total_meta_size) {
     close(listen_socket);
     return;
   }
-  LOG(INFO) << "Server sends hash meta success";
+  // LOG(INFO) << "Server sends hash meta success";
   size_t recv_ack_size = 100;
   char* recv_buf = (char*)malloc(recv_ack_size);
   recv(from_client_socket, recv_buf, recv_ack_size, 0);

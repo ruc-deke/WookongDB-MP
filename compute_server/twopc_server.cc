@@ -23,7 +23,7 @@ namespace twopc_service{
             // response->set_data(ret, sizeof(DataItem));
             server->local_release_s_page(table_id, page_id);
         }else{
-            // LOG(INFO) << "Node " << server->get_node()->getNodeID() << " lock data item " << table_id << " " << page_id << " " << slot_id;
+            // // LOG(INFO) << "Node " << server->get_node()->getNodeID() << " lock data item " << table_id << " " << page_id << " " << slot_id;
             Page* page = server->local_fetch_x_page(table_id, page_id);
             char* data = page->get_data();
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
@@ -135,7 +135,7 @@ namespace twopc_service{
             int slot_id = request->item_id(i).slot_id();
             char* write_remote_data = (char*)request->data(i).c_str();
 
-            // LOG(INFO) << "Node " << server->get_node()->getNodeID() << " release data item " << table_id << " " << page_id << " " << slot_id;
+            // // LOG(INFO) << "Node " << server->get_node()->getNodeID() << " release data item " << table_id << " " << page_id << " " << slot_id;
             
             Page* page = server->local_fetch_x_page(table_id, page_id);
             char* data = page->get_data();
@@ -192,7 +192,7 @@ namespace twopc_service{
             page_id_t page_id = request->item_id(i).page_no();
             int slot_id = request->item_id(i).slot_id();
 
-            // LOG(INFO) << "Node " << server->get_node()->getNodeID() << " release data item " << table_id << " " << page_id << " " << slot_id;
+            // // LOG(INFO) << "Node " << server->get_node()->getNodeID() << " release data item " << table_id << " " << page_id << " " << slot_id;
             
             Page* page = server->local_fetch_x_page(table_id, page_id);
             char* data = page->get_data();
@@ -211,13 +211,13 @@ namespace twopc_service{
 };
 
 Page* ComputeServer::local_fetch_s_page(table_id_t table_id, page_id_t page_id){
-    Page* page = node_->local_buffer_pools[table_id]->pages_ + page_id;
+    Page* page = node_->local_buffer_pools[table_id]->fetch_page(page_id);
     node_->local_page_lock_tables[table_id]->GetLock(page_id)->LockShared();
     return page;
 }
 
 Page* ComputeServer::local_fetch_x_page(table_id_t table_id, page_id_t page_id){
-    Page* page = node_->local_buffer_pools[table_id]->pages_ + page_id;
+    Page* page = node_->local_buffer_pools[table_id]->fetch_page(page_id);
     node_->local_page_lock_tables[table_id]->GetLock(page_id)->LockExclusive();
     return page;
 }

@@ -34,12 +34,12 @@ class PartitionTableImpl : public PartitionTableService {
                        ::google::protobuf::Closure* done){
 
                 brpc::ClosureGuard done_guard(done);
-                // LOG(INFO) << "Receive ParSLock request from node:" << request->node_id() << " Par" << request->partition_id().partition_no();
+                // // LOG(INFO) << "Receive ParSLock request from node:" << request->node_id() << " Par" << request->partition_id().partition_no();
                 partition_id_t par_id = request->partition_id().partition_no();
                 node_id_t node_id = request->node_id();
                 page_lock_table_list_->at(0)->GetPartitionLock(par_id)->LockShared(node_id);
 
-                // LOG(INFO) << "node: " << node_id << " Lock Shared partition " << par_id << " in remote partition table";
+                // // LOG(INFO) << "node: " << node_id << " Lock Shared partition " << par_id << " in remote partition table";
 
                 // 添加模拟延迟
                 // usleep(NetworkLatency); // 100us
@@ -52,12 +52,12 @@ class PartitionTableImpl : public PartitionTableService {
                         ::google::protobuf::Closure* done){
 
                 brpc::ClosureGuard done_guard(done);
-                // LOG(INFO) << "Receive ParSUnlock request from node:" << request->node_id() << " Par" << request->partition_id().partition_no();
+                // // LOG(INFO) << "Receive ParSUnlock request from node:" << request->node_id() << " Par" << request->partition_id().partition_no();
                 partition_id_t par_id = request->partition_id().partition_no();
                 node_id_t node_id = request->node_id();
                 page_lock_table_list_->at(0)->GetPartitionLock(par_id)->UnlockShared(node_id);
 
-                // LOG(INFO) << "node: " << node_id << " Unlock Shared partition " << par_id << " in remote partition table";
+                // // LOG(INFO) << "node: " << node_id << " Unlock Shared partition " << par_id << " in remote partition table";
                 // 添加模拟延迟
                 // usleep(NetworkLatency); // 100us
                 m.lock();
@@ -77,7 +77,7 @@ class PartitionTableImpl : public PartitionTableService {
                         ::google::protobuf::Closure* done){
 
                 brpc::ClosureGuard done_guard(done);
-                // LOG(INFO) << "Receive ParXLock request from node:" << request->node_id() << " Par" << request->partition_id().partition_no();
+                // // LOG(INFO) << "Receive ParXLock request from node:" << request->node_id() << " Par" << request->partition_id().partition_no();
                 bool update = true;
                 while(true){
                     global_epoch_mutex.lock();
@@ -91,7 +91,7 @@ class PartitionTableImpl : public PartitionTableService {
                             }
                         }
                         if(update){
-                            LOG(INFO) << "Update global epoch" << global_epoch_cnt + 1;
+                            // LOG(INFO) << "Update global epoch" << global_epoch_cnt + 1;
                             global_epoch_cnt++;
                         }
                         global_epoch_mutex.unlock();
@@ -107,7 +107,7 @@ class PartitionTableImpl : public PartitionTableService {
                 node_id_t node_id = request->node_id();
                 page_lock_table_list_->at(0)->GetPartitionLock(par_id)->LockExclusive(node_id);
 
-                // LOG(INFO) << "node: " << node_id << " Lock Exclusive partition " << par_id << " in remote partition table";
+                // // LOG(INFO) << "node: " << node_id << " Lock Exclusive partition " << par_id << " in remote partition table";
 
                 // 更新下一轮的执行时间
                 if(cross_ratio == 1){
@@ -123,8 +123,8 @@ class PartitionTableImpl : public PartitionTableService {
                 assert(global_phase_time >= 0);
 
                 if(update){
-                    LOG(INFO) << "Update partition_ms: "<< partition_phase_time;
-                    LOG(INFO) << "Update global_ms: "<< global_phase_time;
+                    // LOG(INFO) << "Update partition_ms: "<< partition_phase_time;
+                    // LOG(INFO) << "Update global_ms: "<< global_phase_time;
                 }
                 
                 response->set_global_time(global_phase_time);
@@ -141,12 +141,12 @@ class PartitionTableImpl : public PartitionTableService {
                         ::google::protobuf::Closure* done){
 
                 brpc::ClosureGuard done_guard(done);
-                // LOG(INFO) << "Receive ParXUnlock request from node:" << request->node_id() << " Par" << request->partition_id().partition_no();
+                // // LOG(INFO) << "Receive ParXUnlock request from node:" << request->node_id() << " Par" << request->partition_id().partition_no();
                 partition_id_t par_id = request->partition_id().partition_no();
                 node_id_t node_id = request->node_id();
                 page_lock_table_list_->at(0)->GetPartitionLock(par_id)->UnlockExclusive(node_id);
 
-                // LOG(INFO) << "node: " << node_id << " Unlock Exclusive partition " << par_id << " in remote partition table";
+                // // LOG(INFO) << "node: " << node_id << " Unlock Exclusive partition " << par_id << " in remote partition table";
                 
                 // 添加模拟延迟
                 // usleep(NetworkLatency); // 100us
@@ -163,7 +163,7 @@ class PartitionTableImpl : public PartitionTableService {
                 node_id_t node_id = request->node_id();
                 table_id_t table_id = request->page_id().table_id();
 
-                page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->XReleasePage(node_id);
+                page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->ReleasePage(node_id);
             }
 
     virtual void InvalidPages(::google::protobuf::RpcController* controller,
@@ -176,7 +176,7 @@ class PartitionTableImpl : public PartitionTableService {
                 for(int i=0; i<request->page_id_size(); i++){
                     page_id_t page_id = request->page_id(i).page_no();
                     table_id_t table_id = request->page_id(i).table_id();
-                    page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->XReleasePage(node_id);
+                    page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->ReleasePage(node_id);
                 }
             }
             
@@ -221,7 +221,7 @@ class PartitionTableImpl : public PartitionTableService {
                        ::google::protobuf::Closure* done){
 
                 brpc::ClosureGuard done_guard(done);
-                LOG(INFO) << "Receive finish request from node:" << request->node_id();
+                // LOG(INFO) << "Receive finish request from node:" << request->node_id();
                 global_epoch_mutex.lock();
                 compute_finish[request->node_id()] = true;
                 bool update = true;
@@ -232,7 +232,7 @@ class PartitionTableImpl : public PartitionTableService {
                     }
                 }
                 if(update){
-                    LOG(INFO) << "Update global epoch" << global_epoch_cnt + 1;
+                    // LOG(INFO) << "Update global epoch" << global_epoch_cnt + 1;
                     global_epoch_cnt++;
                 }
                 global_epoch_mutex.unlock();

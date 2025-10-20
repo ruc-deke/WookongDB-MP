@@ -6,6 +6,7 @@
 #include <cassert>
 #include <iostream>
 #include <condition_variable>
+#include <atomic>
 
 // 这里是想要使用LRLocalPageLock来实现Lazy Release的功能
 class LRLocalPageLock{ 
@@ -14,12 +15,16 @@ private:
     lock_t lock;                // 读写锁, 记录当前数据页的ref
     LockMode remote_mode;       // 这个计算节点申请的远程节点的锁模式
     bool is_pending = false;    // 是否正在pending
-    node_id_t dest_push_node = -1; // 需要push的目标节点, 如果不需要push, 则为-1
     bool is_granting = false;   // 是否正在授权
     bool success_return = false; // 成功加锁返回
-    node_id_t update_node = -1;   // 是否需要更新
-    bool push_or_pull = false; // 如果需要更新, 是等待push: true, 还是等待pull: false
+
+    bool need_wait;         // 是否需要把等待被人把页面推送过来
     bool update_success = false; // 是否更新成功
+
+    node_id_t dest_node_id; // 准备推送的数据页，由于 Pending 的时候说不定正在用这个数据页，所以在这里记录下来，留到 lazy_release 的时候再推送
+    std::list<node_id_t> push_list; // 推送给本轮持有锁的节点列表
+    bool is_evicting;   // 是否正在驱逐页面
+    bool is_released;   // 表示是否真正释放释放所有权了(而不是lazyRelease赖着的)
 
 private:
     std::mutex mutex;    // 用于保护读写锁的互斥锁
@@ -30,15 +35,43 @@ public:
         page_id = pid;
         lock = 0;
         remote_mode = LockMode::NONE;
+        is_evicting = false;
+        is_released = true;
+
+        dest_node_id = INVALID_NODE_ID;
+    }
+
+    void setDestNodeID(node_id_t node_id){
+        std::lock_guard<std::mutex> lk(mutex);
+        dest_node_id = node_id;
+    }
+    void setDestNodeIDNoBlock(node_id_t node_id_){
+        dest_node_id = node_id_;
+    }
+    int getDestNodeID(){
+        std::lock_guard<std::mutex> lk(mutex);
+        return dest_node_id;
+    }
+    int getDestNodeIDNoBlock() const {
+        return dest_node_id;
+    }
+    void addToPushListNoBlock(node_id_t dest_node_id){
+        push_list.emplace_back(dest_node_id);
+    }
+    std::list<node_id_t> getPushList() {
+        std::lock_guard<std::mutex> lk(mutex);
+        std::list<node_id_t> ret = push_list;
+        push_list.clear();
+        return ret;
     }
     
     bool LockShared() {
-        // LOG(INFO) << "LockShared: " << page_id;
+        // // LOG(INFO) << "LockShared: " << page_id;
         bool lock_remote = false;
         bool try_latch = true;
         while(try_latch){
             mutex.lock();
-            if(is_granting || is_pending){
+            if(is_granting || is_pending || is_evicting){
                 // 当前节点已经有线程正在远程获取这个数据页的锁，其他线程无需再去远程获取锁
                 // 其他节点正在远程申请这个数据页的锁, 为了防止饿死, 应阻塞而不授予锁
                 mutex.unlock();
@@ -83,12 +116,12 @@ public:
     }
 
     bool LockExclusive() {
-        // LOG(INFO) << "LockExclusive: " << page_id << std::endl;
+        // // LOG(INFO) << "LockExclusive: " << page_id << std::endl;
         bool lock_remote = false;
         bool try_latch = true;
         while(try_latch){
             mutex.lock();
-            if(is_granting || is_pending){
+            if(is_granting || is_pending || is_evicting){
                 // 当前节点已经有线程正在远程获取这个数据页的锁，其他线程无需再去远程获取锁
                 // 其他节点正在远程申请这个数据页的锁, 为了防止饿死, 应阻塞而不授予锁
                 mutex.unlock();
@@ -106,6 +139,7 @@ public:
                 }
             }
             else if(remote_mode == LockMode::SHARED || remote_mode == LockMode::NONE){
+                // 还在用呢
                 if(lock != 0) {
                     mutex.unlock();
                 }
@@ -124,6 +158,7 @@ public:
         return lock_remote;
     }
 
+    // 这个函数是在 PushPage 中调用的，也就是数据真正到达了本地，写入缓存区后，才调用这个函数，把 update_success 设置为 true
     void RemotePushPageSuccess(){
         std::unique_lock<std::mutex> l(mutex);
         assert(is_granting == true);
@@ -131,166 +166,149 @@ public:
         cv.notify_one(); // 通知等待的线程远程页面推送成功
     }
 
-    void RemoteNotifyLockSuccess(bool xlock, node_id_t newest_id, bool push_or_pull_){
-        std::unique_lock<std::mutex> l(mutex);
+    void RemoteNotifyLockSuccess(bool xlock, bool need){
+        mutex.lock();
         assert(is_granting == true);
         if(xlock) assert(lock == EXCLUSIVE_LOCKED);
         else assert(lock > 0); 
         success_return = true;
-        update_node = newest_id; // 更新最新的持有锁的节点ID
-        push_or_pull = push_or_pull_; // 如果需要更新, 是等待push: true, 还是等待pull: false
+
+        need_wait = need;
+    
         cv.notify_one(); // 通知等待的线程远程锁成功
     }
 
-    // 返回如果需要主动pull的newest_id
-    node_id_t TryRemoteLockSuccess(double* wait_push_time = nullptr){
-        node_id_t pull_node_id = -1;
+    // 调用时机：fetch s/x page 的时候，无法立刻获得锁，我就来尝试看看能不能拿到锁
+    bool TryRemoteLockSuccess(table_id_t table_id , double* wait_push_time = nullptr){
         std::unique_lock<std::mutex> lock(mutex);
         assert(is_granting == true);
+        // 等待远程锁成功通知
         cv.wait(lock, [this] { return success_return; });
-        // lock success
-        if(update_node == -1 || push_or_pull == false){
-            // 不需要更新数据页 或者 需要pull数据页
+        // update_node == -1：不需要获取最新数据页，否则表示需要从最新节点获取，update_node 的值就是最新数据所在的节点
+        // push_or_pull = true：远程推送过来，=false：当前节点需要主动去拉取
+        bool ret = need_wait;
+        if(!need_wait){
             assert(update_success == false); 
-            pull_node_id = update_node; // 需要pull的节点ID
-        }
-        else{
-            // 需要等待push数据页
+        } else{
+            // 需要等待远程把数据给推送过来
             struct timespec start_time, end_time;
             clock_gettime(CLOCK_REALTIME, &start_time);
             cv.wait(lock, [this] { return update_success; });
+
             clock_gettime(CLOCK_REALTIME, &end_time);
             auto wait = (end_time.tv_sec - start_time.tv_sec) + (double)(end_time.tv_nsec - start_time.tv_nsec) / 1000000000;
             if(wait_push_time != nullptr){
                 *wait_push_time = wait;
             }
             update_success = false;
+            need_wait = false;
         }
         // 重置远程加锁成功标志位
         success_return = false;
-        update_node = -1; // 重置update_node
-        return pull_node_id;
+        return ret;
+    }
 
+    bool TryBeginEvict(){
+        // is_evicting：我正在选这孩子淘汰，你们这些线程别来沾边
+        std::lock_guard<std::mutex> lk(mutex);
+        if (is_evicting || is_released){
+            return false;
+        }
+        // lock = 0 -> 说明不持有远程锁或者持有远程锁但是对页面操作完释放了本地的 latch
+        // is_granting ==1 -> 一定是 lock > 0, 正在申请远程锁
+        // is_pending == 1 -> 你还在用， 让你放的时候没放掉， 等你用完自己放
+        // TODO：这里参数的选择可能有问题，后面优化下
+        if (lock == 0 && !is_granting && !is_pending){
+            is_evicting = true;
+            return true;
+        }
+        return false;
+    }
 
-        // while(true) {
-        //     mutex.lock();
-        //     assert(is_granting == true);
-        //     if(success_return == true){
-        //         // lock success
-        //         if(update_node == -1 || push_or_pull == false){
-        //             // 不需要更新数据页 或者 需要pull数据页
-        //             assert(update_success == false); 
-        //             pull_node_id = update_node; // 需要pull的节点ID
-        //         }
-        //         else{
-        //             // 需要等待push数据页
-        //             mutex.unlock();
-        //             struct timespec start_time, end_time;
-        //             clock_gettime(CLOCK_REALTIME, &start_time);
-        //             while(true){
-        //                 mutex.lock();
-        //                 if(update_success == true){
-        //                     break; // 成功返回
-        //                 }
-        //                 mutex.unlock();
-        //             }
-        //             clock_gettime(CLOCK_REALTIME, &end_time);
-        //             auto wait = (end_time.tv_sec - start_time.tv_sec) + (double)(end_time.tv_nsec - start_time.tv_nsec) / 1000000000;
-        //             if(wait_push_time != nullptr){
-        //                 *wait_push_time = wait;
-        //             }
-        //             update_success = false;
-        //         }
-        //         // 重置远程加锁成功标志位
-        //         success_return = false;
-        //         update_node = -1; // 重置update_node
-        //         break;
-        //     }
-        //     else{
-        //         // 没有成功返回, 需要继续等待
-        //         cv.wait(mutex, [this] { return success_return; });
-        //     }
-        //     mutex.unlock();
-        // }
-        // mutex.unlock();
-        // return pull_node_id;
+    void EndEvict(){
+        std::lock_guard<std::mutex> lk(mutex);
+        assert(is_evicting);
+        is_evicting = false;
+    }
+
+    bool isEvicting() {
+        std::lock_guard<std::mutex> lk(mutex);
+        return is_evicting;
     }
 
     // 调用LockExclusive()或者LockShared()之后, 如果返回true, 则需要调用这个函数将granting状态转换为shared或者exclusive
     void LockRemoteOK(node_id_t node_id){
-        // LOG(INFO) << "LockRemoteOK: " << page_id << std::endl;
+        // // LOG(INFO) << "LockRemoteOK: " << page_id << std::endl;
         mutex.lock();
         assert(is_granting == true);
         is_granting = false;
         // 可以通过lock的值来判断远程的锁模式，因为LockMode::GRANTING和LockMode::UPGRADING的时候其他线程不能加锁
         if(lock == EXCLUSIVE_LOCKED){
-            // LOG(INFO) << "LockRemoteOK: " << page_id << " EXCLUSIVE_LOCKED in node " << node_id;
+            // // LOG(INFO) << "LockRemoteOK: " << page_id << " EXCLUSIVE_LOCKED in node " << node_id;
             remote_mode = LockMode::EXCLUSIVE;
         }
         else{
-            // LOG(INFO) << "LockRemoteOK: " << page_id << " SHARED in node " << node_id;
+            // // LOG(INFO) << "LockRemoteOK: " << page_id << " SHARED in node " << node_id;
             remote_mode = LockMode::SHARED;
         }
+        // assert(is_released);
+        is_released = false;
         mutex.unlock();
     }
 
-    // 返回<是否需要释放远程锁， 是否需要push页面>
-    std::pair<int, int> UnlockShared() {
-        // LOG(INFO) << "UnlockShared: " << page_id << std::endl;
-        int unlock_remote = 0; // 0表示不需要释放远程锁, 1表示需要释放S锁, 2表示需要释放X锁
-        int dest_node_id = -1; // 需要push的目标节点, 如果不需要push, 则为-1
+    int tryUnlockShared(){
+        int unlock_remote = 0;
         mutex.lock();
         assert(lock > 0);
         assert(lock != EXCLUSIVE_LOCKED);
-        assert(!is_granting); //当持有S锁时，其他线程一定没获取X锁，所以不会有is_granting
-        --lock;
-        if(lock == 0 && is_pending){
+        assert(!is_granting);
+        // 如果释放了当前锁后，可以释放了
+        if ((lock - 1) == 0 && is_pending){
+            is_released = true;
             unlock_remote = (remote_mode == LockMode::SHARED) ? 1 : 2;
-            is_pending = false; // 释放远程锁后，将is_pending置为false
-            remote_mode = LockMode::NONE;
-            dest_node_id = dest_push_node; // 需要push的目标节点
-            dest_push_node = -1; // 重置dest_push_node
-            // LOG(INFO) << "Ulock S while is_pending";
-            // 此处释放远程锁应该阻塞其他线程再去获取锁，否则在远程可能该节点锁没释放又获取的情况
         }
-        else{
-            mutex.unlock();
-        }
-        return std::make_pair(unlock_remote, dest_node_id);
+        return unlock_remote;
     }
 
-    std::pair<int, int> UnlockExclusive(){
-        // LOG(INFO) << "UnlockExclusive: " << page_id << std::endl;
+    // 返回<是否需要释放远程锁， 是否需要push页面>
+    int UnlockShared() {
+        --lock;
+        if(lock == 0 && is_pending){
+            is_pending = false; // 释放远程锁后，将is_pending置为false
+            remote_mode = LockMode::NONE;
+        }
+    }
+
+    int tryUnlockExclusive(){
         int unlock_remote = 0;
-        int dest_node_id = -1; // 需要push的目标节点, 如果不需要push, 则为-1
         mutex.lock();
         assert(remote_mode == LockMode::EXCLUSIVE);
         assert(lock == EXCLUSIVE_LOCKED);
-        assert(!is_granting); 
+        assert(!is_granting);
+        if (is_pending){
+            is_released = true;
+            unlock_remote = 2;
+        }
+        return unlock_remote;
+    }
+    void UnlockExclusive(){
         lock = 0;
         if(is_pending){
-            unlock_remote = 2;
             is_pending = false; // 释放远程锁后，将is_pending置为false
             remote_mode = LockMode::NONE;
-            dest_node_id = dest_push_node; // 需要push的目标节点
-            dest_push_node = -1; // 重置dest_push_node
-            // LOG(INFO) << "Ulock X while is_pending";
-            // 此处释放远程锁应该阻塞其他线程再去获取锁，否则在远程可能该节点锁没释放又获取的情况
         }
-        else{
-            mutex.unlock();
-        }
-        return std::make_pair(unlock_remote, dest_node_id);
     }
+
 
     int UnlockAny(){
         // 这个函数在一个线程结束的时候调用，此时本地的锁已经释放，远程的锁也应该释放
-        int unlock_remote = 0; // 0表示不需要释放远程锁, 1表示需要释放S锁, 2表示需要释放X锁
+        int unlock_remote; // 0表示不需要释放远程锁, 1表示需要释放S锁, 2表示需要释放X锁
         mutex.lock();
         assert(lock == 0);
         assert(!is_granting && !is_pending);
         if(remote_mode == LockMode::NONE){
             // 远程没有持有锁
+            unlock_remote = 0;
             mutex.unlock();
         }
         else if(remote_mode == LockMode::SHARED){
@@ -304,6 +322,7 @@ public:
         else{
             assert(false);
         }
+        is_released = true;
         return unlock_remote;
     }
 
@@ -312,61 +331,47 @@ public:
         mutex.unlock();
     }
 
-    int Pending(node_id_t n, bool xpending, node_id_t dest_node_id = -1){
+    int Pending(node_id_t n, bool xpending){
         int unlock_remote = 0;
         mutex.lock();
-        // LOG(INFO) << "Pending: " << page_id ;
+        // // LOG(INFO) << "Pending: " << page_id ;
         assert(!is_pending);
-        // is_granting == true 是极少出现的情况，本地0->X/0->S/S->X, 获取锁的节点还未来得及将remote_mode设置为SHARED或者EXCLUSIVE
-        // 就进入了Pending状态
 
-        // 存疑的情况
-        // !主动释放后接受到pending，如果本地又加上了锁，远程必定为None? 因为必须要该锁在远程获取之后, 才能本地加锁成功
-
-        // 相对正常的情况
-        // 1. 本地没有正在远程获取锁，远程持有S锁或X锁，如果本地锁是0，则立即释放远程锁，否则置is_pending为true
-        // 2. 本地没有正在远程获取锁，远程没有持有锁，这种情况是由于本地主动释放锁，远程还未来得及获取锁，此时无需做任何操作
-        
-        // 这里需要考虑这两种特殊情况
-        // 第一种情况是远程已经有S锁，正在申请远程X锁，这个时候发生pending，
-        // 一种可能是因为与其他申请X锁的计算节点竞争失败，导致需要将自己已经获取的S锁释放
-        // 第二种可能是已经远程获取了X锁，但是本地还没有更新remote_mode, 而其他节点也想获取X锁，因此向本节点发送pending请求
-
-        // 第二种情况是远程无锁，正在申请远程S/X锁，这个时候发生pending，原因是远程已经获取了锁，但是还没有将remote_mode设置为SHARED或者EXCLUSIVE
-        // 这种情况下，直接置为Pending状态即可
-
-        if(!is_granting && remote_mode != LockMode::NONE){
+        // 如果远程还持有锁
+        if(!is_granting && remote_mode != LockMode::NONE) {
             assert(remote_mode == LockMode::SHARED || remote_mode == LockMode::EXCLUSIVE);
+            // 如果没人在用了，那就立刻释放锁
             if(lock == 0){
                 // 立刻在远程释放锁
                 unlock_remote = (remote_mode == LockMode::SHARED) ? 1 : 2;
+                is_released = true;
                 remote_mode = LockMode::NONE;
                 // 在函数外部unlock
             }
-            else{
+            else{   //如果有人在用，那就等待锁释放
                 is_pending = true;
-                dest_push_node = dest_node_id; // 需要push的目标节点
-                mutex.unlock();
+                // mutex.unlock();
             }
         }
-        else if(!is_granting && remote_mode == LockMode::NONE){
-            // 计算节点主动释放锁
-            unlock_remote = 3; // !特殊：这种情况是该节点主动释放了所有权，但是还没来得及同步到GPLM，然后其他节点发起了所有权转移，在这种情况下，可能仍然需要push页面，但不需要进一步释放所有权
-            mutex.unlock();
+        else if(!is_granting && remote_mode == LockMode::NONE){ 
+            // 我魔改之后，这种应该不会出现了，因为一定只有一个节点会发送 Pending
+            assert(false);
+            // unlock_remote = 3; 
+            // mutex.unlock();
         }
-        else if(is_granting && remote_mode == LockMode::SHARED){
+        else if(is_granting && remote_mode == LockMode::SHARED){  
             // 远程已经获取了S锁，正在申请X锁
             assert(lock == EXCLUSIVE_LOCKED);
             if(xpending){ 
-                // 要求释放X锁
                 is_pending = true;
-                dest_push_node = dest_node_id; // 需要push的目标节点
-                mutex.unlock();
+                // mutex.unlock();
             }
             else{
                 // 要求释放S锁
+                // 找到 Bug 了，在这呢，找了一天
                 unlock_remote = 1;
                 remote_mode = LockMode::NONE;
+
                 // 在函数外部unlock
             }
         }
@@ -375,8 +380,7 @@ public:
             // 第二种是主动释放锁，接受了过时的pending，而又来了新的加锁请求
             // 无论xpengding是true还是false, 都一样
             is_pending = true;
-            dest_push_node = dest_node_id; // 需要push的目标节点
-            mutex.unlock();
+            // mutex.unlock();
         }
         else{
             // is_granting == true, remote_mode == EXCLUSIVE
@@ -395,6 +399,39 @@ public:
             assert(remote_mode == LockMode::SHARED || remote_mode == LockMode::EXCLUSIVE);
         }
         mutex.unlock();
+    }
+
+    void lockMtx(){
+        mutex.lock();
+    }
+    void UnlockMtx(){
+        mutex.unlock();
+    }
+
+    // Debug
+    bool IsUpgrading() {
+        std::lock_guard<std::mutex> l(mutex);
+        return remote_mode == LockMode::SHARED && is_granting;
+    }
+
+    // Debug
+    bool HasOwner() {
+        std::lock_guard<std::mutex> l(mutex);
+        return (remote_mode == LockMode::SHARED || remote_mode == LockMode::EXCLUSIVE);
+    }
+
+    int getUnlockType(){
+        mutex.lock();
+        if (remote_mode == LockMode::NONE){
+            return 0;
+        }else if (remote_mode == LockMode::EXCLUSIVE){
+            return 2;
+        }else if (remote_mode == LockMode::SHARED){
+            return 1;
+        }else {
+            assert(false);
+        }
+        return -1;
     }
 };
 

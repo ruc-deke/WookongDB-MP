@@ -39,19 +39,34 @@ foreach(PROTO_FILE ${PROTO_FILES})
 endforeach()
 
 # Search for libthrift* by best effort. If it is not found and brpc is
-# compiled with thrift protocol enabled, a link error would be reported.
 find_library(THRIFT_LIB NAMES thrift)
 if (NOT THRIFT_LIB)
     set(THRIFT_LIB "")
 endif()
 
-find_path(BRPC_INCLUDE_PATH NAMES brpc/server.h PATHS ${CMAKE_CURRENT_SOURCE_DIR})
+# 指定 brpc 根目录（如果你的头文件在 /home/wlj/include 下，保持如下设置即可；也可用 -DBRPC_ROOT=... 覆盖）
+set(BRPC_ROOT "/home/wlj/include" CACHE PATH "Path to brpc root directory")
+# 头文件候选路径：直接 include、output/include、源码 src
+set(BRPC_INCLUDE_CANDIDATES
+    "${BRPC_ROOT}"
+    "${BRPC_ROOT}/output/include"
+    "${BRPC_ROOT}/src"
+)
+# 库文件候选路径：output/lib、当前根下的 lib、根的上一级 lib 以及常见的 /home/wlj/lib
+set(BRPC_LIB_CANDIDATES
+    "${BRPC_ROOT}/output/lib"
+    "${BRPC_ROOT}/lib"
+    "${BRPC_ROOT}/../lib"
+    "/home/wlj/lib"
+)
+
+find_path(BRPC_INCLUDE_PATH NAMES brpc/server.h PATHS ${BRPC_INCLUDE_CANDIDATES})
 message(STATUS "BRPC_INCLUDE_PATH: ${BRPC_INCLUDE_PATH}")
 
 if(LINK_SO)
-    find_library(BRPC_LIB NAMES brpc)
+    find_library(BRPC_LIB NAMES brpc PATHS ${BRPC_LIB_CANDIDATES})
 else()
-    find_library(BRPC_LIB NAMES libbrpc.a brpc)
+    find_library(BRPC_LIB NAMES libbrpc.a brpc PATHS ${BRPC_LIB_CANDIDATES})
 endif()
 if((NOT BRPC_INCLUDE_PATH) OR (NOT BRPC_LIB))
     message(FATAL_ERROR "Fail to find brpc")
@@ -84,10 +99,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 endif()
 
 set(CMAKE_CPP_FLAGS "${DEFINE_CLOCK_GETTIME} -DGFLAGS_NS=${GFLAGS_NS}")
-set(CMAKE_CXX_FLAGS "${CMAKE_CPP_FLAGS} -DDEBUG -O0 -D__const__=__unused__ -pipe -W -Wall -Wno-unused-parameter -fPIC -fno-omit-frame-pointer")
+set(CMAKE_CXX_FLAGS "${CMAKE_CPP_FLAGS} -DDEBUG -O0 -D__const__=__unused__ -pipe -fPIC -fno-omit-frame-pointer -w")
 set(CMAKE_BUILD_TYPE Debug)
 
-add_compile_options(-Wno-deprecated-copy -Wno-class-memaccess)
+add_compile_options(-w)
 
 find_path(LEVELDB_INCLUDE_PATH NAMES leveldb/db.h)
 find_library(LEVELDB_LIB NAMES leveldb)
