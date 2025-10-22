@@ -166,14 +166,14 @@ public:
         cv.notify_one(); // 通知等待的线程远程页面推送成功
     }
 
-    void RemoteNotifyLockSuccess(bool xlock, bool need){
+    void RemoteNotifyLockSuccess(bool xlock, bool is_newest){
         mutex.lock();
         assert(is_granting == true);
         if(xlock) assert(lock == EXCLUSIVE_LOCKED);
         else assert(lock > 0); 
         success_return = true;
 
-        need_wait = need;
+        need_wait = !is_newest;
     
         cv.notify_one(); // 通知等待的线程远程锁成功
     }
@@ -188,8 +188,10 @@ public:
         // push_or_pull = true：远程推送过来，=false：当前节点需要主动去拉取
         bool ret = need_wait;
         if(!need_wait){
+            // LOG(INFO) << "BAGAYALU!!!";
             assert(update_success == false); 
         } else{
+            // LOG(INFO) << "KONIJIWA";
             // 需要等待远程把数据给推送过来
             struct timespec start_time, end_time;
             clock_gettime(CLOCK_REALTIME, &start_time);
@@ -205,6 +207,7 @@ public:
         }
         // 重置远程加锁成功标志位
         success_return = false;
+        // LOG(INFO) << "TryRemote LockSuccess , table_id = " << table_id << " page_id = " << page_id;
         return ret;
     }
 
@@ -241,7 +244,6 @@ public:
         // // LOG(INFO) << "LockRemoteOK: " << page_id << std::endl;
         mutex.lock();
         assert(is_granting == true);
-        is_granting = false;
         // 可以通过lock的值来判断远程的锁模式，因为LockMode::GRANTING和LockMode::UPGRADING的时候其他线程不能加锁
         if(lock == EXCLUSIVE_LOCKED){
             // // LOG(INFO) << "LockRemoteOK: " << page_id << " EXCLUSIVE_LOCKED in node " << node_id;
@@ -252,6 +254,7 @@ public:
             remote_mode = LockMode::SHARED;
         }
         // assert(is_released);
+        is_granting = false;
         is_released = false;
         mutex.unlock();
     }

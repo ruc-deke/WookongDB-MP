@@ -160,6 +160,11 @@ DataItemPtr DTX::GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid,
   return itemPtr; 
 }
 
+Rid DTX::GetRidFromBTree(table_id_t table_id , itemkey_t key){
+    root_latch.lock();
+    
+}
+
 DataItemPtr DTX::UndoDataItem(DataItemPtr item) {
   // auto prev_lsn = item->prev_lsn;
   // while(start_ts < item->version) {

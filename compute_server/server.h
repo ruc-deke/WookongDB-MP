@@ -342,7 +342,7 @@ public:
             // 写回到磁盘后，再解锁，防止别人拿到锁之后把页面换了
             lr_local_lock->UnlockMtx();
 
-            page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
+            // page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
             auto *request = new page_table_service::BufferReleaseUnlockRequest();
             auto *response = new page_table_service::BufferReleaseUnlockResponse();
             auto *pid = new page_table_service::PageID();
@@ -351,14 +351,21 @@ public:
             request->set_allocated_page_id(pid);
             request->set_node_id(node_->node_id);
 
-            // // LOG(INFO) << "Try , table_id = " << table_id << " page_id = " << page_id;
-
-            brpc::Controller cntl;
-            pagetable_stub.BufferReleaseUnlock(&cntl , request , response , NULL);
-            if (cntl.Failed()){
-                LOG(ERROR) << "Fatal Error , brpc Failed";
-                assert(false);
-            }else if (!response->agree()){
+            node_id_t page_belong_node = get_node_id_by_page_id(table_id , replaced_page_id);
+            if (page_belong_node == node_->node_id){
+                this->page_table_service_impl_->BufferReleaseUnlock_LocalCall(request , response);
+            }else{
+                brpc::Channel* page_table_channel =  this->nodes_channel + page_belong_node;
+                page_table_service::PageTableService_Stub pagetable_stub(page_table_channel);
+                brpc::Controller cntl;
+                pagetable_stub.BufferReleaseUnlock(&cntl , request , response , NULL);
+                if (cntl.Failed()){
+                    LOG(ERROR) << "Fatal Error";
+                    assert(false);
+                }
+            }
+            
+            if (!response->agree()){
                 // std::cout << "This Page Is Rejected\n";
                 // 需要把之前缓冲区锁定的那个页面搞回来
                 // node_->getBufferPoolByIndex(table_id)->unpin_special(replaced_page_id);
@@ -368,12 +375,12 @@ public:
                 delete response;
                 delete request;
                 continue;
-            }else {
-                delete response;
-                delete request;
             }
 
-            // // LOG(INFO) << "Evicting a page success , table_id = " << table_id << " page_id = " << page_id << " replaced table_id = " << table_id << " page_id = " << replaced_page_id;
+            delete response;
+            delete request;
+
+            // LOG(INFO) << "Evicting a page success , table_id = " << table_id << " page_id = " << page_id << " replaced table_id = " << replaced_page_id << " insert page_id = " << page_id;
 
             Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(
                 table_id,

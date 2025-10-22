@@ -42,7 +42,7 @@ message NotifyPushPageResponse{}
 message LockSuccessRequest{
     PageID page_id = 1;
     bool xlock_succeess = 2; // 1为排他锁加锁成功, 2为共享锁加锁成功
-    bool need_wait = 3;     // 是否需要等待推送页面
+    bool is_newest = 3;             // 节点是否已持有最新数据，如果是，那么就不需要推送页面
     repeated sint32 dest_node_ids = 4; // 通知锁成功的时候，同时需要通知某个节点向别人推送数据页
 }
 

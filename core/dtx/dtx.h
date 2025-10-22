@@ -122,6 +122,7 @@ class DTX {
   timestamp_t GetTimestampRemote();
 
   inline Rid GetRidFromIndexCache(table_id_t table_id, itemkey_t key) { return index_cache->Search(table_id, key); }
+  inline Rid GetRidFromBTree(table_id_t table_id , itemkey_t key);
 
   char* FetchSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id);
 
@@ -191,6 +192,11 @@ class DTX {
   std::unordered_set<node_id_t> participants; // Participants in 2PC, only use in 2PC
 
   ThreadPool* thread_pool;
+
+// B+ 树数据结构
+public:
+  std::mutex root_latch;
+
 };
 
 enum class CalvinStages {

@@ -13,7 +13,7 @@ std::atomic<int> cnt{0};
 
 Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_id) {
     assert(page_id < ComputeNodeBufferPageSize);
-    if (cnt++ % 10000 == 0){
+    if (cnt++ % 100000 == 0){
         std::cout << cnt << "\n";
     }
     
@@ -40,10 +40,12 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
         request.set_node_id(node_->node_id);
         node_id_t page_belong_node = get_node_id_by_page_id(table_id, page_id);
         if( page_belong_node == node_->node_id) {
+            // LOG(INFO) << "Fetching S Page Local , table_id = " << table_id << " page_id = " << page_id;
             // 如果是本地节点, 则直接调用
             this->page_table_service_impl_->LRPSLock_Localcall(&request, response);
         }
         else{
+            // LOG(INFO) << "Fetching S Page Remote , table_id = " << table_id << " page_id = " << page_id;
             // 如果是远程节点, 则通过RPC调用
             brpc::Channel* page_table_channel =  this->nodes_channel + page_belong_node;
             page_table_service::PageTableService_Stub pagetable_stub(page_table_channel);
@@ -115,7 +117,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
 
 Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_id) {
     assert(page_id < ComputeNodeBufferPageSize);
-    if (cnt++ % 10000 == 0){
+    if (cnt++ % 100000 == 0){
         std::cout << cnt << "\n";
     }
     
@@ -144,9 +146,11 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
         node_id_t page_belong_node = get_node_id_by_page_id(table_id, page_id);
         if( page_belong_node == node_->node_id) {
             // 如果是本地节点, 则直接调用
+            // LOG(INFO) << "Fetching X Page Local , table_id = " << table_id << " page_id = " << page_id;
             this->page_table_service_impl_->LRPXLock_Localcall(&request, response);
         }
         else{
+            // LOG(INFO) << "Fetching X Page Remote , table_id = " << table_id << " page_id = " << page_id;
             // 如果是远程节点, 则通过RPC调用
             brpc::Channel* page_table_channel =  this->nodes_channel + page_belong_node;
             page_table_service::PageTableService_Stub pagetable_stub(page_table_channel);
@@ -225,12 +229,18 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
 
 void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_id) {
     // LOG(INFO) << "Releasing S Page " << "table_id = " << table_id << " page_id = " << page_id << " node_id = " << node_->getNodeID();
-    // release page
-    // //// LOG(INFO) << "node id: " << node_->node_id << " Release s table id: " << table_id << "page_id" << page_id;
     LRLocalPageLock *lr_lock = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id);
     int unlock_remote = lr_lock->tryUnlockShared();
+
+    // 对于 S 锁来说，这里无论是否释放 immediate release，都需要去检查 DestNodeIDNoBlock 并推送
+    // 比如我现在本地两个 s 锁，放掉一个的时候，判断还不能立刻释放，但是可以推送页面了
+    if (lr_lock->getDestNodeIDNoBlock() != INVALID_NODE_ID){
+        PushPageToOther(table_id , page_id , lr_lock->getDestNodeIDNoBlock());
+        // 用完记得重新设置为 -1，防止下一轮误判了
+        lr_lock->setDestNodeIDNoBlock(INVALID_NODE_ID);
+    }
+
     if (unlock_remote == 0) {
-        assert(lr_lock->getDestNodeIDNoBlock() == INVALID_NODE_ID);
         // 在这里 unpin，如果在后面 unpin 有 bug，可能 lock 减为 0 的时候会被 Replacer 锁定
         // LOG(INFO) << "Lazy release S Page , table_id = " << table_id << " page_id = " << page_id;
         node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
@@ -238,17 +248,12 @@ void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_
         lr_lock->UnlockMtx();
         return;
     }
-    if (lr_lock->getDestNodeIDNoBlock() != INVALID_NODE_ID){
-        PushPageToOther(table_id , page_id , lr_lock->getDestNodeIDNoBlock());
-        // 用完记得重新设置为 -1，防止下一轮误判了
-        lr_lock->setDestNodeIDNoBlock(INVALID_NODE_ID);
-    }
+    
     lr_lock->UnlockShared();
     // 如果需要推送数据，先把数据页给推出去
     
     // rpc release page 
-    // //// LOG(INFO) << "node id: " << node_->node_id << "remote Release s "<< " table id: " << table_id << "page_id" << page_id;
-    page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
+    // page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
     page_table_service::PAnyUnLockRequest request;
     page_table_service::PAnyUnLockResponse* response = new page_table_service::PAnyUnLockResponse();
     page_table_service::PageID* page_id_pb = new page_table_service::PageID();
@@ -259,10 +264,12 @@ void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_
 
     node_id_t page_belong_node = get_node_id_by_page_id(table_id, page_id);
     if( page_belong_node == node_->node_id) {
+        // LOG(INFO) << "SRelease in local , table_id = " << table_id << " page_id = " << page_id;
         // 如果是本地节点, 则直接调用
         this->page_table_service_impl_->LRPAnyUnLock_Localcall(&request, response);
     }
     else{
+        // LOG(INFO) << "SRelease in remote , table_id = " << table_id << " page_id = " << page_id;
         // 如果是远程节点, 则通过RPC调用    
         brpc::Channel* page_table_channel =  this->nodes_channel + page_belong_node;
         page_table_service::PageTableService_Stub pagetable_stub(page_table_channel);
@@ -281,11 +288,11 @@ void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_
 }
 
 void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_id) {
-    
     int unlock_remote = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->tryUnlockExclusive();
     LRLocalPageLock *lr_lock = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id);
     if (unlock_remote == 0){
-        // assert(lr_lock->getDestNodeIDNoBlock() == INVALID_PAGE_ID);
+        // 对于x 锁来说，由于同一时间单节点只能持有一个，因此放锁的时候，如果不需要等待，dest_node_id 一定是 -1
+        assert(lr_lock->getDestNodeIDNoBlock() == INVALID_PAGE_ID);
         // LOG(INFO) << "Lazy Release X , table_id = " << table_id << " page_id = " << page_id << " node_id = " << node_->getNodeID();
         node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
         node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockExclusive();
@@ -301,7 +308,7 @@ void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_
     lr_lock->UnlockExclusive();
 
     assert(unlock_remote == 2); 
-    page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
+    // page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
     page_table_service::PAnyUnLockRequest unlock_request;
     page_table_service::PAnyUnLockResponse* unlock_response = new page_table_service::PAnyUnLockResponse();
     page_table_service::PageID* page_id_pb = new page_table_service::PageID();
@@ -312,6 +319,7 @@ void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_
 
     node_id_t page_belong_node = get_node_id_by_page_id(table_id, page_id);
     if( page_belong_node == node_->node_id) {
+        // LOG(INFO) << "XRelease in local , table_id = " << table_id << " page_id = " << page_id;
         // 如果是本地节点, 则直接调用
         this->page_table_service_impl_->LRPAnyUnLock_Localcall(&unlock_request, unlock_response);
     }
@@ -320,13 +328,12 @@ void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_
         brpc::Channel* page_table_channel =  this->nodes_channel + page_belong_node;
         page_table_service::PageTableService_Stub pagetable_stub(page_table_channel);
         brpc::Controller cntl;
+        // LOG(INFO) << "XRelease in remote , table_id = " << table_id << " page_id = " << page_id;
         pagetable_stub.LRPAnyUnLock(&cntl, &unlock_request, unlock_response, NULL);
         if(cntl.Failed()){
             LOG(ERROR) << "Fail to unlock page " << page_id << " in remote page table";
         }
     }
-
-    // LOG(INFO) << "LRPAnyUnlock Over , table_id = " << table_id << " page_id = " << page_id;
 
     // 不需要写回到存储层，能到这里的，说明页面肯定会发给别人
 

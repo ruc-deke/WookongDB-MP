@@ -16,9 +16,9 @@
 
 /*
 *   缓冲池里面三类页面：
-    1. 正在使用的页面，这个是万万不能淘汰的
-    2. 空闲的页面，所有权还不在本节点上，此类节点存储在 free_lists 上
-    3. 本节点持有，但是未使用的页面，这是因为 lazy_release 策略而赖在缓冲区里面的页面
+    1. 正在使用的页面，这个不能淘汰的，在 page_table 中，不在 lru_list 内和 free_lists 中
+    2. 空闲的页面：可以被淘汰，不在 page_tale 和 lru_list，在 free_list 内
+    3. 本节点持有，但是未使用的页面，这是因为 lazy_release 策略而赖在缓冲区里面的页面，在 buffer_pool 和 lru_list 中，不在 free_list 内
 */
 class BufferPool {
     friend class ComputeNode;
@@ -82,7 +82,7 @@ public:
 
         frame_id_t frame_id = it->second;
         Page *pg = pages[frame_id];
-        pg->reset_memory();
+        // pg->reset_memory();
         pg->page_id_ = INVALID_PAGE_ID;
 
         // 从页表里面删除
@@ -211,7 +211,7 @@ public:
         Page *page = pages[frame_id];
 
         if (src == nullptr){
-            page->reset_memory();
+            // page->reset_memory();
         }else {
             std::memcpy(page->get_data() , src , PAGE_SIZE);
         }
@@ -220,59 +220,6 @@ public:
         page->id_.page_no = page_id;
 
         return page;
-    }
-    
-    // void IncreasePendingOperations(page_id_t page_id , int increase_count) {
-    //     std::lock_guard<std::mutex> lock(mtx);
-    //     // std::cout << "IncreatePendingOperation\n";
-    //     pending_operation_counts[page_id] += increase_count;
-    // }
-
-    // count--，必要时直接释放缓冲区
-    // void DecrementPendingOperations(table_id_t table_id , page_id_t page_id , LRLocalPageLock *lr_lock){
-    //     std::lock_guard<std::mutex> lock(mtx);
-    //     assert(lr_lock != nullptr);
-    //     int nextCount = pending_operation_counts[page_id] - 1;
-    //     assert(nextCount >= 0);
-
-    //     if (nextCount == 0 && should_release_buffer[page_id]){
-    //         // LOG(INFO) << "Decrement : table_id = " << table_id << " page_id = " << page_id;
-
-    //         /*
-    //             为什么做这一步呢？
-    //             假设我正在淘汰页面，远程也同意淘汰了，结果发现被淘汰的页面正在 Push，于是等待
-    //             可是被淘汰的页面淘汰完成后，如果执行了 release_page，那就会把当前页面放到 free_lists 里面
-    //             然后别的线程发现 free_lists 里面有东西，于是直接拿来用了，可是这个页面本来应该是给去淘汰页面的线程用的
-    //             因此在这里检查是否在 is_evicting，如果在的话，不执行 release_page，把这个页面留给淘汰的那个用
-    //         */
-    //         if (lr_lock->isEvicting()){
-    //             // 注意还是得把页面从 page_table 移除的，不然会被搞
-    //             release_page_from_page_table(page_id);
-    //             pending_operation_counts[page_id]--;
-    //             should_release_buffer[page_id] = false;
-    //             pushing_cv.notify_all();
-    //             return;
-    //         }
-    //         release_page(page_id);
-    //         pending_operation_counts[page_id]--;
-    //         should_release_buffer[page_id] = false;
-    //         pushing_cv.notify_all();
-    //         return;
-    //     }
-    //     pending_operation_counts[page_id]--;
-    // }
-
-    // 当锁释放的时候，标记一下需要释放缓冲区了
-    // 返回 true 表示需要立刻释放，否则表示延迟释放
-    void MarkForBufferRelease(table_id_t table_id , page_id_t page_id){
-        std::lock_guard<std::mutex> lock(mtx);
-        if (pending_operation_counts[page_id] == 0){
-            should_release_buffer[page_id] = false;
-            
-            release_page(table_id , page_id);
-        } else {
-            should_release_buffer[page_id] = true;
-        }
     }
 
     void releaseBufferPage(table_id_t table_id , page_id_t page_id) {

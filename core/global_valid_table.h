@@ -99,6 +99,25 @@ public:
         mutex.unlock();
     }
 
+    void ReleasePageNoBlock(node_id_t node_id){
+        node_has_newest_page_status[node_id] = false;
+        // 把最新节点有效性交给别人
+        if (newest_node == node_id){
+            bool found = false;
+            for (size_t i = 0 ; i < MaxComputeNodeCount ; i++){
+                if (node_has_newest_page_status[i]){
+                    newest_node = i;
+                    found = true;
+                    break; // 找到第一个有效节点即可
+                }
+            }
+            if (!found) {
+                // 没有其它有效副本，明确重置为 -1
+                newest_node = -1;
+            }
+        }
+    }
+
     // 如果返回-1，表示本节点数据就是最新的，不要去远程获取了
     // 如果返回 ！= -1，返回的就是最新数据所在的节点
     // need_from_storage：当本节点没有最新信息，且被人也没有的时候，设置为 true，之所以放在这里判断，是为了元子操作

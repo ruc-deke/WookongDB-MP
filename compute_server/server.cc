@@ -187,19 +187,12 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
                 4. LRPAnyUnlock 把锁给了另外一个节点，由于请求队列里还有我，所以同时会给另外一个节点发Pending，同时告诉它需要向我Push数据
                 5. 另外一个节点跑完后，把数据页推给了我，关键点来了，此时我第3步的Pending还没跑完，最后我把这个数据页给扔了，就导致这里找不到数据页
             */
-            if (SYSTEM_MODE == 1){
-                // 不需要在这里写回存储，因为走到这里一定会发生所有权的转移
-                // 标记释放页面
-                // LOG(INFO) << "Pending Release Page , table_id = " << table_id << " page_id = " << page_id;
-                server->get_node()
-                        ->getBufferPoolByIndex(table_id)
-                        ->releaseBufferPage(table_id , page_id);
-            }else{
-                assert(false);
-            }
+            // 不需要在这里写回存储，因为走到这里一定会发生所有权的转移
+            // LOG(INFO) << "Pending Release Page , table_id = " << table_id << " page_id = " << page_id;
+            server->get_node()->getBufferPoolByIndex(table_id)->releaseBufferPage(table_id , page_id);
 
-
-            page_table_service::PageTableService_Stub pagetable_stub(server->get_pagetable_channel());
+            brpc::Channel* page_table_channel =  server->get_compute_channel() + server->get_node_id_by_page_id(table_id, page_id);
+            page_table_service::PageTableService_Stub pagetable_stub(page_table_channel);
             page_table_service::PAnyUnLockRequest unlock_request;
             page_table_service::PAnyUnLockResponse* unlock_response = new page_table_service::PAnyUnLockResponse();
             page_table_service::PageID* page_id_pb = new page_table_service::PageID();
@@ -227,7 +220,8 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
             delete unlock_response;
         }
     }else {
-        // LOG(INFO) << "Pending Wait Lock Release , table_id = " << table_id << " page_id = page_id";
+        // TODO：其实在这里可以优化下，如果是读锁的话，在这里直接把页面推过去就行，写锁延迟到 lazy_release 的时候推
+        // LOG(INFO) << "Pending Wait Lock Release , table_id = " << table_id << " page_id = " << page_id;
         if (dest_node_id != INVALID_NODE_ID){
             // 保存下来，等到 lazy_release 的时候再 Push
             server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->setDestNodeIDNoBlock(dest_node_id);
@@ -304,9 +298,9 @@ void ComputeNodeServiceImpl::LockSuccess(::google::protobuf::RpcController* cont
         bool xlock = request->xlock_succeess();
 
         // hcy TODO: 更改为 is_newest
-        bool need_wait = request->need_wait();
+        bool is_newest = request->is_newest();
 
-        server->get_node()->NotifyLockPageSuccess(table_id, page_id, xlock, need_wait);
+        server->get_node()->NotifyLockPageSuccess(table_id, page_id, xlock, is_newest);
 
         for (int i = 0 ; i < request->dest_node_ids_size() ; i++){
             node_id_t dest_node = request->dest_node_ids(i);

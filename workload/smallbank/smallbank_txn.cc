@@ -566,12 +566,15 @@ bool SmallBankDTX::TxWriteCheck(SmallBank* smallbank_client, uint64_t* seed, cor
 
   smallbank_savings_val_t* sav_val = (smallbank_savings_val_t*)sav_obj->value;
   smallbank_checking_val_t* chk_val = (smallbank_checking_val_t*)chk_obj->value;
+  // LJWrongTag
   if (sav_val->magic != smallbank_savings_magic) {
     // LOG(INFO) << "read value: " << sav_val;
     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+    // assert(false);
   }
   if (chk_val->magic != smallbank_checking_magic) {
     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+    assert(false);
   }
   // assert(sav_val->magic == smallbank_savings_magic);
   // assert(chk_val->magic == smallbank_checking_magic);
