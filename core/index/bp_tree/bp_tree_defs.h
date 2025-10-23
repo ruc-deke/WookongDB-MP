@@ -6,6 +6,7 @@
 
 // 整颗 B+ 树的头信息所在的页面
 #define BP_HEAD_PAGE_ID 0
+#define NEG_KEY ((itemkey_t)(0)) // 0 作为最小的 itemkey_t ，放在每个内部节点的第一个 key 上
 
 enum BPOperation{
     INSERT = 1,
@@ -26,7 +27,7 @@ struct BPNodeHdr{
 };
 
 // 整颗 B+ 树的头文件，保存在页面 0 中
-class BPFileHdr{
+struct BPFileHdr{
     page_id_t root_page_id;
     page_id_t first_leaf;
     page_id_t last_leaf;

@@ -95,6 +95,8 @@
         "queue": "cpp",
         "stack": "cpp",
         "future": "cpp",
-        "forward_list": "cpp"
+        "forward_list": "cpp",
+        "buffer": "cpp",
+        "netfwd": "cpp"
     }
 }

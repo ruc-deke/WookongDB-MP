@@ -62,16 +62,16 @@ public:
         return page;
     }
 
-    Page *fetch_page_special(page_id_t page_id){
+    std::string fetch_page_special(page_id_t page_id){
         std::lock_guard<std::mutex> lk(mtx);
         auto it = page_table.find(page_id);
         if (it == page_table.end()){
-            return nullptr;
+            return "";
         }
         frame_id_t frame_id = it->second;
         replacer->pin(frame_id);
         Page *page = pages[frame_id];
-        return page;
+        return std::string(page->get_data() , PAGE_SIZE);
     }
 
     // 直接从缓冲区里面把这个页面删掉，这个是当节点释放页面所有权的时候调用的
@@ -82,7 +82,7 @@ public:
 
         frame_id_t frame_id = it->second;
         Page *pg = pages[frame_id];
-        // pg->reset_memory();
+        pg->reset_memory();
         pg->page_id_ = INVALID_PAGE_ID;
 
         // 从页表里面删除
@@ -172,18 +172,15 @@ public:
 
             // 在这个地方，缓冲池只是负责提供一个思路，告诉 PageLock，你试一下来淘汰这个
             // 提供完思路之后，其实就没缓冲区什么事了，它可以直接解锁
-            // 在别的地方，都是先给 PageLock 加锁，再给缓冲区加锁的，所以不用担心并发的问题(因为下面设置了PageLock 为 is_evicating,所以别的线程拿不到 PageLock 的锁，自然拿不到缓冲区的锁)
             mtx.unlock();
 
-            bool ok = try_begin_evict(victim_page_id);
             /*
-                有一个 Bug，走到 endVictim 里面的时候，帧已经不在 lru_lists 里面了
-                排除一下：
-                1. 是否是被 pin 了？false，try_begin_evict 排除了这种情况，一定是没在使用的页面
-                2. 是否被 release 了
-                   2.1 可能是被别的线程淘汰的时候选中然后淘汰了，设置一个标记位，我选中了就不让对面选了
-                   2.2 可能是真的被淘汰了，加入到了 free_lists 里，在 LR_Local_Page_Lock 里加一个字段，is_released
+                如果别的线程正在用这个页面，升级页面，或者别人正在让节点放弃页面，那就不要淘汰了
+                把 is_evicting 设置为 true，防止淘汰过程中别的线程又去申请锁
+                唯一无法隔绝的情况是，节点无法预支 Pending 信号什么时候来，如果选中之后，Pending 来了，那就麻烦了，隔绝这个的方法在 RemoteServer 中
             */
+            bool ok = try_begin_evict(victim_page_id);
+
             replacer->endVictim(ok , &frame_id);
 
             if (ok){
@@ -211,7 +208,7 @@ public:
         Page *page = pages[frame_id];
 
         if (src == nullptr){
-            // page->reset_memory();
+            page->reset_memory();
         }else {
             std::memcpy(page->get_data() , src , PAGE_SIZE);
         }

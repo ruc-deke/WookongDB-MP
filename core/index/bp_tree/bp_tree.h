@@ -114,6 +114,14 @@ public:
         node_hdr->is_leaf = flag;
     }
 
+    void init_internal_node(){
+        assert(get_size() == 0);
+        assert(!is_leaf());
+        keys[0] = NEG_KEY;
+        set_size(1);
+    }
+
+
 public:
     int lower_bound(const itemkey_t *target);
     int upper_bound(const itemkey_t *target);
@@ -141,11 +149,28 @@ private:
     int order;      // B+树阶数
 };
 
+/*
+    采用蟹行协议来优化并发性能，蟹行协议的思想网上很多，网上没提到一些问题的解决方案
+    1. 有一种情况，节点不会发生分裂或者合并，但是插入的元素是这个节点的最小值，那就需要去递归的修改它的祖先的
+       key，比如下面这种：如果插入了 15，根节点的 20 也要改成 15，但是在判读孩子安全的时候，根节点的锁就放掉
+       了，又不能自下向上地去加锁，因为可能死锁。一种解决方法就是把每个节点的第一个元素置空，每个节点的最左边
+       都表示 -无穷->get_key(1)，这样就不需要去维护第一个元素了，缺点就是浪费点空间
+                    20  30
+                    /    \
+                   /      \
+                20 25     30 31
+        现在的 B+ 树的组织形式大概是这样：非叶节点中存储的，不一定是它的孩子的最小 key，这个 key 的更新留到分裂或者合并的时候完成
+            0          20            40           60
+         0 10 15  ｜ 0 25 35   ｜  0 45 56    ｜  0 61 63
+      2 3 ｜ 11 12｜。。。。
+     
+               
+*/
 class BPTreeIndexHandle : public std::enable_shared_from_this<BPTreeIndexHandle> {
 public:
     typedef std::shared_ptr<BPTreeIndexHandle> ptr;
 
-    BPTreeIndexHandle::BPTreeIndexHandle(int fd_ , ComputeServer *s , table_id_t table_id_) 
+    BPTreeIndexHandle(int fd_ , ComputeServer *s , table_id_t table_id_) 
         : fd(fd_) , server(s) {
         table_id = table_id_;
     }
@@ -175,30 +200,86 @@ public:
         file_hdr->serialize(page->get_data());
         server->rpc_lazy_release_x_page(table_id , page_id);
     }
-    void get_file_hdr(){
+    void s_get_file_hdr(){
         Page *page = server->rpc_lazy_fetch_s_page(table_id , BP_HEAD_PAGE_ID);
         file_hdr->deserialize(page->get_data());
+    }
+    void x_get_file_hdr(){
+        Page *page = server->rpc_lazy_fetch_x_page(table_id , BP_HEAD_PAGE_ID);
+        file_hdr->deserialize(page->get_data());
+    }
+    void s_release_file_hdr(){
+        server->rpc_lazy_release_s_page(table_id , BP_HEAD_PAGE_ID);
+    }
+    void x_release_file_hdr(){
+        server->rpc_lazy_release_x_page(table_id , BP_HEAD_PAGE_ID);
     }
 
 
     page_id_t create_node(){
-        ....
+        ....   
+    }
+    void destroy_node(page_id_t page_id){
+        // 需要在这里边调用 release_node
+        ...
     }
 
-    std::pair<BPTreeNodeHandle* , bool> find_leaf_page(const itemkey_t * key , BPOperation *opera);
+    // 对于内部节点来说，如果需要把第一个 key 借给别人的话，就应该去拿到它本来的值
+    itemkey_t *get_first_key(BPTreeNodeHandle *node , std::list<BPTreeNodeHandle*> &hold_lock_nodes){
+        assert(!node->is_leaf());
+        page_id_t first_child_id = node->value_at(0);
+        BPTreeNodeHandle *first_child = fetch_node_from_list(hold_lock_nodes , first_child_id);
+        if (first_child != nullptr){
+            return first_child->get_key(0);
+        }
 
-    BPTreeNodeHandle *split(BPTreeNodeHandle *node);
-    void maintain_child(BPTreeNodeHandle::ptr node, int child_idx);
+        first_child = fetch_node(first_child_id , BPOperation::SEARCH);
+        itemkey_t *ret = first_child->get_key(0);
+        release_node(first_child_id , BPOperation::SEARCH);
+
+        return ret;
+    }
+
+    BPTreeNodeHandle *fetch_node_from_list(std::vector<BPTreeNodeHandle*> &hold_lock_nodes , page_id_t target){
+        auto it = std::find_if(hold_lock_nodes.begin(), hold_lock_nodes.end(), 
+            [target](BPTreeNodeHandle* node) { 
+            return node->get_page_no() == target; 
+        });
+        if (it != hold_lock_nodes.end()){
+            return *it;
+        }
+
+        return nullptr;
+    }
+    void release_node_from_list(std::vector<BPTreeNodeHandle*> &hold_lock_nodes , page_id_t target) {
+        auto it = std::find_if(hold_lock_nodes.begin() , hold_lock_nodes.end() , 
+            [target](BPTreeNodeHandle *node){
+            return node->get_page_no() == target;
+        });
+        if (it != hold_lock_nodes.end()){
+            hold_lock_nodes.erase(it);
+            return;
+        }
+        assert(false);
+    }
+
+    std::pair<BPTreeNodeHandle* , bool> find_leaf_page(const itemkey_t * key , BPOperation opera , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
+    BPTreeNodeHandle *split(BPTreeNodeHandle *node , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
+    void maintain_child(BPTreeNodeHandle::ptr node, int child_idx , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
     void maintain_parent(BPTreeNodeHandle *node);
     void insert_into_parent(BPTreeNodeHandle *old_node , const itemkey_t *key ,
-                            BPTreeNodeHandle *new_node);
-
+                            BPTreeNodeHandle *new_node , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
+    bool adjust_root(BPTreeNodeHandle *old_root);
+    bool coalesce_or_redistribute(BPTreeNodeHandle *node , bool *root_is_latched , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
+    void redistribute(BPTreeNodeHandle *bro , BPTreeNodeHandle *node , BPTreeNodeHandle *parent , int index , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
+    bool coalesce(BPTreeNodeHandle **bro , BPTreeNodeHandle **node , 
+            BPTreeNodeHandle **parent , int index , bool *root_is_latched , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
     
 
     // 三个核心函数，search , insert 和 delete
     bool search(const itemkey_t *key , std::vector<Rid> *results);
-    page_id_t insert(const itemkey_t *key , const Rid &value);
-    bool delete(const itemkey_t *key);
+    page_id_t insert_entry(const itemkey_t *key , const Rid &value);
+    bool delete_entry(const itemkey_t *key);
 
 private:
     ComputeServer* server;  

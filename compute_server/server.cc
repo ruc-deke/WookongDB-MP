@@ -244,16 +244,18 @@ void ComputeNodeServiceImpl::GetPage(::google::protobuf::RpcController* controll
         page_id_t page_id = request->page_id().page_no();
         // Page* page = server->get_node()->getBufferPool()->GetPage(page_id);
         table_id_t table_id = request->page_id().table_id();
-        Page* page = server->get_node()->fetch_page_special(table_id , page_id);
-        if (page == nullptr){
+        // 这里要用 string，因为
+        std::string data = server->get_node()->fetch_page_special(table_id , page_id);
+        if (data == ""){
             response->set_need_to_storage(true);
             return;
         }
-        auto pid = page->get_page_id();
-        assert(pid.page_no == page_id);
-        assert(pid.table_id == table_id);
+        // auto pid = page->get_page_id();
+        // assert(pid.page_no == page_id);
+        // assert(pid.table_id == table_id);
+        assert(data.size() == PAGE_SIZE);
         response->set_need_to_storage(false);
-        response->set_page_data(page->get_data(), PAGE_SIZE);
+        response->set_page_data(data.c_str(), PAGE_SIZE);
 
         // 添加模拟延迟
         usleep(NetworkLatency); // 100us
@@ -373,6 +375,19 @@ void ComputeServer::UpdatePageFromRemoteCompute(Page* page, table_id_t table_id,
     }else {
         assert(response->page_data().size() == PAGE_SIZE);
         memcpy(page->get_data(), response->page_data().c_str(), response->page_data().size());
+    }
+
+    {
+        // Debug：检查 page 是否全为 0
+        // bool res = true;
+        // char *page_data = page->get_data();
+        // for (int i = 0 ; i < PAGE_SIZE ; i++){
+        //     if (page_data[i] != 0){
+        //         res = false;
+        //         break;
+        //     }
+        // }
+        // assert(!res);
     }
 
     // delete response;
