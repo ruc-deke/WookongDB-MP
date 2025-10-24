@@ -232,4 +232,28 @@ namespace storage_service{
         disk_manager_->close_file(fd);
         return;
     };
+
+    // void StoragePoolImpl::CreatePage(::google::protobuf::RpcController* controller , 
+    //                     const ::storage_service::CreatePageRequest *request ,
+    //                     ::storage_service::CreatePageResponse *response , 
+    //                     ::google::protobuf::Closure *done){
+    //     brpc::ClosureGuard done_guard(done);
+
+    //     table_id_t table_id = request->table_id();
+        
+    // }
+
+    // void DeletePage(::google::protobuf::RpcController *controller , 
+    //             const ::storage_service::DeletePageRequest *request ,
+    //             ::storage_service::DeletePageResponse *response ,
+    //             ::google::protobuf::Closure *done){
+    //     brpc::ClosureGuard done_guard(done);
+
+    //     table_id_t table_id = request->table_id();
+    //     page_id_t page_id = request->page_no();
+
+        
+
+    // }
+
 }

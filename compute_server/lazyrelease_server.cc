@@ -23,7 +23,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
     Page *page = nullptr;
     // 先在本地进行加锁，这一步同时确保对于单个页面，主节点只有一个页面会在竞争这个页面所有权
     bool lock_remote = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->LockShared();
-    // LJTag：如果本地加锁成功，说明页面所有权在我身上，页面也一定在缓冲区里，直接去拿即可
+    // 如果本地加锁成功，说明页面所有权在我身上，页面也一定在缓冲区里，直接去拿即可
     if (!lock_remote){
         // 直接去本地拿
         page = node_->local_buffer_pools[table_id]->fetch_page(page_id);
@@ -56,7 +56,6 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
             }
         }
 
-        // LJTag
         bool need_storage = response->need_storage_fetch();
 
         if(cntl.Failed()){
@@ -127,7 +126,7 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
     Page *page = nullptr;
     // 先在本地进行加锁
 
-    // LJTag1
+
     bool lock_remote = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->LockExclusive();
     
     if (!lock_remote){
@@ -161,7 +160,7 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
             }
         }
 
-        // LJTag
+
         bool need_fetch_from_storage = response->need_storage_fetch();
 
         if(cntl.Failed()){
@@ -208,7 +207,6 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
             }
 
             // 定位到问题了，在TryRemoteLockSuccess 的时候，会执行到 Pending ，然后把页面给删了
-            
             page = node_->fetch_page(table_id , page_id);
             
             update_m.lock();
@@ -232,8 +230,9 @@ void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_
     LRLocalPageLock *lr_lock = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id);
     int unlock_remote = lr_lock->tryUnlockShared();
 
-    // 对于 S 锁来说，这里无论是否释放 immediate release，都需要去检查 DestNodeIDNoBlock 并推送
+    // 对于 S 锁来说，这里无论是否 immediate release，都需要去检查 DestNodeIDNoBlock 并推送
     // 比如我现在本地两个 s 锁，放掉一个的时候，判断还不能立刻释放，但是可以推送页面了
+    // TODO：页面推送的逻辑似乎可以放在 Pending 里？Pending 只要发现是读锁，就推送，写锁延迟到 release 推送
     if (lr_lock->getDestNodeIDNoBlock() != INVALID_NODE_ID){
         PushPageToOther(table_id , page_id , lr_lock->getDestNodeIDNoBlock());
         // 用完记得重新设置为 -1，防止下一轮误判了

@@ -191,6 +191,7 @@ node_id_t MetaManager::GetRemoteStorageMeta(std::string& remote_ip, int remote_p
   return remote_machine_id;
 }
 
+// ljTag
 void MetaManager::PrefetchIndex(const int &table_id) {
   brpc::Channel index_channel;
   // Init Brpc channel
@@ -219,7 +220,8 @@ void MetaManager::PrefetchIndex(const int &table_id) {
     assert(response.itemkey_size() == response.pageid_size());
     assert(response.pageid_size() == response.slotid_size());
     size_t index_size = response.itemkey_size();
-    // std::cout << "Prefetch index size: " << index_size << std::endl;
+    
+    // std::cout << "Prefetch index , size = " << index_size << "\n";
     for(int i=0; i<response.itemkey_size(); i++){
       index_cache_->Insert(table_id, response.itemkey(i), Rid{response.pageid(i), response.slotid(i)});
     }

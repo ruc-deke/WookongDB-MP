@@ -113,13 +113,6 @@ int BPTreeNodeHandle::remove(const itemkey_t* key){
     return node_hdr->num_key;
 }
 
-page_id_t BPTreeNodeHandle::remove_and_return_only_child(){
-    assert(get_size() == 1);
-    page_id_t child_page_id = value_at(0);
-    erase_pair(0);
-    return child_page_id;
-}
-
 int BPTreeNodeHandle::find_child(page_id_t child_page_id){
     for (int i = 0 ; i < get_size() ; i++){
         if (value_at(i) == child_page_id){
@@ -343,6 +336,8 @@ bool BPTreeIndexHandle::coalesce_or_redistribute(BPTreeNodeHandle *node , bool *
         bool need_to_delete_root = adjust_root(node);
         // 直接删掉根节点
         if (need_to_delete_root){
+            release_node_from_list(hold_lock_nodes , node->get_page_no());
+            release_node(node->get_page_no() , BPOperation::DELETE);
             destroy_node(node->get_page_no());
             hold_lock_nodes.remove(node);
         }
@@ -536,9 +531,3 @@ bool BPTreeIndexHandle::delete_entry(const itemkey_t *key){
 
     return true;
 }
-
-
-
-
-
-

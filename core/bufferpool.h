@@ -148,7 +148,7 @@ public:
 
     // 第一个:选中要淘汰的页面
     // 返回的时候，被选中的这个页面的真实状态
-    std::pair<node_id_t , node_id_t> replace_page (page_id_t page_id , 
+    std::pair<page_id_t , page_id_t> replace_page (page_id_t page_id , 
             frame_id_t &frame_id,
             int &try_cnt ,
             const std::function<bool(page_id_t)> &try_begin_evict ){
@@ -159,7 +159,7 @@ public:
         }
 
         bool need_loop = true;
-        node_id_t victim_page_id = INVALID_PAGE_ID;
+        page_id_t victim_page_id = INVALID_PAGE_ID;
         while (need_loop){
             bool res = replacer->tryVictim(&frame_id , try_cnt);
             if (!res){

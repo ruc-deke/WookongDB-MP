@@ -90,7 +90,7 @@ int socket_finish_client(std::string ip, int port){
 }
 
 namespace compute_node_service{
-// Lock Fusion 调用的，要求本节点推送数据
+// Lock Fusion 调用的，要求本节点推送数据               
 void ComputeNodeServiceImpl::NotifyPushPage(::google::protobuf::RpcController* controller,
                        const ::compute_node_service::NotifyPushPageRequest* request,
                        ::compute_node_service::NotifyPushPageResponse* response,
@@ -139,12 +139,7 @@ void ComputeNodeServiceImpl::NotifyPushPage(::google::protobuf::RpcController* c
     }
 }
 
-// 只有一个地方会调用这个，就是 SetComputeNodePending，这个函数是解锁的时候调用的
-/*
-    找到真正的问题了：在 SetComputeNodePending 里，设置如果下一轮有自己的话，那就把 dest_node_id 设置为 false
-    但是虽然在 SetComputeNodePending 里下一轮获得锁的节点只有一个，但是在 LRPAnyUnlock 里面的 TransferControl 下一轮获得锁的节点可能有很多个
-    这就存在问题了，在 SetComputeNodePending 假设下一轮没有锁，这里缓冲区计数没有 +1，但是在 NotifyPushPage 按照下一轮多个节点获取锁来处理，缓冲区又给他 -1，自然提前释放锁了，然后 unpin 就找不到页面了
-*/
+
 void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controller,
                        const ::compute_node_service::PendingRequest* request,
                        ::compute_node_service::PendingResponse* response,
@@ -159,7 +154,7 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
     assert(dest_node_id != server->get_node()->getNodeID());
     // LOG(INFO) << "Receive Pending , table_id = " << table_id << " page_id = " << page_id << " dest_node_id = " << dest_node_id ;
 
-    // LJTag2
+
     int unlock_remote = server->get_node()->PendingPage(page_id, xpending, table_id);
     assert(server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->getDestNodeIDNoBlock() == INVALID_NODE_ID);
 
@@ -169,8 +164,6 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
         assert(unlock_remote != 3);
         if(unlock_remote != 3){
             // LOG(INFO) << "Pending Release , table_id = " << table_id << " page_id = " << page_id << " dest_node_id = " << dest_node_id;
-            // 这个 pin 一下，减少页面换出的时候，选中本页面的可能(但是不能完全排除)
-            // server->get_node()->getBufferPoolByIndex(table_id)->pin_page(page_id);
             // std::cout << "Got Here3\n";
 
             // 如果锁已经用完了，那就先向下一轮获得锁的某个节点发送一次 Push 数据
@@ -244,7 +237,8 @@ void ComputeNodeServiceImpl::GetPage(::google::protobuf::RpcController* controll
         page_id_t page_id = request->page_id().page_no();
         // Page* page = server->get_node()->getBufferPool()->GetPage(page_id);
         table_id_t table_id = request->page_id().table_id();
-        // 这里要用 string，因为
+        // 在这里 fetch_page 的时候，页面可能还在存储里，但是在真正推送页面的时候，可能不在了
+        // 这是完全有可能的，因为 Pull 请求是无法预知的，所以在 fetch 的时候直接把页面数据存在一个字符串内
         std::string data = server->get_node()->fetch_page_special(table_id , page_id);
         if (data == ""){
             response->set_need_to_storage(true);
@@ -420,7 +414,7 @@ void ComputeServer::InitTableNameMeta(){
     }
 }
 
-// LJTag：
+
 std::string ComputeServer::rpc_fetch_page_from_storage(table_id_t table_id, page_id_t page_id){    
     storage_service::StorageService_Stub storage_stub(get_storage_channel());
     storage_service::GetPageRequest request;

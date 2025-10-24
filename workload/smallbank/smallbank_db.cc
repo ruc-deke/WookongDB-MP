@@ -7,7 +7,7 @@
 #include "util/json_config.h"
 
 void SmallBank::LoadTable(node_id_t node_id, node_id_t num_server) {
-  // Initiate + Populate table for primary role
+  // 根据存储节点的节点号来分配表的位置
   if ((node_id_t)SmallBankTableType::kSavingsTable % num_server == node_id) {
     printf("Primary: Initializing SAVINGS table\n");
     PopulateSavingsTable();
@@ -17,7 +17,7 @@ void SmallBank::LoadTable(node_id_t node_id, node_id_t num_server) {
     PopulateCheckingTable();
   }
 }
-
+// ljTAG
 int SmallBank::LoadRecord(RmFileHandle* file_handle,
                           itemkey_t item_key,
                           void* val_ptr,
@@ -39,11 +39,13 @@ int SmallBank::LoadRecord(RmFileHandle* file_handle,
 
 void SmallBank::PopulateSavingsTable() {
   /* All threads must execute the loop below deterministically */
+  // 创建文件
   rm_manager->create_file(bench_name + "_savings", sizeof(DataItem));
   std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(bench_name + "_savings");
   std::ofstream indexfile;
   indexfile.open(bench_name + "_savings_index.txt");
   /* Populate the tables */
+  // 插入用户数据，num_accounts_global 在 smallbank_config.json 里面配置
   for (uint32_t acct_id = 0; acct_id < num_accounts_global; acct_id++) {
     // Savings
     smallbank_savings_key_t savings_key;

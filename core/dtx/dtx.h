@@ -193,10 +193,7 @@ class DTX {
 
   ThreadPool* thread_pool;
 
-// B+ 树数据结构
-public:
-  std::mutex root_latch;
-
+  
 };
 
 enum class CalvinStages {

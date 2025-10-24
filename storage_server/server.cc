@@ -239,6 +239,7 @@ int main(int argc, char* argv[]) {
     }
 
     // 在这里开始构造disk_manager, log_manager, server
+    // 初始化整个数据库的数据
     auto disk_manager = std::make_shared<DiskManager>();
     auto log_replay = std::make_shared<LogReplay>(disk_manager.get()); 
     auto log_manager = std::make_shared<LogManager>(disk_manager.get(), log_replay.get());

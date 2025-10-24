@@ -25,7 +25,7 @@ class BufferpoolServiceImpl : public BufferpoolService {
 
             brpc::ClosureGuard done_guard(done);
             page_id_t page_id = request->page_id().page_no();
-            // LJTag
+ 
             Page* page = bufferpool_->fetch_page(page_id);
             response->set_page_data(page->get_data(), PAGE_SIZE);
             return;

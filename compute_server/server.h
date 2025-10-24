@@ -284,18 +284,24 @@ public:
             return page;
         }
 
-        // 传到 need_to_replace 里的，为了确保缓冲池中选择的页面之后在淘汰的过程中不会被本地的线程使用
         auto try_begin_evict = ([this , table_id](page_id_t victim_page_id) {
             LRLocalPageLock *lock = this->node_->lazy_local_page_lock_tables[table_id]->GetLock(victim_page_id);
             return lock->TryBeginEvict();
         });
 
         int try_cnt = -1;
+        // 循环直到找到一个可淘汰的页面
         while(true){
+            /*
+                淘汰的流程，总结一下：
+                1. 先去 lru_list 里找到一个没在用的页面
+                2. 执行 try_begin_evict，尝试去锁定这个页面，锁定成功后，不允许其它线程再去获取这个页面锁
+                3. 向远程发送解锁请求，远程如果同意了，那就真正释放掉这个页面，否则回到第一步再选一个页面
+            */
             try_cnt++;
             // 先找到一个淘汰的页面，这个函数并没有真正淘汰，只是选择了一个页面
-            std::pair<node_id_t , node_id_t> res = node_->getBufferPoolByIndex(table_id)->replace_page(page_id , frame_id , try_cnt , try_begin_evict);
-            node_id_t replaced_page_id = res.first;
+            std::pair<page_id_t , page_id_t> res = node_->getBufferPoolByIndex(table_id)->replace_page(page_id , frame_id , try_cnt , try_begin_evict);
+            page_id_t replaced_page_id = res.first;
             assert(frame_id >= 0);
             assert(replaced_page_id != INVALID_PAGE_ID);
             LRLocalPageLock *lr_local_lock = node_->lazy_local_page_lock_tables[table_id]->GetLock(replaced_page_id);
@@ -398,6 +404,40 @@ public:
             lr_local_lock->EndEvict();
             return page;
         }
+    }
+
+    page_id_t rpc_create_page(table_id_t table_id){
+        storage_service::StorageService_Stub storage_stub(get_storage_channel());
+        brpc::Controller cntl;
+        storage_service::CreatePageRequest req;
+        storage_service::CreatePageResponse resp;
+
+        req.set_table_id(table_id);
+        storage_stub.CreatePage(&cntl , &req , &resp , NULL);
+        if (cntl.Failed()) {
+            LOG(ERROR) << "Create Page Error";
+            assert(false);
+        }
+        assert(resp.success());
+        return resp.page_no();
+    }
+
+    void rpc_delete_node(table_id_t table_id , page_id_t page_id){
+        storage_service::StorageService_Stub storage_stub(get_storage_channel());
+        brpc::Controller cntl;
+        storage_service::DeletePageRequest req;
+        storage_service::DeletePageResponse resp;
+
+        req.set_page_no(page_id);
+        req.set_table_id(table_id);
+
+        storage_stub.DeletePage(&cntl , &req , &resp , NULL);
+        if (cntl.Failed()) {
+            LOG(ERROR) << "Create Page Error";
+            assert(false);
+        }
+
+        assert(resp.successs());
     }
 
     void rpc_lazy_release_all_page();

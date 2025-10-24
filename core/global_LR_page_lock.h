@@ -276,54 +276,6 @@ public:
         return false;
     }
 
-    void setComputeNodePendingAfterTransfer(table_id_t table_id , std::atomic<int>& immedia_transfer , GlobalValidInfo *valid_info){
-        if (is_pending || request_queue.empty()){
-            mutex.unlock();
-            return ;
-        }
-        immedia_transfer++;
-        // 一定需要 pending
-        is_pending = true;
-        auto request = request_queue.front();
-        bool x_pending = false;
-        if (request.xlock){
-            x_pending = (lock == EXCLUSIVE_LOCKED);
-        }else {
-            // 请求队列里面有 S 锁，那么持有锁的应该是 X 锁，否则 S 锁可以直接加上去的
-            assert(lock == EXCLUSIVE_LOCKED);
-            x_pending = true;
-        }
-
-        int trans_node_id = valid_info->get_newest_nodeID();
-        // pending_src_node_id = trans_node_id;
-        
-        compute_node_service::PendingRequest rpc_req;
-        compute_node_service::PageID* pid = new compute_node_service::PageID();
-        pid->set_page_no(page_id);
-        pid->set_table_id(table_id);
-        rpc_req.set_allocated_page_id(pid);
-        rpc_req.set_pending_type(x_pending ? compute_node_service::PendingType::XPending
-                                          : compute_node_service::PendingType::SPending);
-
-        for (auto holder : hold_lock_nodes) {
-            if (holder == request.node_id){
-                // 这个不是用来断言错误的，我要找找有没有这种情况出现
-                assert(hold_lock_nodes.size() > 1);
-                continue;
-            }
-
-            brpc::Channel* ch = compute_channels[holder];
-            compute_node_service::ComputeNodeService_Stub stub(ch);
-            brpc::Controller* cntl = new brpc::Controller();
-            auto* resp = new compute_node_service::PendingResponse();
-            stub.Pending(cntl, &rpc_req, resp,
-                brpc::NewCallback(PendingRPCDone, resp, cntl));
-        }
-
-        mutex.unlock();
-        return;   
-    }
-
     bool LockExclusive(node_id_t node_id, table_id_t table_id, GlobalValidInfo* valid_info) {
         mutex.lock();
         if(lock != 0 && is_pending == false) {
@@ -393,8 +345,6 @@ public:
         return true;
     }
 
-    // LJTag：这里改的原因是，需要和 LRPAnyUnlock 的条件同步
-    // 不然会出现：这里通知你获得锁成功，然后在 LRPAnyLock 里面又不推送数据，导致卡主
     void SendComputenodeLockSuccess(table_id_t table_id , GlobalValidInfo *valid_info , bool push_or_pull){
         // 这里有mutex
         bool xlock = (lock == EXCLUSIVE_LOCKED);

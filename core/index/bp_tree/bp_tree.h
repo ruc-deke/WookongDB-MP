@@ -2,6 +2,7 @@
 
 #include "bp_tree_defs.h"
 #include "compute_server/server.h"
+#include "record/rm_manager.h"
 
 #include "memory"
 #include "assert.h"
@@ -170,8 +171,13 @@ class BPTreeIndexHandle : public std::enable_shared_from_this<BPTreeIndexHandle>
 public:
     typedef std::shared_ptr<BPTreeIndexHandle> ptr;
 
-    BPTreeIndexHandle(int fd_ , ComputeServer *s , table_id_t table_id_) 
-        : fd(fd_) , server(s) {
+    BPTreeIndexHandle(){
+        server = nullptr;
+    }
+
+    // 计算节点侧用的
+    BPTreeIndexHandle(ComputeServer *s , table_id_t table_id_) 
+        : server(s) {
         table_id = table_id_;
     }
 
@@ -217,11 +223,10 @@ public:
 
 
     page_id_t create_node(){
-        ....   
+        return server->rpc_create_page(table_id);
     }
     void destroy_node(page_id_t page_id){
-        // 需要在这里边调用 release_node
-        ...
+        server->rpc_delete_node(table_id , page_id);
     }
 
     // 对于内部节点来说，如果需要把第一个 key 借给别人的话，就应该去拿到它本来的值
@@ -240,7 +245,7 @@ public:
         return ret;
     }
 
-    BPTreeNodeHandle *fetch_node_from_list(std::vector<BPTreeNodeHandle*> &hold_lock_nodes , page_id_t target){
+    BPTreeNodeHandle *fetch_node_from_list(std::list<BPTreeNodeHandle*> &hold_lock_nodes , page_id_t target){
         auto it = std::find_if(hold_lock_nodes.begin(), hold_lock_nodes.end(), 
             [target](BPTreeNodeHandle* node) { 
             return node->get_page_no() == target; 
@@ -282,11 +287,10 @@ public:
     bool delete_entry(const itemkey_t *key);
 
 private:
-    ComputeServer* server;  
+    ComputeServer* server;
+    
     int fd;
     table_id_t table_id;
-
     BPFileHdr *file_hdr;
-
     std::mutex root_mtx;
 };
