@@ -44,14 +44,14 @@ class StoragePoolImpl : public StorageService{
                        const ::storage_service::WritePageRequest* request,
                        ::storage_service::WritePageResponse* response,
                        ::google::protobuf::Closure* done);
-    // virtual void CreatePage(::google::protobuf::RpcController* controller , 
-    //                     const ::storage_service::CreatePageRequest *request ,
-    //                     ::storage_service::CreatePageResponse *response , 
-    //                     ::google::protobuf::Closure *done);
-    // virtual void DeletePage(::google::protobuf::RpcController *controller , 
-    //                     const ::storage_service::DeletePageRequest *request ,
-    //                     ::storage_service::DeletePageResponse *response ,
-    //                     ::google::protobuf::Closure *done);
+    virtual void CreatePage(::google::protobuf::RpcController* controller , 
+                        const ::storage_service::CreatePageRequest *request ,
+                        ::storage_service::CreatePageResponse *response , 
+                        ::google::protobuf::Closure *done);
+    virtual void DeletePage(::google::protobuf::RpcController *controller , 
+                        const ::storage_service::DeletePageRequest *request ,
+                        ::storage_service::DeletePageResponse *response ,
+                        ::google::protobuf::Closure *done);
 
   private:
     LogManager* log_manager_;

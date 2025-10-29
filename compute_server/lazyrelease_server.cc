@@ -77,10 +77,9 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
                 page = put_page_into_local_buffer(table_id , page_id , data.c_str());
             } else if(valid_node != -1){
                 // valid_node = k (k != -1) 代表了需要去别的节点拉取数据
-                // while (this->node_->getBufferPoolByIndex(table_id)->getPendingCounts(page_id) != 0) {}
                 assert(valid_node != node_->node_id);
-                page = put_page_into_local_buffer(table_id , page_id , nullptr);
-                UpdatePageFromRemoteCompute(page, table_id, page_id, valid_node);
+                std::string data = UpdatePageFromRemoteCompute(table_id , page_id , valid_node);
+                page = put_page_into_local_buffer(table_id , page_id , data.c_str());
             } else {
                 // 对于读锁来说，应该不会走到这里
                 assert(false);
@@ -109,7 +108,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
         delete response;
     }
     assert(page);
-    // LOG(INFO) << "fetch S Over " << "table_id = " << table_id << " page_id = " << page_id << " node_id = " << node_->getNodeID();
+    // LOG(INFO) << "fetch S Over " << "table_id = " << table_id << " page_id = " << page_id;
 
     return page;
 }
@@ -120,7 +119,7 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
         std::cout << cnt << "\n";
     }
     
-    // LOG(INFO) << "fetching X Page " << "table_id = " << table_id << " page_id = " << page_id << " node_id " << node_->getNodeID();
+    // LOG(INFO) << "fetching X Page " << "table_id = " << table_id << " page_id = " << page_id;
     this->node_->fetch_allpage_cnt++;
 
     Page *page = nullptr;
@@ -181,9 +180,8 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
                 page = put_page_into_local_buffer(table_id , page_id , data.c_str());
             } else if(valid_node != -1){
                 assert(valid_node != node_->node_id);
-
-                page = put_page_into_local_buffer(table_id , page_id , nullptr);
-                UpdatePageFromRemoteCompute(page, table_id, page_id, valid_node);
+                std::string data = UpdatePageFromRemoteCompute(table_id , page_id , valid_node);
+                page = put_page_into_local_buffer(table_id , page_id , data.c_str());
             }else if (valid_node == -1) {
                 // 有一种情况可能走到这里：之前已经有 S 锁，然后想升级为 X 锁，远程直接同意了
                 // 这里需要注意，如果本地的 S 锁还没在远程释放的话，即使向远程申请 X 锁，也不会立刻同意，需要在 UnLock 里处理这个逻辑
@@ -226,7 +224,7 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
 }
 
 void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_id) {
-    // LOG(INFO) << "Releasing S Page " << "table_id = " << table_id << " page_id = " << page_id << " node_id = " << node_->getNodeID();
+    // LOG(INFO) << "Releasing S Page " << "table_id = " << table_id << " page_id = " << page_id;
     LRLocalPageLock *lr_lock = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id);
     int unlock_remote = lr_lock->tryUnlockShared();
 
@@ -287,6 +285,7 @@ void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_
 }
 
 void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_id) {
+    // LOG(INFO) << "Release X Page , table_id = " << table_id << " page_id = " << page_id;
     int unlock_remote = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->tryUnlockExclusive();
     LRLocalPageLock *lr_lock = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id);
     if (unlock_remote == 0){

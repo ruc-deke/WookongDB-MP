@@ -40,7 +40,6 @@ public:
         for (size_t i = 0 ; i < pool_size; i++) {
             free_lists.emplace_back(i);
         }
-        resetPending();
     }
 
     ~BufferPool(){
@@ -118,19 +117,6 @@ public:
         replacer->unpin(frame_id);
     }
 
-    // BufferRelease 专用的
-    void unpin_special(page_id_t page_id){
-        std::lock_guard<std::mutex> lk(mtx);
-        auto it = page_table.find(page_id);
-        // 到达的时候已经被淘汰了，那不管了
-        if (it == page_table.end()){
-            std::cout << "Has been 淘汰\n";
-            return;
-        }
-        frame_id_t frame_id = it->second;
-        replacer->unpin(frame_id);
-    }
-
     bool is_in_bufferPool(page_id_t page_id){
         std::lock_guard<std::mutex> lock(mtx);
         return (page_table.find(page_id) != page_table.end());
@@ -154,9 +140,6 @@ public:
             const std::function<bool(page_id_t)> &try_begin_evict ){
         mtx.lock();
         assert(page_table.find(page_id) == page_table.end());
-        if (pending_operation_counts[page_id] != 0){
-            assert(!should_release_buffer[page_id]);
-        }
 
         bool need_loop = true;
         page_id_t victim_page_id = INVALID_PAGE_ID;
@@ -207,11 +190,8 @@ public:
         replacer->pin(frame_id);
         Page *page = pages[frame_id];
 
-        if (src == nullptr){
-            page->reset_memory();
-        }else {
-            std::memcpy(page->get_data() , src , PAGE_SIZE);
-        }
+        assert(src != nullptr);
+        std::memcpy(page->get_data() , src , PAGE_SIZE);
         page->page_id_ = page_id;
         page->id_.table_id = table_id;
         page->id_.page_no = page_id;
@@ -224,35 +204,6 @@ public:
         release_page(table_id , page_id);
     }
 
-    void resetPending(){
-        pending_operation_counts = std::vector<int>(max_page_num , 0);
-        should_release_buffer = std::vector<bool>(max_page_num, false);
-    }
-
-    int getPendingCounts(page_id_t page_id){
-        std::lock_guard<std::mutex> lk(mtx);
-        return pending_operation_counts[page_id];
-    }
-    bool getShouldReleaseBuffer(page_id_t page_id){
-        std::lock_guard<std::mutex> lk(mtx);
-        return should_release_buffer[page_id];
-    }
-
-    // 等待 Push 页面的操作完成
-    bool waitingForPushOver(page_id_t page_id){
-        std::unique_lock<std::mutex> lk(mtx);
-        // 如果还没标记释放的话，就返回
-        if (!should_release_buffer[page_id] || pending_operation_counts[page_id] == 0){
-            return false;
-        }
-
-        pushing_cv.wait(lk , [this , page_id]{
-            return (pending_operation_counts[page_id] == 0 || !should_release_buffer[page_id]);
-        });
-
-        return true;
-    }
-
 private:
     std::mutex mtx;
 
@@ -262,14 +213,6 @@ private:
 
     ReplacerBase::ptr replacer;
     std::list<frame_id_t> free_lists; //空闲的帧
-
-    // 当前页面计数，用于 PushPage 的时候延迟释放
-    std::vector<int> pending_operation_counts;
-    // 表示是否应该释放了
-    std::vector<bool> should_release_buffer;
-
-    // 等待 Push 操作完成，自己再用
-    std::condition_variable pushing_cv;
 
     // 页表：实现 PageID -> 帧的映射
     std::unordered_map<page_id_t , frame_id_t> page_table;

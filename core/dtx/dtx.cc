@@ -45,7 +45,7 @@ timestamp_t DTX::GetTimestampRemote() {
   if(local_timestamp % BatchTimeStamp != 0){
     ret = local_timestamp++;
     return ret;
-  }
+  }                         
   // Get timestamp from remote
   timestamp_service::TimeStampService_Stub stub(remote_server_channel);
   timestamp_service::GetTimeStampRequest request;
@@ -158,10 +158,6 @@ DataItemPtr DTX::GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid,
   DataItemPtr itemPtr = std::make_shared<DataItem>(*reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t)));
   orginal_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
   return itemPtr; 
-}
-
-Rid DTX::GetRidFromBTree(table_id_t table_id , itemkey_t key){
-
 }
 
 DataItemPtr DTX::UndoDataItem(DataItemPtr item) {

@@ -17,7 +17,7 @@ void SmallBank::LoadTable(node_id_t node_id, node_id_t num_server) {
     PopulateCheckingTable();
   }
 }
-// ljTAG
+// ljTAG：写入 key -> rid 映射
 int SmallBank::LoadRecord(RmFileHandle* file_handle,
                           itemkey_t item_key,
                           void* val_ptr,
@@ -33,12 +33,25 @@ int SmallBank::LoadRecord(RmFileHandle* file_handle,
   Rid rid = file_handle->insert_record(item_key, item_char, nullptr);
   // record index
   indexfile << item_key << " " << rid.page_no_ << " " << rid.slot_no_ << std::endl;
+  bp_tree_indexes[table_id]->insert_entry(&item_key , rid);
+  bp_tree_indexes[table_id]->write_file_hdr_to_page();
+
+
+  std::vector<Rid> *results = new std::vector<Rid>{};
+  bool exist = bp_tree_indexes[table_id]->search(&item_key , results);
+
+  assert(exist && !results->empty());
+
   free(item_char);
   return 1;
 }
 
 void SmallBank::PopulateSavingsTable() {
-  /* All threads must execute the loop below deterministically */
+  // 创建 B+ 树索引文件，初始化前 3 个页
+  // std::string index_name = bench_name + "_savings";
+  // // std::cout << "Createing BPTreeIndex : " << index_name << "\n";
+  // index_manager->create_primary(bench_name + "_savings");
+
   // 创建文件
   rm_manager->create_file(bench_name + "_savings", sizeof(DataItem));
   std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(bench_name + "_savings");
@@ -68,7 +81,10 @@ void SmallBank::PopulateSavingsTable() {
 }
 
 void SmallBank::PopulateCheckingTable( ) {
-  /* All threads must execute the loop below deterministically */
+  // std::string index_name = bench_name + "_checking";
+  // // std::cout << "Createing BPTreeIndex : " << index_name << "\n";
+  // index_manager->create_primary(bench_name + "_checking");
+
   rm_manager->create_file(bench_name + "_checking", sizeof(DataItem));
   std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(bench_name + "_checking");
   std::ofstream indexfile;

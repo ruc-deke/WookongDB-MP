@@ -7,7 +7,8 @@
 "txn_system": 1,
     "batch_size": 400
   },
-  "table_buffer_pool_size": 2000,
+  "table_buffer_pool_size": 3000,  // 每张表分配的缓冲池大小
+  "index_buffer_pool_size": 100,   // 每个索引分配的缓冲池大小
   "remote_compute_nodes": {
     "remote_compute_node_ips": [
       "127.0.0.1",

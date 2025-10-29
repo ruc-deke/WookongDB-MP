@@ -13,7 +13,6 @@
 #include "compute_server/server.h"
 #include "connection/meta_manager.h"
 #include "cache/index_cache.h"
-#include "bp_tree/bp_tree.h"
 #include "util/json_config.h"
 #include "worker.h"
 
@@ -108,12 +107,10 @@ void Handler::GenThreads(std::string bench_name) {
   tx_id_generator = 0;  // Initial transaction id == 0
 
   // ljTag
-  // 可以在这里新建一个 BPTreeIndexHandle，然后传入 Metamanager 和 param_arr 里边
   auto thread_arr = new std::thread[thread_num_per_machine];
   auto* index_cache = new IndexCache();
-  // auto *bptree_index = new BPTreeIndexHandle();
   auto* page_cache = new PageCache();
-  auto* global_meta_man = new MetaManager(bench_name, index_cache, page_cache);
+  auto* global_meta_man = new MetaManager(bench_name, index_cache , page_cache);
   auto* param_arr = new struct thread_params[thread_num_per_machine];
 
   // Create a compute node object
@@ -132,6 +129,8 @@ void Handler::GenThreads(std::string bench_name) {
   auto* compute_server = new ComputeServer(compute_node, compute_ips, compute_ports);
 
   std::this_thread::sleep_for(std::chrono::seconds(10));  // Wait for 3s to ensure that the compute node server has started
+
+  // sleep(10);
 
   // Send TCP requests to remote servers here, and the remote server establishes a connection with the compute node
   socket_start_client(global_meta_man->remote_server_nodes[0].ip, global_meta_man->remote_server_meta_port);

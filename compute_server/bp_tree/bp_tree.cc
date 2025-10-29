@@ -1,4 +1,6 @@
 #include "bp_tree.h"
+#include "compute_server/server.h"
+#include "assert.h"
 
 int BPTreeNodeHandle::lower_bound(const itemkey_t *target){
     int l = 0 , r = get_size() , mid;
@@ -53,7 +55,9 @@ page_id_t BPTreeNodeHandle::internal_lookup(const itemkey_t* target){
     assert(!is_leaf());
     int pos = upper_bound(target);
     page_id_t page_no = value_at(pos - 1);
-    assert(page_no >= 0 && page_no != BP_HEAD_PAGE_ID);
+
+    // 不可能找到 0 和 1 号页面
+    // assert(page_no > 1 && page_no != BP_HEAD_PAGE_ID);
     return page_no;
 }
 
@@ -122,7 +126,79 @@ int BPTreeNodeHandle::find_child(page_id_t child_page_id){
     return -1;
 }
 
+
+
 // BPIndex
+
+// DEBUG 用的，打印路径
+void BPTreeIndexHandle::find_leaf_page_with_print(const itemkey_t *key){
+    std::list<BPTreeNodeHandle*> hold_lock_nodes;
+    // 根节点是否还在锁
+    bool root_is_locked = true;
+    // 先把根给锁了，这里的锁不是给根节点用的，而是给 file_hdr 用的，因为可能去改 root，就可能去改 file_hdr 的 root_page_id
+    root_mtx.lock();
+    // 先获取到头文件页
+    s_get_file_hdr();
+    page_id_t root_id = file_hdr->root_page_id;
+    s_release_file_hdr();
+
+    // 获取到根节点
+    BPTreeNodeHandle *node = fetch_node(root_id , BPOperation::SEARCH_OPERA);
+    
+
+    hold_lock_nodes.emplace_back(node);
+
+    if (node->isPageSafe(BPOperation::SEARCH_OPERA)){
+        root_mtx.unlock();
+        root_is_locked = false;
+    }
+    int depth = 0;
+    while (!node->is_leaf()){
+        std::cout << "internal page no = " << node->get_page_no() << "\n";
+        for (int i = 0 ; i < node->get_size() ; i++){
+            std::cout << *node->get_key(i) << " ";
+        }
+        std::cout << "\n\n\n";
+        depth++;
+        page_id_t child_page_no = node->internal_lookup(key);
+        std::cout << "child_page_no = " << child_page_no << "\n";
+        BPTreeNodeHandle *child = fetch_node(child_page_no , BPOperation::SEARCH_OPERA);
+        // 孩子安全了，释放祖先
+        if (child->isPageSafe(BPOperation::SEARCH_OPERA)){
+            if (root_is_locked){
+                root_is_locked = false;
+                root_mtx.unlock();
+            }
+            while (!hold_lock_nodes.empty()){
+                release_node(hold_lock_nodes.front()->get_page_no() , BPOperation::SEARCH_OPERA);
+                hold_lock_nodes.pop_front();
+            }
+        }
+        hold_lock_nodes.emplace_back(child);
+
+        node = child;
+    }
+
+    std::cout << "node size : " << node->get_size() << "\n";
+    std::cout << "node page no = " << node->get_page_no() << "\n";
+    bool tag = false;
+    for (int i = 0 ; i < PAGE_SIZE ; i++){
+        if (node->get_page()->get_data()[i] != '0'){
+            tag = true;
+            break;
+        }
+    }
+    if (!tag){
+        assert(false);
+    }
+    for (int i = 0 ; i < node->get_size() ; i++){
+        std::cout << *node->get_key(i) << " ";
+    }
+    std::cout << "\n\n\n\n\n\n\n";
+
+    assert(node->is_leaf());
+    // hold_lock_pages.emplace_back(node->get_page_no());
+}
 
 std::pair<BPTreeNodeHandle* , bool> BPTreeIndexHandle::find_leaf_page(const itemkey_t * key , BPOperation opera , std::list<BPTreeNodeHandle*> &hold_lock_nodes){
     // 根节点是否还在锁
@@ -132,20 +208,23 @@ std::pair<BPTreeNodeHandle* , bool> BPTreeIndexHandle::find_leaf_page(const item
     // 先获取到头文件页
     s_get_file_hdr();
     page_id_t root_id = file_hdr->root_page_id;
+    s_release_file_hdr();
 
     // 获取到根节点
     BPTreeNodeHandle *node = fetch_node(root_id , opera);
     hold_lock_nodes.emplace_back(node);
-    // TODO：释放 file_hdr 的时机可能不太对
-    s_release_file_hdr();
+
+    // 如果根节点安全，那就不会修改 root_page_id , 可以直接把 root_mtx 给放了
     if (node->isPageSafe(opera)){
         root_mtx.unlock();
         root_is_locked = false;
     }
-
+    int depth = 0;
     while (!node->is_leaf()){
+        depth++;
         page_id_t child_page_no = node->internal_lookup(key);
         BPTreeNodeHandle *child = fetch_node(child_page_no , opera);
+        assert(child_page_no > 1);
         // 孩子安全了，释放祖先
         if (child->isPageSafe(opera)){
             if (root_is_locked){
@@ -161,6 +240,7 @@ std::pair<BPTreeNodeHandle* , bool> BPTreeIndexHandle::find_leaf_page(const item
 
         node = child;
     }
+    // std::cout << "depth : " << depth << "\n";
 
     assert(node->is_leaf());
     // hold_lock_pages.emplace_back(node->get_page_no());
@@ -171,10 +251,16 @@ std::pair<BPTreeNodeHandle* , bool> BPTreeIndexHandle::find_leaf_page(const item
 BPTreeNodeHandle *BPTreeIndexHandle::split(BPTreeNodeHandle *node , std::list<BPTreeNodeHandle*> &hold_lock_nodes){
     assert(node->get_size() == node->get_max_size());
     page_id_t new_node_id = create_node();
-    BPTreeNodeHandle *new_node = fetch_node(new_node_id , BPOperation::INSERT);
+    // std::cout << "Create a new page , pageID = " << new_node_id << "\n";
+    BPTreeNodeHandle *new_node = fetch_node(new_node_id , BPOperation::INSERT_OPERA);
+    // 分裂出的节点加入到 hold_lock_nodes 中
+    hold_lock_nodes.emplace_back(new_node);
 
     new_node->set_is_leaf(node->is_leaf());
     new_node->set_parent(node->get_parent());
+    new_node->set_size(0);
+    new_node->set_prev_leaf(INVALID_PAGE_ID);
+    new_node->set_next_leaf(INVALID_PAGE_ID);
 
     int old_node_size = node->get_size() / 2;
     int new_node_size = node->get_size() - old_node_size;
@@ -190,11 +276,13 @@ BPTreeNodeHandle *BPTreeIndexHandle::split(BPTreeNodeHandle *node , std::list<BP
         new_node->set_next_leaf(node->get_next_leaf());
         new_node->set_prev_leaf(node->get_page_no());
         
+        // std::cout << "node_id = " << node->get_page_no() << " new_node_id = " << new_node->get_page_no() << " next_leaf = " << node->get_next_leaf() << "\n";
         if (node->get_next_leaf() != INVALID_PAGE_ID){
+            assert(fetch_node_from_list(hold_lock_nodes , node->get_next_leaf()) == nullptr);
             // 更新 next_leaf
-            BPTreeNodeHandle *next_node = fetch_node(node->get_next_leaf() , BPOperation::UPDATE);
+            BPTreeNodeHandle *next_node = fetch_node(node->get_next_leaf() , BPOperation::UPDATE_OPERA);
             next_node->set_prev_leaf(new_node->get_page_no());
-            release_node(node->get_next_leaf() , BPOperation::UPDATE);
+            release_node(node->get_next_leaf() , BPOperation::UPDATE_OPERA);
         }
 
         node->set_next_leaf(new_node->get_page_no());
@@ -205,12 +293,13 @@ BPTreeNodeHandle *BPTreeIndexHandle::split(BPTreeNodeHandle *node , std::list<BP
             maintain_child(new_node , i , hold_lock_nodes);
         }
     }
+    // std::cout << "split Over\n";
     return new_node;
 }
 
 // 能走到 hold_lock_nodes 里边的，hold_lock_nodes 里面一定都是已经持有写锁的
 // 所以不用担心走到这里持有读锁，不能去改的问题
-void BPTreeIndexHandle::maintain_child(BPTreeNodeHandle::ptr node, int child_idx , std::list<BPTreeNodeHandle*> &hold_lock_nodes){
+void BPTreeIndexHandle::maintain_child(BPTreeNodeHandle* node, int child_idx , std::list<BPTreeNodeHandle*> &hold_lock_nodes){
     assert(!node->is_leaf());
     assert(child_idx < node->get_size());
 
@@ -221,26 +310,27 @@ void BPTreeIndexHandle::maintain_child(BPTreeNodeHandle::ptr node, int child_idx
     });
     // 如果之前已经拿到过这个页面了，一定是写锁，直接去改就行
     if (it != hold_lock_nodes.end()){
-        *it->set_parent(node->get_page_no());
+        (*it)->set_parent(node->get_page_no());
         return ;
     }
 
-    BPTreeNodeHandle *child = fetch_node(child_page_id , BPOperation::UPDATE);
+    BPTreeNodeHandle *child = fetch_node(child_page_id , BPOperation::UPDATE_OPERA);
     child->set_parent(node->get_page_no());
-    release_node(child_page_id , BPOperation::UPDATE);
+    release_node(child_page_id , BPOperation::UPDATE_OPERA);
 }
 
 bool BPTreeIndexHandle::adjust_root(BPTreeNodeHandle *old_root){
     // 如果是内部节点，且只剩下个负无穷了，那就把它的孩子升级为新的根
     if (!old_root->is_leaf() && old_root->get_size() == 1){
+        std::cout << "remove old root_id = " << old_root->get_page_no() << " new root_id = " << old_root->value_at(0) << "\n";
         page_id_t new_root_id = old_root->value_at(0);
-        BPTreeNodeHandle *new_root = fetch_node(new_root_id , BPOperation::DELETE);
+        BPTreeNodeHandle *new_root = fetch_node(new_root_id , BPOperation::DELETE_OPERA);
         new_root->set_parent(INVALID_PAGE_ID);
         
         file_hdr->root_page_id = new_root_id;
         write_to_file_hdr();
 
-        release_node(new_root , BPOperation::DELETE);
+        release_node(new_root_id , BPOperation::DELETE_OPERA);
 
         return true;
     }else if (old_root->is_leaf() && old_root->get_size() == 0){
@@ -250,11 +340,11 @@ bool BPTreeIndexHandle::adjust_root(BPTreeNodeHandle *old_root){
         return true;
     }
 
+    // 无事发生，只是在 root 里删掉了一个 key 而已
     return false;
 }
 
-// index：node 在 parent 中的位置，注意 node 和 bro 的父亲一定是同一个
-// 这里需要去修改父亲的 key，但是无所谓，走到这里一定持有父亲的写锁
+// 兄弟够用，和兄弟合并了
 void BPTreeIndexHandle::redistribute(BPTreeNodeHandle *bro , BPTreeNodeHandle *node , BPTreeNodeHandle *parent , int index , std::list<BPTreeNodeHandle*> &hold_lock_nodes){
     if (node->is_leaf()){
         // 去借右兄弟的第一个
@@ -262,35 +352,37 @@ void BPTreeIndexHandle::redistribute(BPTreeNodeHandle *bro , BPTreeNodeHandle *n
             node->insert_pairs(node->get_size() , bro->get_key(0) , bro->get_rid(0) , 1);
             // maintain_child(node , node->get_size() - 1);
             bro->erase_pair(0);
-            parent->set_key(1 , bro->get_key(0));
+            parent->set_key(1 , *bro->get_key(0));
         }else {
+            // 去借左兄弟的最后一个
             node->insert_pairs(0 , bro->get_key(bro->get_size() - 1) , bro->get_rid(bro->get_size() - 1) , 1);
             // maintain_child(node , 0);
             bro->erase_pair(bro->get_size() - 1);
-            parent->set_key(index , node->get_key(0));
+            parent->set_key(index , *node->get_key(0));
         }
     }else {
         // 如果不是叶子节点的话，需要去考虑第一个 key 是负无穷
         if (index == 0) {
-            itemkey_t *original_key = get_first_key(bro);
-            node->insert_pairs(node->get_size() , original_key , bro->get_rid(0) , 1);
+            itemkey_t original_key_val = get_subtree_min_key(bro , hold_lock_nodes);
+            node->insert_pairs(node->get_size() , &original_key_val , bro->get_rid(0) , 1);
             maintain_child(node , node->get_size() - 1 , hold_lock_nodes);
             bro->erase_pair(0);
-            parent->set_key(1 , bro->get_key(0));
+            parent->set_key(1 , *bro->get_key(0));
             bro->set_key(0 , NEG_KEY);
         }else {
-            itemkey_t *origin_key = get_first_key(node);
+            itemkey_t origin_key_val = get_subtree_min_key(node , hold_lock_nodes);
             node->insert_pairs(0 , bro->get_key(bro->get_size() - 1) , bro->get_rid(bro->get_size() - 1) , 1);
-            node->set_key(1 , origin_key);
+            parent->set_key(index , *bro->get_key(bro->get_size() - 1));
             maintain_child(node , 0 , hold_lock_nodes);
 
+            node->set_key(1 , origin_key_val);
             bro->erase_pair(bro->get_size() - 1);
-            parent->set_key(index , node->get_key(0));
         }
     }
 }
 
 // 把 node 和前驱直接合并
+// 删除的是 node ，而不是 bro
 bool BPTreeIndexHandle::coalesce(BPTreeNodeHandle **bro , BPTreeNodeHandle **node , 
     BPTreeNodeHandle **parent , int index , bool *root_is_latched , std::list<BPTreeNodeHandle*> &hold_lock_nodes){
     // 如果 node 才是前驱，那就交换一下二者位置
@@ -301,30 +393,43 @@ bool BPTreeIndexHandle::coalesce(BPTreeNodeHandle **bro , BPTreeNodeHandle **nod
 
     // 把 node 直接插入到 bro 里面
     int old_size = (*bro)->get_size();
-    (*bro)->insert_pairs(old_size , (*node)->get_key(0) , (*node)->get_rid(0) , (*node)->get_size());
-
+    if ((*bro)->is_leaf()){
+        (*bro)->insert_pairs(old_size , (*node)->get_key(0) , (*node)->get_rid(0) , (*node)->get_size());
+    }else {
+        itemkey_t sub_tree_min = get_subtree_min_key(*node , hold_lock_nodes);
+        // 先插入第一个
+        (*bro)->insert_pair(old_size , &sub_tree_min , (*node)->get_rid(0));
+        // 再批量拷贝 node 余下的键
+        if ((*node)->get_size() > 1){
+            (*bro)->insert_pairs(old_size + 1 , (*node)->get_key(1) , (*node)->get_rid(1) , (*node)->get_size() - 1);
+        }
+    }
     if (!(*bro)->is_leaf()){
         for (int i = old_size ; i < (*bro)->get_size() ; i++){
             maintain_child(*bro , i , hold_lock_nodes);
         }
     } else {
-        x_get_file_hdr();
+        s_get_file_hdr();
         if (file_hdr->last_leaf == (*node)->get_page_no()){
+            s_release_file_hdr();
+            x_get_file_hdr();
             file_hdr->last_leaf = (*bro)->get_page_no();
+            x_release_file_hdr();
+        }else {
+            s_release_file_hdr();
         }
-        x_release_file_hdr();
 
         (*bro)->set_next_leaf((*node)->get_next_leaf());
         assert(fetch_node_from_list(hold_lock_nodes , (*node)->get_next_leaf()) == nullptr);
         if ((*node)->get_next_leaf() != INVALID_PAGE_ID){
-            BPTreeNodeHandle *next_leaf = fetch_node((*node)->get_next_leaf() , BPOperation::UPDATE);
+            BPTreeNodeHandle *next_leaf = fetch_node((*node)->get_next_leaf() , BPOperation::UPDATE_OPERA);
             next_leaf->set_prev_leaf((*bro)->get_page_no());
-            release_node(next_leaf->get_page_no() , BPOperation::UPDATE);
+            release_node(next_leaf->get_page_no() , BPOperation::UPDATE_OPERA);
         }
     }
 
     release_node_from_list(hold_lock_nodes , (*node)->get_page_no());
-    release_node((*node)->get_page_no() , BPOperation::DELETE);
+    release_node((*node)->get_page_no() , BPOperation::DELETE_OPERA);
     destroy_node((*node)->get_page_no());
     
     (*parent)->erase_pair(index);
@@ -336,8 +441,9 @@ bool BPTreeIndexHandle::coalesce_or_redistribute(BPTreeNodeHandle *node , bool *
         bool need_to_delete_root = adjust_root(node);
         // 直接删掉根节点
         if (need_to_delete_root){
+            std::cout << "destroy a root , page_no = " << node->get_page_no() << "\n";
             release_node_from_list(hold_lock_nodes , node->get_page_no());
-            release_node(node->get_page_no() , BPOperation::DELETE);
+            release_node(node->get_page_no() , BPOperation::DELETE_OPERA);
             destroy_node(node->get_page_no());
             hold_lock_nodes.remove(node);
         }
@@ -352,17 +458,19 @@ bool BPTreeIndexHandle::coalesce_or_redistribute(BPTreeNodeHandle *node , bool *
     assert(parent != nullptr);
 
     // 借只能去借和自己同一个父亲的，不能去借别人的孩子
-    int index = parent->find_child(node);
+    int index = parent->find_child(node->get_page_no());
     page_id_t bro_id;
     if (index == 0){
-        bro_id = index + 1;
+        // 兄弟页号必须从父节点的孩子指针获取
+        bro_id = parent->value_at(index + 1);
     }else {
-        bro_id = index - 1;
+        bro_id = parent->value_at(index - 1);
     }
 
     // 此时，bro 一定不在hold_lock_nodes里面，因为不会形成环，所以不会死锁
-    assert(fetch_node_from_list(hold_lock_pages , bro_id) == nullptr);
-    BPTreeNodeHandle *bro = fetch_node(bro_id , BPOperation::DELETE);
+    assert(fetch_node_from_list(hold_lock_nodes , bro_id) == nullptr);
+    BPTreeNodeHandle *bro = fetch_node(bro_id , BPOperation::DELETE_OPERA);
+    hold_lock_nodes.emplace_back(bro);
 
     // 如果兄弟够用的话，去借兄弟的
     if (bro->get_size() + node->get_size() >= 2 * node->get_min_size()){
@@ -370,7 +478,7 @@ bool BPTreeIndexHandle::coalesce_or_redistribute(BPTreeNodeHandle *node , bool *
         return false;
     }else {
         // 兄弟不够的话，还需要去父亲再整一个
-        coalesce(&bro , &node , &parent , index , root_is_latched);
+        coalesce(&bro , &node , &parent , index , root_is_latched, hold_lock_nodes);
         return true;
     }
 }
@@ -381,7 +489,8 @@ void BPTreeIndexHandle::insert_into_parent(BPTreeNodeHandle *old_node , const it
     // 如果把根节点分裂了，那就构造一个新的根节点
     if (old_node->is_root_page()){
         page_id_t new_root_id = create_node();
-        BPTreeNodeHandle *new_root = fetch_node(new_root_id , BPOperation::INSERT);
+        std::cout << "Create A New Root , page_id = " << new_root_id << "\n";
+        BPTreeNodeHandle *new_root = fetch_node(new_root_id , BPOperation::INSERT_OPERA);
 
         new_root->set_is_leaf(false);
         new_root->set_next_leaf(INVALID_PAGE_ID);
@@ -392,11 +501,15 @@ void BPTreeIndexHandle::insert_into_parent(BPTreeNodeHandle *old_node , const it
         // 第一个 key 是负无穷，因此生成新的 root 的时候，第一个 key 是负无穷，第二个 key 是右子树的最小key
         new_root->init_internal_node(); // 初始化第一个key 为负无穷
         new_root->set_rid(0 , {.page_no_ = old_node->get_page_no() , .slot_no_ = -1});
-        new_root->insert_pair(1 , key , {.page_no_ = old_node->get_page_no() , .slot_no_ = -1});
+
+        // 第二个孩子必须指向右兄弟 new_node
+        Rid rid1 = {new_node->get_page_no(), -1};
+        new_root->insert_pair(1 , key , &rid1);
 
         old_node->set_parent(new_root_id);
         new_node->set_parent(new_root_id);
 
+        hold_lock_nodes.emplace_back(new_root);
         file_hdr->root_page_id = new_root_id;
         write_to_file_hdr();
 
@@ -407,20 +520,73 @@ void BPTreeIndexHandle::insert_into_parent(BPTreeNodeHandle *old_node , const it
     BPTreeNodeHandle *parent = fetch_node_from_list(hold_lock_nodes , old_node->get_parent());
     assert(parent != nullptr);
     int index = parent->find_child(old_node->get_page_no());
-    parent->insert_pair(index + 1 , key , {.page_no = new_node->get_page_no() , .slot = -1});
+    assert(index != -1);
+    Rid rid2 = {new_node->get_page_no(), -1};
+    parent->insert_pair(index + 1 , key , &rid2);   
     if (parent->get_size() == parent->get_max_size()){
-        BPTreeNodeHandle *right_bro = split(parent , hold_lock_nodes);
+        BPTreeNodeHandle *parent_right_bro = split(parent , hold_lock_nodes);
         // 内部节点分裂的时候，传入的 key 不能是负无穷
         const itemkey_t *sep;
-        if (right_bro->is_leaf()){
-            sep = right_bro->get_key(0);
+        if (parent_right_bro->is_leaf()){
+            // 叶子节点分裂
+            sep = parent_right_bro->get_key(0);
         }else {
-            // TODO
+            // 内部节点分裂
+            itemkey_t min_key = get_subtree_min_key(parent_right_bro , hold_lock_nodes);
+            sep = &min_key;
         }
-        insert_into_parent(parent , right_bro->get_key(0) , right_bro , hold_lock_nodes);
+        insert_into_parent(parent , sep , parent_right_bro , hold_lock_nodes);
     }
 }
 
+void BPTreeIndexHandle::write_to_file_hdr(){
+    Page *page = server->rpc_lazy_fetch_x_page(table_id , BP_HEAD_PAGE_ID);
+    file_hdr->serialize(page->get_data());
+    server->rpc_lazy_release_x_page(table_id , BP_HEAD_PAGE_ID);
+}
+
+page_id_t BPTreeIndexHandle::create_node(){
+    page_id_t ret = server->rpc_create_page(table_id);
+    return ret;
+}
+void BPTreeIndexHandle::destroy_node(page_id_t page_id){
+    server->rpc_delete_node(table_id , page_id);
+}
+
+void BPTreeIndexHandle::s_get_file_hdr(){
+    Page *page = server->rpc_lazy_fetch_s_page(table_id , BP_HEAD_PAGE_ID);
+    file_hdr->deserialize(page->get_data());
+}
+void BPTreeIndexHandle::x_get_file_hdr(){
+    Page *page = server->rpc_lazy_fetch_x_page(table_id , BP_HEAD_PAGE_ID);
+    file_hdr->deserialize(page->get_data());
+}
+void BPTreeIndexHandle::s_release_file_hdr(){
+    server->rpc_lazy_release_s_page(table_id , BP_HEAD_PAGE_ID);
+}
+void BPTreeIndexHandle::x_release_file_hdr(){
+    server->rpc_lazy_release_x_page(table_id , BP_HEAD_PAGE_ID);
+}
+
+BPTreeNodeHandle *BPTreeIndexHandle::fetch_node(page_id_t page_id , BPOperation opera){
+    BPTreeNodeHandle *ret = nullptr;
+    if (opera == BPOperation::SEARCH_OPERA){
+        Page *page = server->rpc_lazy_fetch_s_page(table_id , page_id);
+        ret = new BPTreeNodeHandle(page);
+    }else{
+        Page *page = server->rpc_lazy_fetch_x_page(table_id , page_id);
+        ret = new BPTreeNodeHandle(page);
+    }
+    return ret;
+}
+
+void BPTreeIndexHandle::release_node(page_id_t page_id , BPOperation opera){
+    if (opera == BPOperation::SEARCH_OPERA){
+        server->rpc_lazy_release_s_page(table_id , page_id);
+    }else {
+        server->rpc_lazy_release_x_page(table_id , page_id);
+    }
+}
 /*
     本函数已弃用
 */
@@ -429,13 +595,13 @@ void BPTreeIndexHandle::maintain_parent(BPTreeNodeHandle *node){
     page_id_t cur_id = cur->get_page_no();
     page_id_t par_id = cur->get_parent();
     while (par_id != INVALID_PAGE_ID){
-        BPTreeNodeHandle *parent = fetch_node(par_id , BPOperation::UPDATE);
+        BPTreeNodeHandle *parent = fetch_node(par_id , BPOperation::UPDATE_OPERA);
         int index = parent->find_child(cur_id);
         assert(index != -1);
         itemkey_t *parent_key = parent->get_key(index);
         itemkey_t *child_first_key = node->get_key(0);
         if (ix_compare(parent_key , child_first_key) != 0){
-            release_node(par_id , BPOperation::UPDATE);
+            release_node(par_id , BPOperation::UPDATE_OPERA);
             return ;
         }
 
@@ -444,25 +610,40 @@ void BPTreeIndexHandle::maintain_parent(BPTreeNodeHandle *node){
         par_id = cur->get_parent();
         cur = parent;
 
-        release_node(parent->get_page_no() , BPOperation::UPDATE);
+        release_node(parent->get_page_no() , BPOperation::UPDATE_OPERA);
     }
 }
 
+
+std::atomic<int> cnt1{0};
 bool BPTreeIndexHandle::search(const itemkey_t *key , std::vector<Rid> *results){
     std::list<BPTreeNodeHandle*> hold_lock_nodes;
-    auto res = find_leaf_page(key , BPOperation::SEARCH , hold_lock_nodes);
+
+    auto res = find_leaf_page(key , BPOperation::SEARCH_OPERA , hold_lock_nodes);
+    assert(hold_lock_nodes.size() == 1);
     Rid *rid;
     bool exist = res.first->leaf_lookup(key , &rid);
 
+    // 在释放页锁之前先把结果复制出来，避免 lazy release 使页面内存失效
+    Rid got{};
+    if (exist) {
+        got = *rid;
+    }
+    
     // 对于查找操作，最后锁住的一定只有一个叶子节点
     assert(hold_lock_nodes.size() == 1);
     while (!hold_lock_nodes.empty()){
-        release_node(hold_lock_nodes.front()->get_page_no() , BPOperation::SEARCH);
+        release_node(hold_lock_nodes.front()->get_page_no() , BPOperation::SEARCH_OPERA);
         hold_lock_nodes.pop_front();
     } 
 
+    // DEBUG
+    if (!exist){
+        find_leaf_page_with_print(key);
+    }
+
     if (exist){
-        results->emplace_back(*rid);
+        results->emplace_back(got);
     }
     return exist;
 }
@@ -470,28 +651,32 @@ bool BPTreeIndexHandle::search(const itemkey_t *key , std::vector<Rid> *results)
 // split 完成后，需要把新加的key 插入到 parent 中
 page_id_t BPTreeIndexHandle::insert_entry(const itemkey_t *key , const Rid &value){
     std::list<BPTreeNodeHandle*> hold_lock_nodes;
-    auto [leaf , root_is_latched] = find_leaf_page(key , BPOperation::INSERT , hold_lock_nodes);
-    // 对于插入操作，锁住的节点数量一定 ≥ 1
+
+    auto [leaf , root_is_latched] = find_leaf_page(key , BPOperation::INSERT_OPERA , hold_lock_nodes);
+    assert(leaf->is_leaf());
     assert(hold_lock_nodes.size() >= 1);
+
     int old_size = leaf->get_size();
     int new_size = leaf->insert(key , value);
     assert(old_size != new_size);    // 不允许插入相同 key
 
     int insert_idx = leaf->lower_bound(key);
-    // 如果插入的是第一个位置，那就需要去维护祖先的 key
-    // if (insert_idx == 0){
-    //     maintain_parent(leaf);
-    // }
+    assert(*leaf->get_key(insert_idx) == *key);
 
     if (leaf->get_size() == leaf->get_max_size()){
-        BPTreeNodeHandle *bro = split(leaf);
-        x_get_file_hdr();
+        BPTreeNodeHandle *bro = split(leaf , hold_lock_nodes);
+        s_get_file_hdr();
         if (file_hdr->last_leaf == leaf->get_page_no()){
+            // 发生的概率非常低，所以这样处理
+            s_release_file_hdr();
+            x_get_file_hdr();
             file_hdr->last_leaf = bro->get_page_no();
+            x_release_file_hdr();
+        }else {
+            s_release_file_hdr();
         }
-        x_release_file_hdr();
         // 执行完分裂后，需要把分裂出去的那个建插入到父亲
-        insert_into_parent(leaf , bro->get_key(0) , bro);
+        insert_into_parent(leaf , bro->get_key(0) , bro , hold_lock_nodes);
     }
 
     if (root_is_latched){
@@ -499,9 +684,10 @@ page_id_t BPTreeIndexHandle::insert_entry(const itemkey_t *key , const Rid &valu
     }
 
     int ret = leaf->get_page_no();
+    // std::cout << "Insert Entry , Insert PageID = " << ret << "\n";
 
     while (!hold_lock_nodes.empty()){
-        release_node(hold_lock_nodes.front()->get_page_no() , BPOperation::INSERT);
+        release_node(hold_lock_nodes.front()->get_page_no() , BPOperation::INSERT_OPERA);
         hold_lock_nodes.pop_front();   
     }
 
@@ -510,7 +696,7 @@ page_id_t BPTreeIndexHandle::insert_entry(const itemkey_t *key , const Rid &valu
 
 bool BPTreeIndexHandle::delete_entry(const itemkey_t *key){
     std::list<BPTreeNodeHandle*> hold_lock_nodes;
-    auto [leaf , root_is_latched] = find_leaf_page(key , BPOperation::DELETE , hold_lock_nodes);
+    auto [leaf , root_is_latched] = find_leaf_page(key , BPOperation::DELETE_OPERA , hold_lock_nodes);
     // 对于删除操作，锁住的节点数量一定 ≥ 1
     assert(hold_lock_nodes.size() >= 1);  
 
@@ -525,7 +711,7 @@ bool BPTreeIndexHandle::delete_entry(const itemkey_t *key){
     }
 
     while (!hold_lock_nodes.empty()){
-        release_node(hold_lock_nodes.front()->get_page_no() , BPOperation::DELETE);
+        release_node(hold_lock_nodes.front()->get_page_no() , BPOperation::DELETE_OPERA);
         hold_lock_nodes.pop_front();
     }
 

@@ -13,7 +13,9 @@
 #include "util/json_config.h"
 #include "record/rm_manager.h"
 #include "record/rm_file_handle.h"
+#include "index/index_manager.h"
 #include "dtx/dtx.h"
+#include "storage/bp_tree/bp_tree.h"
 
 /* STORED PROCEDURE EXECUTION FREQUENCIES (0-100) */
 // #define FREQUENCY_AMALGAMATE 15
@@ -113,10 +115,21 @@ class SmallBank {
   double hot_rate;
 
   RmManager* rm_manager;
+  IndexManager *index_manager;
+
+  // 存储层用的，只负责插入初始化的那些数据
+  std::vector<S_BPTreeIndexHandle*> bp_tree_indexes;
 
   // For server usage: Provide interfaces to servers for loading tables
   // Also for client usage: Provide interfaces to clients for generating ids during tests
   SmallBank(RmManager* rm_manager): rm_manager(rm_manager) {
+    if (rm_manager){
+        index_manager = new IndexManager(rm_manager->get_diskmanager());
+        // 2颗 B+ 树
+        for (int i = 0 ; i < 2 ; i++){
+            bp_tree_indexes.emplace_back(new S_BPTreeIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 2));
+        }
+    }
     bench_name = "smallbank";
     // Used for populate table (line num) and get account
     std::string config_filepath = "../../config/smallbank_config.json";
@@ -269,74 +282,6 @@ class SmallBank {
               get_account(seed, acct_id_1, dtx, is_partitioned, node_id, table_id);
           }
       }
-    //  } else if (is_partitioned) { // 执行本地事务
-    //      int node_id = gen_node_id;
-    //      int page_num = dtx->page_cache->getPageCache().find(table_id)->second.size();
-    //      page_id_t page_id_0;
-    //      page_id_t page_id_1;
-    //      if (FastRand(seed) % 100 < TX_HOT) {
-    //          page_id_0 = node_id * (page_num / ComputeNodeCount) +
-    //                      FastRand(seed) % (int) ((page_num / ComputeNodeCount) * hot_rate) + 1;
-    //          page_id_1 = node_id * (page_num / ComputeNodeCount) +
-    //                      FastRand(seed) % (int) ((page_num / ComputeNodeCount) * hot_rate) + 1;
-    //          *acct_id_0 = dtx->page_cache->SearchRandom(seed, table_id, page_id_0);
-    //          *acct_id_1 = dtx->page_cache->SearchRandom(seed, table_id, page_id_1);
-    //          while (*acct_id_1 == *acct_id_0) {
-    //              page_id_1 = node_id * (page_num / ComputeNodeCount) +
-    //                          FastRand(seed) % (int) ((page_num / ComputeNodeCount) * hot_rate) + 1;
-    //              *acct_id_1 = dtx->page_cache->SearchRandom(seed, table_id, page_id_1);
-    //          }
-    //      } else {
-    //          page_id_0 = node_id * (page_num / ComputeNodeCount) + FastRand(seed) % (page_num / ComputeNodeCount) + 1;
-    //          page_id_1 = node_id * (page_num / ComputeNodeCount) + FastRand(seed) % (page_num / ComputeNodeCount) + 1;
-    //          *acct_id_0 = dtx->page_cache->SearchRandom(seed, table_id, page_id_0);
-    //          *acct_id_1 = dtx->page_cache->SearchRandom(seed, table_id, page_id_1);
-    //          while (*acct_id_1 == *acct_id_0) {
-    //              page_id_1 = node_id * (page_num / ComputeNodeCount) + FastRand(seed) % (page_num / ComputeNodeCount) + 1;
-    //              *acct_id_1 = dtx->page_cache->SearchRandom(seed, table_id, page_id_1);
-    //          }
-    //      }
-    //  } else { // 执行跨分区事务
-    //      int node_id = gen_node_id;
-    //      int page_num = dtx->page_cache->getPageCache().find(table_id)->second.size();
-    //      page_id_t page_id_0;
-    //      page_id_t page_id_1;
-    //      if (FastRand(seed) % 100 < TX_HOT) {
-    //          int node_id0, node_id1;
-    //          do{
-    //              node_id0 = FastRand(seed) % ComputeNodeCount;
-    //              node_id1 = FastRand(seed) % ComputeNodeCount;
-    //          }while(node_id0 == node_id && node_id1 == node_id);
-    //          page_id_0 = FastRand(seed) % (int) ((page_num / ComputeNodeCount) * hot_rate) +
-    //                      node_id0 * (page_num / ComputeNodeCount) + 1;
-    //          page_id_1 = FastRand(seed) % (int) ((page_num / ComputeNodeCount) * hot_rate) +
-    //                      node_id1 * (page_num / ComputeNodeCount) + 1;
-    //          *acct_id_0 = dtx->page_cache->SearchRandom(seed, table_id, page_id_0);
-    //          *acct_id_1 = dtx->page_cache->SearchRandom(seed, table_id, page_id_1);
-    //          while (*acct_id_1 == *acct_id_0) {
-    //              page_id_1 = FastRand(seed) % (int) ((page_num / ComputeNodeCount) * hot_rate) +
-    //                      node_id1 * (page_num / ComputeNodeCount) + 1;
-    //              *acct_id_1 = dtx->page_cache->SearchRandom(seed, table_id, page_id_1);
-    //          }
-    //      } else {
-    //          int node_id0, node_id1;
-    //          do{
-    //              node_id0 = FastRand(seed) % ComputeNodeCount;
-    //              node_id1 = FastRand(seed) % ComputeNodeCount;
-    //          }while(node_id0 == node_id && node_id1 == node_id);
-    //          page_id_0 = FastRand(seed) % (page_num / ComputeNodeCount) +
-    //                      node_id0 * (page_num / ComputeNodeCount) + 1;
-    //          page_id_1 = FastRand(seed) % (page_num / ComputeNodeCount) +
-    //                      node_id1 * (page_num / ComputeNodeCount) + 1;
-    //          *acct_id_0 = dtx->page_cache->SearchRandom(seed, table_id, page_id_0);
-    //          *acct_id_1 = dtx->page_cache->SearchRandom(seed, table_id, page_id_1);
-    //          while (*acct_id_1 == *acct_id_0) {
-    //              page_id_1 = FastRand(seed) % (page_num / ComputeNodeCount) +
-    //                          node_id1 * (page_num / ComputeNodeCount) + 1;
-    //              *acct_id_1 = dtx->page_cache->SearchRandom(seed, table_id, page_id_1);
-    //          }
-    //      }
-    //  }
   }
 
 
@@ -412,7 +357,6 @@ class SmallBank {
     void LoadTable(node_id_t node_id, node_id_t num_server);
 
     void PopulateSavingsTable();
-
     void PopulateCheckingTable();
 
     int LoadRecord(RmFileHandle* file_handle,

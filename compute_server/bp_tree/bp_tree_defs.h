@@ -3,16 +3,20 @@
 #include "base/page.h"
 #include "common.h"
 
+#include "iostream"
+#include "assert.h"
 
-// 整颗 B+ 树的头信息所在的页面
-#define BP_HEAD_PAGE_ID 0
+#define BP_LEAF_HEADER_PAGE_ID 0    // 叶子节点链表的头节点
+#define BP_HEAD_PAGE_ID 1           // 整颗 B+ 树的头信息
+#define BP_INIT_ROOT_PAGE_ID 2      // 初始化的根节点页面号
+#define BP_INIT_PAGE_NUM 3          // 初始化的页面总共有三头
 #define NEG_KEY ((itemkey_t)(0)) // 0 作为最小的 itemkey_t ，放在每个内部节点的第一个 key 上
 
 enum BPOperation{
-    INSERT = 1,
-    DELETE = 2,
-    SEARCH = 3,
-    UPDATE = 4
+    INSERT_OPERA = 1,
+    DELETE_OPERA = 2,
+    SEARCH_OPERA = 3,
+    UPDATE_OPERA = 4
 };
 
 // B+树单个页面的头文件，保存在 page->get_data() 的最前边
@@ -52,6 +56,7 @@ struct BPFileHdr{
 
     void deserialize(const char *src){
         int offset = 0;
+        assert(src != nullptr);
         root_page_id = *reinterpret_cast<const page_id_t*>(src + offset);
         offset += sizeof(page_id_t);
 
@@ -60,5 +65,9 @@ struct BPFileHdr{
 
         last_leaf = *reinterpret_cast<const page_id_t*>(src + offset);
         offset += sizeof(page_id_t);
+    }
+
+    int get_tot_len() const {
+        return sizeof(page_id_t) * 3;
     }
 };

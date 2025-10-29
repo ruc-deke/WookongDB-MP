@@ -28,6 +28,8 @@
 #include "global_page_lock.h"
 #include "global_valid_table.h"
 
+#include "bp_tree/bp_tree.h"
+
 extern double ReadOperationRatio; // for workload generator
 extern int TryOperationCnt;  // only for micro experiment
 extern double ConsecutiveAccessRatio;  // for workload generator
@@ -131,7 +133,6 @@ struct dtx_entry {
 // 所以建立一个ComputeServer类，ComputeServer类可以与其他计算节点通信
 class ComputeServer {
 public:
-    // 构造函数的主要作用是设置了和其它主节点、存储层、2PC 的通信
     ComputeServer(ComputeNode* node, std::vector<std::string> compute_ips, std::vector<int> compute_ports): node_(node){
         InitTableNameMeta();
         // 构造与其他计算节点通信的channel
@@ -192,6 +193,117 @@ public:
                 global_page_lock_table_list_->at(i)->BuildRPCConnection(compute_ips, compute_ports);
             }
 
+            // 初始化 B+ 树
+            // 只需要一个节点来插入就行，交给 0 号节点来初始化 B+ 树
+            bp_tree_indexes.resize(2);
+            for (int i = 0 ; i < 2 ; i++){
+                bp_tree_indexes[i] = new BPTreeIndexHandle(this , i + 2);
+            }
+            // if (node_->node_id == 0){
+            //     MetaManager *meta_man = node_->meta_manager_;
+            //     IndexCache *index_cache = meta_man->get_index_cache();
+            //     int num_insert_threads = 15;
+            //     for (auto &item : index_cache->getRidsMap()){
+            //         table_id_t item_table_id = item.first;
+
+            //         std::vector<std::pair<itemkey_t , Rid>> entries;
+            //         entries.reserve(item.second.size());
+            //         for (auto &kv : item.second){
+            //             entries.emplace_back(kv.first , kv.second);
+            //         }
+            //         size_t N = entries.size();
+            //         size_t chunk = (N + num_insert_threads - 1) / num_insert_threads;
+
+            //         std::vector<std::thread> insert_threads;
+            //         insert_threads.reserve(num_insert_threads);
+
+            //         for (int t = 0 ; t < num_insert_threads ; t++){
+            //             size_t begin = static_cast<size_t>(t) * chunk;
+            //             if (begin >= N) break;
+            //             size_t end = std::min(N, begin + chunk);
+
+            //             insert_threads.emplace_back([this, item_table_id, &entries, begin, end](){
+            //                 BPTreeIndexHandle* handle = bp_tree_indexes[item_table_id];
+            //                 for (size_t i = begin; i < end; ++i) {
+            //                     itemkey_t key = entries[i].first;
+            //                     Rid rid = entries[i].second;
+            //                     handle->insert_entry(&key, rid);
+
+            //                     // 验证刚刚插入的元素找得到
+            //                     std::vector<Rid> results;
+            //                     bool exist = handle->search(&key , &results);
+            //                     assert(exist && !results.empty());
+            //                     Rid got = results[0];
+            //                     assert (got.page_no_ == rid.page_no_ && got.slot_no_ == rid.slot_no_);
+            //                 }
+            //             });
+            //         }
+
+            //         for (auto &th : insert_threads){
+            //             th.join();
+            //         }
+
+            //         // // 验证删除
+            //         std::vector<std::thread> delete_threads;
+            //         int num_delete_threads = 12;
+            //         delete_threads.reserve(num_delete_threads);
+
+            //         for (int t = 0 ; t < num_delete_threads ; t++){
+            //             size_t begin = static_cast<size_t>(t) * chunk;
+            //             if (begin >= N) break;
+            //             size_t end = begin + chunk; if (end > N) end = N;
+
+            //             delete_threads.emplace_back([this, item_table_id, &entries, begin, end, t](){
+            //                 BPTreeIndexHandle* handle = bp_tree_indexes[item_table_id];
+            //                 for (size_t i = begin; i < end; ++i) {
+            //                     itemkey_t key = entries[i].first;
+            //                     handle->delete_entry(&key);
+
+            //                     std::vector<Rid> results;
+            //                     bool exist = handle->search(&key , &results);
+            //                     assert(!exist && results.empty());
+            //                 }
+            //             });
+            //         }
+            //         std::cout << "Yalu\n\n\n\n";
+
+
+            //         for (auto &th : delete_threads) {
+            //             if (th.joinable()) th.join();
+            //         }
+
+            //         // 验证确实删干净了
+            //         std::vector<std::thread> search_threads;
+            //         int num_thread_search = 5;
+            //         search_threads.reserve(num_thread_search);
+
+            //         for (int t = 0 ; t < num_thread_search ; t++){
+            //             size_t begin = static_cast<size_t>(t) * chunk;
+            //             if (begin >= N) break;
+            //             size_t end = begin + chunk; if (end > N) end = N;
+
+            //             search_threads.emplace_back([this, item_table_id, &entries, begin, end, t](){
+            //                 BPTreeIndexHandle* handle = bp_tree_indexes[item_table_id];
+            //                 for (size_t i = begin; i < end; ++i) {
+            //                     itemkey_t key = entries[i].first;
+            //                     Rid expected = entries[i].second;
+            //                     std::vector<Rid> results;
+            //                     bool exist = handle->search(&key, &results);
+            //                     assert(!exist && results.empty());
+            //                     // Rid got = results[0];
+            //                     // assert (got.page_no_ == expected.page_no_ && got.slot_no_ == expected.slot_no_);
+            //                 }
+            //             });
+            //         }
+
+
+            //         for (auto &th : search_threads) {
+            //             if (th.joinable()) th.join();
+            //         }
+            //         std::cout << "--------------Baga\n\n\n\n\n\n\n";
+                // }
+            // }
+
             butil::EndPoint point;
             point = butil::EndPoint(butil::IP_ANY, compute_ports[node_->getNodeID()]);
             brpc::ServerOptions server_options;
@@ -208,6 +320,16 @@ public:
             exit(1);
         });
         t.detach();
+
+    }
+
+
+    Rid get_rid_from_bptree(table_id_t table_id , itemkey_t key){
+        std::vector<Rid> results;
+        bool exist = bp_tree_indexes[table_id]->search(&key , &results);
+        assert(exist);
+        assert(!results.empty());
+        return results[0];
     }
 
     void PushPageToOther(table_id_t table_id , page_id_t page_id , node_id_t dest_node_id);
@@ -310,7 +432,6 @@ public:
                 lr_local_lock->EndEvict();
                 continue;
             }
-            
 
             int unlock_remote = lr_local_lock->getUnlockType();
             // 如果 unlock_remote = 0，代表已经释放了，不可控
@@ -329,6 +450,7 @@ public:
                     2. 我去测试了一下，即使只开了 300 个页面作为缓冲区，发生远程拒绝的情况也只是 1/4000 左右
                     所以这里先刷下去无所谓，即使远程解锁失败了，刷下去的页面开销也很小 
                 */
+                // LOG(INFO) << "Flush To Disk Because It Might be replaced , table_id = " << table_id << " page_id = " << replaced_page_id;
                 Page *old_page = node_->fetch_page(table_id , replaced_page_id);
                 storage_service::StorageService_Stub storage_stub(get_storage_channel());
                 brpc::Controller cntl_wp;
@@ -373,9 +495,7 @@ public:
             
             if (!response->agree()){
                 // std::cout << "This Page Is Rejected\n";
-                // 需要把之前缓冲区锁定的那个页面搞回来
-                // node_->getBufferPoolByIndex(table_id)->unpin_special(replaced_page_id);
-                // 如果在这个页面上，我被选中去推送页面了，那我就滚
+                // 如果在这个页面上，我被选去了推送页面了，那我就滚
                 lr_local_lock->EndEvict();
 
                 delete response;
@@ -518,7 +638,7 @@ public:
     page_id_t last_generated_page_id = 0;
 
     // 从远程取数据页
-    void UpdatePageFromRemoteCompute(Page* page,table_id_t table_id, page_id_t page_id, node_id_t node_id);
+    std::string UpdatePageFromRemoteCompute(table_id_t table_id, page_id_t page_id, node_id_t node_id);
 
     // 获取与其他计算节点通信的channel
     inline brpc::Channel* get_pagetable_channel(){ return &node_->page_table_channel; }
@@ -538,6 +658,7 @@ private:
     ComputeNode* node_;
     std::vector<GlobalLockTable*>* global_page_lock_table_list_;
     std::vector<GlobalValidTable*>* global_valid_table_list_;
+    std::vector<BPTreeIndexHandle*> bp_tree_indexes;
     brpc::Channel* nodes_channel; //与其他计算节点通信的channel
     page_table_service::PageTableServiceImpl* page_table_service_impl_; // 保存在类中，以便本地调用
 };

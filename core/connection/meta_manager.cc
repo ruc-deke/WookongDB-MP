@@ -15,7 +15,8 @@
 #include "util/bitmap.h"
 #include "storage/storage_service.pb.h"
 
-MetaManager::MetaManager(std::string bench_name, IndexCache* index_cache, PageCache* page_cache) : index_cache_(index_cache), page_cache_(page_cache) {
+MetaManager::MetaManager(std::string bench_name, IndexCache* index_cache , PageCache* page_cache) 
+  : index_cache_(index_cache), page_cache_(page_cache){
   // init table name and table id map
   if (bench_name == "smallbank") {
     table_name_map[0] = "smallbank_savings";
@@ -28,7 +29,6 @@ MetaManager::MetaManager(std::string bench_name, IndexCache* index_cache, PageCa
     
     table_meta_map[0] = meta;
     table_meta_map[1] = meta;
-    
   } else if (bench_name == "tpcc") {
     table_name_map[0] = "TPCC_warehouse";
     table_name_map[1] = "TPCC_district";
@@ -42,8 +42,6 @@ MetaManager::MetaManager(std::string bench_name, IndexCache* index_cache, PageCa
     table_name_map[9] = "TPCC_customerindex";
     table_name_map[10] = "TPCC_orderindex";
 
-
-    
     TableMeta meta;
     meta.record_size_ = sizeof(DataItem);
     meta.num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (meta.record_size_ + sizeof(itemkey_t)) * BITMAP_WIDTH);
@@ -115,9 +113,11 @@ MetaManager::MetaManager(std::string bench_name, IndexCache* index_cache, PageCa
 
   // prefetch index
   for (auto& table : table_name_map) {
+    // table.first ：table_id
     PrefetchIndex(table.first);
   }
 
+  // key 都保存在 index_cache_ 里面了，那么就可以直接在主节点中读取 index_cache_，然后写入 B+ 树了
   for(auto &item : index_cache_->getRidsMap()) {
       table_id_t item_table_id = item.first;
       for(auto it : item.second) {
@@ -183,9 +183,15 @@ node_id_t MetaManager::GetRemoteStorageMeta(std::string& remote_ip, int remote_p
   snooper += table_num * sizeof(int);
   int record_per_page = *((int*)snooper);
   snooper += sizeof(int);
+  
   for(int i = 0; i < table_num; i++) {
       max_page_num_per_tables.emplace_back(max_page_num_per_table[i]);
   }
+  // ljTag：加两个表来存 B+ 树
+  for (int i = table_num ; i < table_num * 2 ; i++){
+    max_page_num_per_tables.emplace_back(max_page_num_per_table[i - table_num]);
+  }
+  
   assert(*(uint64_t*)snooper == MEM_STORE_META_END);
   free(recv_buf);
   return remote_machine_id;

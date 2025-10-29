@@ -122,7 +122,9 @@ class DTX {
   timestamp_t GetTimestampRemote();
 
   inline Rid GetRidFromIndexCache(table_id_t table_id, itemkey_t key) { return index_cache->Search(table_id, key); }
-  inline Rid GetRidFromBTree(table_id_t table_id , itemkey_t key);
+  inline Rid GetRidFromBTree(table_id_t table_id , itemkey_t key){
+    return compute_server->get_rid_from_bptree(table_id , key);
+  }
 
   char* FetchSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id);
 

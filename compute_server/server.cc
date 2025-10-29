@@ -107,8 +107,6 @@ void ComputeNodeServiceImpl::NotifyPushPage(::google::protobuf::RpcController* c
     assert(dest_node_id_size != 0);
     // std::cout << "Server Receive Push Page command, table_id = " << table_id << " page_id = " << page_id <<  " dest node : " << request->dest_node_ids(0) << "\n";
 
-    assert(server->get_node()->getBufferPoolByIndex(table_id)->getPendingCounts(page_id) == 0);
-    assert(server->get_node()->getBufferPoolByIndex(table_id)->getShouldReleaseBuffer(page_id) == false);
     // assert(server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->getIsNamedToPush() == false);
     // 能走到这里的，一定是已经被指定 PushPage 了
 
@@ -342,7 +340,7 @@ void ComputeServer::PushPageToOther(table_id_t table_id , page_id_t page_id , no
         brpc::NewCallback(PushPageRPCDone, push_response, push_cntl, table_id, page_id, this));
 }
 
-void ComputeServer::UpdatePageFromRemoteCompute(Page* page, table_id_t table_id, page_id_t page_id, node_id_t node_id){
+std::string ComputeServer::UpdatePageFromRemoteCompute(table_id_t table_id, page_id_t page_id, node_id_t node_id){
     // LOG(INFO) << "need to update page from node " << node_id << " table id = " << table_id << " page_id = " << page_id ;
     // 从远程取数据页
     struct timespec start_time, end_time;
@@ -362,13 +360,17 @@ void ComputeServer::UpdatePageFromRemoteCompute(Page* page, table_id_t table_id,
     if(cntl.Failed()){
         LOG(ERROR) << "Fail to fetch page " << page_id << " from remote compute node";
     }
+    std::string ret;
     // 如果对方提前把数据页给丢掉了，那你就自己去存储拿
     if (response->need_to_storage()){
-        std::string data = rpc_fetch_page_from_storage(table_id , page_id);
-        memcpy(page->get_data() , data.c_str() , PAGE_SIZE);
+        // LOG(INFO) << "Fetch From Storage , table_id = " << table_id << " page_id = " << page_id << " Remote node_id = " << node_id;
+        ret = rpc_fetch_page_from_storage(table_id , page_id);
+        // memcpy(page->get_data() , data.c_str() , PAGE_SIZE);
     }else {
+        // LOG(INFO) << "Fetch From Remote , table_id = " << table_id << " page_id = " << page_id << " Remote node_id = " << node_id;
         assert(response->page_data().size() == PAGE_SIZE);
-        memcpy(page->get_data(), response->page_data().c_str(), response->page_data().size());
+        ret = response->page_data();
+        // memcpy(page->get_data(), response->page_data().c_str(), response->page_data().size());
     }
 
     {
@@ -390,15 +392,20 @@ void ComputeServer::UpdatePageFromRemoteCompute(Page* page, table_id_t table_id,
     update_m.lock();
     this->tx_update_time += (end_time.tv_sec - start_time.tv_sec) + (double)(end_time.tv_nsec - start_time.tv_nsec) / 1000000000;
     update_m.unlock();
+
+    return ret;
 }
 
 void ComputeServer::InitTableNameMeta(){
     if(WORKLOAD_MODE == 0){
-        table_name_meta.resize(2);
+        table_name_meta.resize(4);
         table_name_meta[0] = "../storage_server/smallbank_savings";
         table_name_meta[1] = "../storage_server/smallbank_checking";
+        table_name_meta[2] = "../storage_server/smallbank_savings_bp";
+        table_name_meta[3] = "../storage_server/smallbank_checking_bp";
     }
     else if(WORKLOAD_MODE == 1){
+        // TODO
         table_name_meta.resize(11);
         table_name_meta[0] = "../storage_server/TPCC_warehouse";
         table_name_meta[1] = "../storage_server/TPCC_district";
@@ -422,6 +429,7 @@ std::string ComputeServer::rpc_fetch_page_from_storage(table_id_t table_id, page
     auto page_id_pb = request.add_page_id();
     page_id_pb->set_page_no(page_id);
     page_id_pb->set_table_name(table_name_meta[table_id]);
+    // std::cout << "Fetch Page From Storage , table_id = " << table_id << " table_name = " << table_name_meta[table_id] << "\n";
     brpc::Controller cntl;
     storage_stub.GetPage(&cntl, &request, &response, NULL);
     if(cntl.Failed()){

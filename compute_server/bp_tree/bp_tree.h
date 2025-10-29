@@ -1,11 +1,13 @@
 #pragma once
 
 #include "bp_tree_defs.h"
-#include "compute_server/server.h"
 #include "record/rm_manager.h"
 
 #include "memory"
 #include "assert.h"
+#include "algorithm"
+
+class ComputeServer;
 
 inline int ix_compare(const itemkey_t *key1 , const itemkey_t *key2){
     return (*key1 > *key2) ? 1 : (*key1 == *key2) ? 0 : -1;
@@ -16,23 +18,26 @@ public:
     typedef std::shared_ptr<BPTreeNodeHandle> ptr;
 
     BPTreeNodeHandle(Page *page_) : page(page_){
+        key_size = sizeof(itemkey_t);
+        order = static_cast<int>((PAGE_SIZE - sizeof(BPNodeHdr)) / (key_size + sizeof(Rid)) - 1);
+
         node_hdr = reinterpret_cast<BPNodeHdr*>(page->get_data());
         keys = reinterpret_cast<itemkey_t*>(page->get_data() + sizeof(BPNodeHdr));
-        rids = reinterpret_cast<Rid*>(page->get_data() + node_hdr->num_key * sizeof(itemkey_t));
+        // 用字节偏移计算 rids 的起始位置，避免指针加法按元素数放大
+        rids = reinterpret_cast<Rid*>(page->get_data() + sizeof(BPNodeHdr) + (order + 1) * key_size);
 
-        key_size = sizeof(itemkey_t);
-        order = 
+
     }
 
     bool isPageSafe(BPOperation opera){
         switch(opera){
-            case BPOperation::SEARCH:
+            case BPOperation::SEARCH_OPERA:
                 return true;
-            case BPOperation::INSERT:
+            case BPOperation::INSERT_OPERA:
                 return get_size() < get_max_size() - 1;
-            case BPOperation::DELETE:
+            case BPOperation::DELETE_OPERA:
                 return get_size() > get_min_size();
-            case BPOperation::UPDATE:
+            case BPOperation::UPDATE_OPERA:
                 assert(false);  //不应该走到这里
             default:
                 assert(false);
@@ -81,6 +86,9 @@ public:
 
     page_id_t value_at(int index){
         return get_rid(index)->page_no_;
+    }
+    Page *get_page() const {
+        return page;
     }
 
     int get_key_size() const {
@@ -136,7 +144,6 @@ public:
     void erase_pair(int pos);
     int remove(const itemkey_t* key);
 
-    page_id_t remove_and_return_only_child();   // 当节点内只有一个元素的时候，删掉它并返回孩子的 page_id
     int find_child(page_id_t child_page_id);    // 找到 child_page_id 在节点内的位置
 
 private:
@@ -160,12 +167,7 @@ private:
                     /    \
                    /      \
                 20 25     30 31
-        现在的 B+ 树的组织形式大概是这样：非叶节点中存储的，不一定是它的孩子的最小 key，这个 key 的更新留到分裂或者合并的时候完成
-            0          20            40           60
-         0 10 15  ｜ 0 25 35   ｜  0 45 56    ｜  0 61 63
-      2 3 ｜ 11 12｜。。。。
-     
-               
+        修改了之后，每个非叶子节点存储的的第一个 key 是负无穷，其后的每一个 key 存储的都是它的子树的最小 key(也就是它的子树的最左下角的那个 key)
 */
 class BPTreeIndexHandle : public std::enable_shared_from_this<BPTreeIndexHandle> {
 public:
@@ -173,75 +175,70 @@ public:
 
     BPTreeIndexHandle(){
         server = nullptr;
+        file_hdr = new BPFileHdr(BP_INIT_ROOT_PAGE_ID , BP_INIT_ROOT_PAGE_ID , BP_INIT_ROOT_PAGE_ID);
     }
 
     // 计算节点侧用的
     BPTreeIndexHandle(ComputeServer *s , table_id_t table_id_) 
         : server(s) {
         table_id = table_id_;
+        file_hdr = new BPFileHdr(BP_INIT_ROOT_PAGE_ID , BP_INIT_ROOT_PAGE_ID , BP_INIT_ROOT_PAGE_ID);
     }
 
-    BPTreeNodeHandle *fetch_node(page_id_t page_id , BPOperation opera){
-        BPTreeNodeHandle *ret = nullptr;
-        if (opera == BPOperation::SEARCH){
-            Page *page = server->rpc_lazy_fetch_s_page(table_id , page_id);
-            ret = new BPTreeNodeHandle(page);
-        }else{
-            Page *page = server->rpc_lazy_fetch_x_page(table_id , page_id);
-            ret = new BPTreeNodeHandle(page);
-        }
-        return ret;
-    }
+    BPTreeNodeHandle *fetch_node(page_id_t page_id , BPOperation opera);
+    void release_node(page_id_t page_id , BPOperation opera);
 
-    void release_node(page_id_t page_id , BPOperation opera){
-        if (opera == BPOperation::SEARCH){
-            server->rpc_lazy_release_s_page(table_id , page_id);
-        }else {
-            server->rpc_lazy_release_x_page(table_id , page_id);
-        }
-    }
-
-    void write_to_file_hdr(){
-        Page *page = server->rpc_lazy_fetch_x_page(table_id , BP_HEAD_PAGE_ID);
-        file_hdr->serialize(page->get_data());
-        server->rpc_lazy_release_x_page(table_id , page_id);
-    }
-    void s_get_file_hdr(){
-        Page *page = server->rpc_lazy_fetch_s_page(table_id , BP_HEAD_PAGE_ID);
-        file_hdr->deserialize(page->get_data());
-    }
-    void x_get_file_hdr(){
-        Page *page = server->rpc_lazy_fetch_x_page(table_id , BP_HEAD_PAGE_ID);
-        file_hdr->deserialize(page->get_data());
-    }
-    void s_release_file_hdr(){
-        server->rpc_lazy_release_s_page(table_id , BP_HEAD_PAGE_ID);
-    }
-    void x_release_file_hdr(){
-        server->rpc_lazy_release_x_page(table_id , BP_HEAD_PAGE_ID);
-    }
+    void write_to_file_hdr();
+    
+    // 获取到头文件页
+    void s_get_file_hdr();
+    void x_get_file_hdr();
+    void s_release_file_hdr();
+    void x_release_file_hdr();
 
 
-    page_id_t create_node(){
-        return server->rpc_create_page(table_id);
-    }
-    void destroy_node(page_id_t page_id){
-        server->rpc_delete_node(table_id , page_id);
-    }
+    page_id_t create_node();
+    void destroy_node(page_id_t page_id);
 
-    // 对于内部节点来说，如果需要把第一个 key 借给别人的话，就应该去拿到它本来的值
-    itemkey_t *get_first_key(BPTreeNodeHandle *node , std::list<BPTreeNodeHandle*> &hold_lock_nodes){
+    // 获得 node 对应子树上，最小的值(最左边叶子节点的最左边 key)
+    itemkey_t get_subtree_min_key(BPTreeNodeHandle *node , std::list<BPTreeNodeHandle*> &hold_lock_nodes){
         assert(!node->is_leaf());
-        page_id_t first_child_id = node->value_at(0);
-        BPTreeNodeHandle *first_child = fetch_node_from_list(hold_lock_nodes , first_child_id);
-        if (first_child != nullptr){
-            return first_child->get_key(0);
+        // 走到这个函数内的，node 一定在 hold_lock_nodes 中
+        assert(fetch_node_from_list(hold_lock_nodes , node->get_page_no()) != nullptr);
+
+        page_id_t parent_page_id = node->get_page_no();
+        bool parent_from_list = true;
+
+        page_id_t child_id = node->value_at(0);
+        BPTreeNodeHandle *child = nullptr;
+        bool child_from_list = false;
+
+        int cnt = 0;
+        while (true){
+            // B+ 树阶数为 250 多，基本到不了 100 层，这里是为了防止死循环的
+            if (cnt++ == 100){
+                assert(false);
+            }
+            child = fetch_node_from_list(hold_lock_nodes , child_id);
+            child_from_list = (child != nullptr);
+            if (!child_from_list){
+                child = fetch_node(child_id , BPOperation::SEARCH_OPERA);
+            }
+            if (!parent_from_list){
+                release_node(parent_page_id , BPOperation::SEARCH_OPERA);
+            }
+            if (child->is_leaf()){
+                break;
+            }
+            parent_page_id = child->get_page_no();
+            parent_from_list = child_from_list;
+            child_id = child->value_at(0);
         }
 
-        first_child = fetch_node(first_child_id , BPOperation::SEARCH);
-        itemkey_t *ret = first_child->get_key(0);
-        release_node(first_child_id , BPOperation::SEARCH);
-
+        itemkey_t ret = *child->get_key(0);
+        if (!child_from_list){
+            release_node(child->get_page_no() , BPOperation::SEARCH_OPERA);
+        }
         return ret;
     }
 
@@ -256,7 +253,7 @@ public:
 
         return nullptr;
     }
-    void release_node_from_list(std::vector<BPTreeNodeHandle*> &hold_lock_nodes , page_id_t target) {
+    void release_node_from_list(std::list<BPTreeNodeHandle*> &hold_lock_nodes , page_id_t target) {
         auto it = std::find_if(hold_lock_nodes.begin() , hold_lock_nodes.end() , 
             [target](BPTreeNodeHandle *node){
             return node->get_page_no() == target;
@@ -269,8 +266,9 @@ public:
     }
 
     std::pair<BPTreeNodeHandle* , bool> find_leaf_page(const itemkey_t * key , BPOperation opera , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
+    void find_leaf_page_with_print(const itemkey_t *key);
     BPTreeNodeHandle *split(BPTreeNodeHandle *node , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
-    void maintain_child(BPTreeNodeHandle::ptr node, int child_idx , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
+    void maintain_child(BPTreeNodeHandle* node, int child_idx , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
     void maintain_parent(BPTreeNodeHandle *node);
     void insert_into_parent(BPTreeNodeHandle *old_node , const itemkey_t *key ,
                             BPTreeNodeHandle *new_node , std::list<BPTreeNodeHandle*> &hold_lock_nodes);

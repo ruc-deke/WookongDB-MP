@@ -30,13 +30,18 @@ set(DTX_SRC
         dtx/dtx.cc
         dtx/dtx_exe.cc
         dtx/dtx_log.cc)
+set(INDEX_SRC
+        index/index_manager.cc
+)
 
 add_library(core STATIC
         ${BufferPool_SRC}
         ${PageTable_SRC}
         ${ComputeNode_SRC}
         ${CONNECTION_SRC}
-        ${DTX_SRC})
+        ${DTX_SRC}
+        ${INDEX_SRC}
+)
 
 target_link_libraries(core boost_coroutine boost_context boost_system)
 
@@ -45,7 +50,9 @@ set(Storage_SRC
         storage/log_manager.cc
         storage/logreplay.cc
         storage/storage_rpc.cc
-        storage/storage_service.pb.cc)
+        storage/storage_service.pb.cc
+        storage/bp_tree/bp_tree.cc        
+)
 
 add_library(storage STATIC
         ${Storage_SRC})
@@ -57,7 +64,9 @@ set(Record_SRC
 
 set(StorageBuffer_SRC
         storage/buffer/storage_bufferpool.cc
-        storage/buffer/replacer/lru_replacer.cc)
+        storage/buffer/replacer/lru_replacer.cc
+        storage/bp_tree/bp_tree.cc
+        )
 
 add_library(load_table STATIC
         ${Record_SRC}

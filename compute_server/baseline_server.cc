@@ -37,7 +37,7 @@ Page* ComputeServer::rpc_fetch_s_page(table_id_t table_id, page_id_t page_id) {
         // 如果valid是false, 则需要去远程取这个数据页
         if(valid_node != -1){
             assert(valid_node != node_->node_id);
-            UpdatePageFromRemoteCompute(page, table_id, page_id, valid_node);
+            // UpdatePageFromRemoteCompute(page, table_id, page_id, valid_node);
         }
         node_->eager_local_page_lock_tables[table_id]->GetLock(page_id)->LockRemoteOK();
         delete response;
@@ -83,7 +83,7 @@ Page* ComputeServer::rpc_fetch_x_page(table_id_t table_id, page_id_t page_id) {
         if(valid_node != -1){
             assert(valid_node != node_->node_id);
            //  std::cout<< "node: " << valid_node <<"have the newest node table_id: "<< table_id<<" page_id: " << page_id <<std::endl;
-            UpdatePageFromRemoteCompute(page,table_id, page_id, valid_node);
+            // UpdatePageFromRemoteCompute(page,table_id, page_id, valid_node);
         }
         node_->eager_local_page_lock_tables[table_id]->GetLock(page_id)->LockRemoteOK();
         delete response;

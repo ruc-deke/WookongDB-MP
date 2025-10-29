@@ -27,6 +27,8 @@ bool DTX::TxExe(coro_yield_t& yield, bool fail_abort) {
     if (!item.is_fetched) { 
       // Get data index
       Rid rid = GetRidFromIndexCache(item.item_ptr->table_id, item.item_ptr->key);
+      Rid bp_rid = GetRidFromBTree(item.item_ptr->table_id , item.item_ptr->key);
+      assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
       if(rid.page_no_ == -1) {
         // Data not found
         read_only_set.erase(read_only_set.begin() + i);
@@ -43,6 +45,8 @@ bool DTX::TxExe(coro_yield_t& yield, bool fail_abort) {
     if (!item.is_fetched) {
       // Get data index
       Rid rid = GetRidFromIndexCache(item.item_ptr->table_id, item.item_ptr->key);
+      Rid bp_rid = GetRidFromBTree(item.item_ptr->table_id , item.item_ptr->key);
+      assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
       if(rid.page_no_ == -1) {
         // Data not found
         read_write_set.erase(read_write_set.begin() + i);
@@ -208,6 +212,8 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
     DataSetItem& data_item = read_write_set[i];
     assert(data_item.is_fetched);
     Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
+    Rid bp_rid = GetRidFromBTree(data_item.item_ptr->table_id , data_item.item_ptr->key);
+    assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
     assert(rid.page_no_ >= 0);
 
     struct timespec start_time1, end_time1;
@@ -244,6 +250,8 @@ void DTX::TxAbort(coro_yield_t& yield) {
       if(data_item.is_fetched){ 
         // this data item is fetched and locked
         Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
+        Rid bp_rid = GetRidFromBTree(data_item.item_ptr->table_id , data_item.item_ptr->key);
+        assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
         struct timespec start_time1, end_time1;
         clock_gettime(CLOCK_REALTIME, &start_time1);
         auto page = FetchXPage(yield, data_item.item_ptr->table_id, rid.page_no_);
@@ -358,6 +366,8 @@ void DTX::Tx2PCCommitLocal(coro_yield_t &yield){
     if(data_item.is_fetched){ 
       // this data item is fetched and locked
       Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
+      Rid bp_rid = GetRidFromBTree(data_item.item_ptr->table_id , data_item.item_ptr->key);
+      assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
       node_id_t node_id = compute_server->get_node_id_by_page_id(data_item.item_ptr->table_id, rid.page_no_);
       assert(node_id == compute_server->get_node()->getNodeID());
 
@@ -385,6 +395,8 @@ void DTX::Tx2PCCommitAll(coro_yield_t &yield){
     if(data_item.is_fetched){ 
       // this data item is fetched and locked
       Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
+      Rid bp_rid = GetRidFromBTree(data_item.item_ptr->table_id , data_item.item_ptr->key);
+      assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
       node_id_t node_id = compute_server->get_node_id_by_page_id(data_item.item_ptr->table_id, rid.page_no_);
       if(node_data_map.find(node_id) == node_data_map.end()){
         node_data_map[node_id] = std::vector<std::pair<std::pair<table_id_t, Rid>, char*>>();
@@ -419,6 +431,8 @@ void DTX::Tx2PCAbortLocal(coro_yield_t &yield){
     if(data_item.is_fetched){ 
       // this data item is fetched and locked
       Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
+      Rid bp_rid = GetRidFromBTree(data_item.item_ptr->table_id , data_item.item_ptr->key);
+      assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
       node_id_t node_id = compute_server->get_node_id_by_page_id(data_item.item_ptr->table_id, rid.page_no_);
       assert(node_id == compute_server->get_node()->getNodeID()); 
 
@@ -445,6 +459,8 @@ void DTX::Tx2PCAbortAll(coro_yield_t &yield){
     if(data_item.is_fetched){ 
       // this data item is fetched and locked
       Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
+      Rid bp_rid = GetRidFromBTree(data_item.item_ptr->table_id , data_item.item_ptr->key);
+      assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
       node_id_t node_id = compute_server->get_node_id_by_page_id(data_item.item_ptr->table_id, rid.page_no_);
       // LOG(INFO) <<  "Remote release data item " << data_item.item_ptr->table_id << " " << rid.page_no_ << " " << rid.slot_no_;
       // remote page

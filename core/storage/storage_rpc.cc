@@ -1,5 +1,9 @@
 #include "storage_rpc.h"
 #include "config.h"
+#include "record/record.h"
+#include "common.h"
+
+#include "compute_server/bp_tree/bp_tree_defs.h"
 
 namespace storage_service{
 
@@ -116,18 +120,25 @@ namespace storage_service{
         brpc::ClosureGuard done_guard(done);
 
         std::unordered_map<std::string, int> table_fd_map;
+        // 新增：记录每个文件的总页数
         std::string return_data;
         for(int i=0; i<request->page_id().size(); i++){
             std::string table_name = request->page_id()[i].table_name();
-            
             int fd;
             if(table_fd_map.find(table_name) == table_fd_map.end()){
                 fd = disk_manager_->open_file(table_name);
                 table_fd_map[table_name] = fd;
-            }
-            else{
+            } else {
                 fd = table_fd_map[table_name];
             }
+        
+            // char abs_path[PATH_MAX];
+            // if (realpath(table_name.c_str() , abs_path) != nullptr){
+            //     std::cout << "Absolute path: " << abs_path << "\n";
+            // }else {
+            //     assert(false);
+            // }
+        
             page_id_t page_no = request->page_id()[i].page_no();
             // std::cout << "Getting Page " << "table_name = " << table_name << " page_id = " << page_no << "\n";
             PageId page_id(fd, page_no);
@@ -137,13 +148,6 @@ namespace storage_service{
             // RDMA_// LOG(INFO) << "handle GetPage request";
             // RDMA_// LOG(INFO) << "request_batch_id: " << request_batch_id << ", persist_batch_id: " << log_replay->get_persist_batch_id();
             char data[PAGE_SIZE];
-            // TODO, 这里逻辑要重新梳理一下
-            // while(log_replay->get_persist_batch_id()+1 < request_batch_id) {
-            //     // wait
-            //     RDMA_// LOG(INFO) << "the batch_id requirement is not satisfied...." << "  persist id: "<<
-            //         log_replay->get_persist_batch_id() << "  request id: " << request_batch_id;
-            //     usleep(10);
-            // }
 
             log_replay->latch3_.lock();
             log_replay->pageid_batch_count_[page_id].first.lock();
@@ -155,13 +159,16 @@ namespace storage_service{
             }
             log_replay->pageid_batch_count_[page_id].first.unlock();
             log_replay->latch3_.unlock();
-
+            // std::cout << "read page " << page_no << " from disk\n";
             disk_manager_->read_page(fd, page_no, data, PAGE_SIZE);
-            // std::cout << "Got Here\n\n";
+
+            BPFileHdr *file_hdr = new BPFileHdr(0 , 0 , 0);
+            file_hdr->deserialize(data);
+            
             return_data.append(std::string(data, PAGE_SIZE));
-            // std::cout << return_data << "\n";
         }
 
+        // std::cout << "return data : " << return_data << "\n";
         response->set_data(return_data);
         for(auto it = table_fd_map.begin(); it != table_fd_map.end(); it++){
             disk_manager_->close_file(it->second);
@@ -233,27 +240,124 @@ namespace storage_service{
         return;
     };
 
-    // void StoragePoolImpl::CreatePage(::google::protobuf::RpcController* controller , 
-    //                     const ::storage_service::CreatePageRequest *request ,
-    //                     ::storage_service::CreatePageResponse *response , 
-    //                     ::google::protobuf::Closure *done){
-    //     brpc::ClosureGuard done_guard(done);
+    // table_id 到 B+ 树名字的映射
+    static std::string TableIdToPrimaryPath(table_id_t table_id) {
+        if (WORKLOAD_MODE == 0) {
+            if (table_id == 2) return "smallbank_savings_bp";
+            if (table_id == 3) return "smallbank_checking_bp";
+            LOG(ERROR) << "Invalid smallbank table_id=" << table_id;
+            assert(false);
+        } else if (WORKLOAD_MODE == 1) {
+            // TODO
+        } else {
+            LOG(ERROR) << "Unsupported WORKLOAD_MODE=" << WORKLOAD_MODE;
+            assert(false);
+        }
+        return "";
+    }
 
-    //     table_id_t table_id = request->table_id();
+
+    static std::mutex g_create_page_map_mu;
+    static std::unordered_map<table_id_t, std::unique_ptr<std::mutex>> g_create_page_mu;
+    // TODO：目前创建 Page 是搭积木式的，递增地往前加东西，由于没有垃圾回收策略，所以就算前面有空闲页面，也不管它
+    void StoragePoolImpl::CreatePage(::google::protobuf::RpcController* controller , 
+                        const ::storage_service::CreatePageRequest *request ,
+                        ::storage_service::CreatePageResponse *response , 
+                        ::google::protobuf::Closure *done){
+        brpc::ClosureGuard done_guard(done);
+
+        table_id_t table_id = request->table_id();
+        std::string table_path = TableIdToPrimaryPath(table_id);
+
+        // 需要加锁，否则可能返回两个相同的 page_id
+        {
+            std::lock_guard<std::mutex> lk(g_create_page_map_mu);
+            auto &mu_ptr = g_create_page_mu[table_id];
+            if (!mu_ptr) mu_ptr = std::make_unique<std::mutex>();
+        }
+        std::lock_guard<std::mutex> per_table_guard(*g_create_page_mu[table_id]);
+
+        int fd = disk_manager_->open_file(table_path);
+
+        // 判断是否为 B+ 索引文件
+        bool is_bp_index = (table_path.find("_bp") != std::string::npos);
+
+        // 创建索引页
+        if (is_bp_index) {
+            off_t end_off = lseek(fd, 0, SEEK_END);
+            int current_pages = static_cast<int>(end_off / PAGE_SIZE);
+            disk_manager_->set_fd2pageno(fd, current_pages);
+        } else {
+            // TODO：创建文件页
+        }
+
+        // 分配新页
+        page_id_t new_page_no = disk_manager_->allocate_page(fd);
+
+        // 初始化整页为 0
+        char zero_page[PAGE_SIZE];
+        memset(zero_page, 0, PAGE_SIZE);
+        disk_manager_->write_page(fd, new_page_no, zero_page, PAGE_SIZE);
+
+        // 页头：next_free_page_no_ = RM_NO_PAGE（索引页的 BPNodeHdr 也有该字段，写 0 号偏移无副作用）
+        int next_free = RM_NO_PAGE;
+        disk_manager_->update_value(fd, new_page_no, OFFSET_NEXT_FREE_PAGE_NO, reinterpret_cast<char*>(&next_free), sizeof(int));
+
+        // 仅 RM 表更新 RM 头；索引文件不要写第 0 页的 RM 头字段以免破坏 BPFileHdr
+        if (!is_bp_index) {
+            int new_num_pages = static_cast<int>(new_page_no) + 1;
+            disk_manager_->update_value(fd, PAGE_NO_RM_FILE_HDR, OFFSET_NUM_PAGES, reinterpret_cast<char*>(&new_num_pages), sizeof(int));
+            int first_free_page_no = static_cast<int>(new_page_no);
+            disk_manager_->update_value(fd, PAGE_NO_RM_FILE_HDR, OFFSET_FIRST_FREE_PAGE_NO, reinterpret_cast<char*>(&first_free_page_no), sizeof(int));
+        }
+
+        std::cout << "Create a new page , page_no = " << new_page_no << "\n";
+
+        disk_manager_->close_file(fd);
+
+        response->set_page_no(new_page_no);
+        response->set_success(true);
+        return;
+    }
+
+    void StoragePoolImpl::DeletePage(::google::protobuf::RpcController *controller , 
+                const ::storage_service::DeletePageRequest *request ,
+                ::storage_service::DeletePageResponse *response ,
+                ::google::protobuf::Closure *done){
+        brpc::ClosureGuard done_guard(done);
+
+        table_id_t table_id = request->table_id();
+        page_id_t page_no = request->page_no();
+        std::string table_path = TableIdToPrimaryPath(table_id);
+
+        std::cout << "Delete Page , page_no = " << page_no << "\n"; 
+
+        int fd = disk_manager_->open_file(table_path);
+
+        // 判断是否为 B+ 索引文件
+        bool is_bp_index = (table_path.find("_bp") != std::string::npos);
+
+        // 将整页清零
+        char zero_page[PAGE_SIZE];
+        memset(zero_page, 0, PAGE_SIZE);
+        disk_manager_->write_page(fd, page_no, zero_page, PAGE_SIZE);
+
+        if (!is_bp_index) {
+            // RM 文件：维护页头和文件头的空闲链表
+            int next_free = RM_NO_PAGE;
+            disk_manager_->update_value(fd, page_no, OFFSET_NEXT_FREE_PAGE_NO, reinterpret_cast<char*>(&next_free), sizeof(int));
         
-    // }
-
-    // void DeletePage(::google::protobuf::RpcController *controller , 
-    //             const ::storage_service::DeletePageRequest *request ,
-    //             ::storage_service::DeletePageResponse *response ,
-    //             ::google::protobuf::Closure *done){
-    //     brpc::ClosureGuard done_guard(done);
-
-    //     table_id_t table_id = request->table_id();
-    //     page_id_t page_id = request->page_no();
-
+            RmFileHdr file_hdr{};
+            disk_manager_->read_page(fd, PAGE_NO_RM_FILE_HDR, reinterpret_cast<char*>(&file_hdr), sizeof(file_hdr));
         
+            int new_first_free = static_cast<int>(page_no);
+            disk_manager_->update_value(fd, PAGE_NO_RM_FILE_HDR, OFFSET_FIRST_FREE_PAGE_NO, reinterpret_cast<char*>(&new_first_free), sizeof(int));
+        }
 
-    // }
+        disk_manager_->close_file(fd);
+
+        response->set_successs(true);
+        return;
+    }
 
 }
