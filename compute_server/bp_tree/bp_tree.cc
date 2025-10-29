@@ -638,9 +638,9 @@ bool BPTreeIndexHandle::search(const itemkey_t *key , std::vector<Rid> *results)
     } 
 
     // DEBUG
-    if (!exist){
-        find_leaf_page_with_print(key);
-    }
+    // if (!exist){
+    //     find_leaf_page_with_print(key);
+    // }
 
     if (exist){
         results->emplace_back(got);

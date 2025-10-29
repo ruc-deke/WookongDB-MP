@@ -127,7 +127,7 @@ class SmallBank {
         index_manager = new IndexManager(rm_manager->get_diskmanager());
         // 2颗 B+ 树
         for (int i = 0 ; i < 2 ; i++){
-            bp_tree_indexes.emplace_back(new S_BPTreeIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 2));
+            bp_tree_indexes.emplace_back(new S_BPTreeIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 2 , "smallbank"));
         }
     }
     bench_name = "smallbank";

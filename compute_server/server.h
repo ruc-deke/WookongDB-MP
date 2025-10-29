@@ -177,7 +177,8 @@ public:
             // 初始化全局的bufferpool和page_lock_table
             global_page_lock_table_list_ = new std::vector<GlobalLockTable*>();
             global_valid_table_list_ = new std::vector<GlobalValidTable*>();
-            for(int i=0; i < 15; i++){
+            // TPCC 最多 22 个表，11 张主表 + 11 张 B+ 树表
+            for(int i=0; i < 22; i++){
                 global_page_lock_table_list_->push_back(new GlobalLockTable());
                 global_valid_table_list_->push_back(new GlobalValidTable());
             }
@@ -194,11 +195,21 @@ public:
             }
 
             // 初始化 B+ 树
-            // 只需要一个节点来插入就行，交给 0 号节点来初始化 B+ 树
-            bp_tree_indexes.resize(2);
-            for (int i = 0 ; i < 2 ; i++){
-                bp_tree_indexes[i] = new BPTreeIndexHandle(this , i + 2);
+            if (WORKLOAD_MODE == 0){
+                bp_tree_indexes.resize(2);
+                for (int i = 0 ; i < 2 ; i++){
+                    bp_tree_indexes[i] = new BPTreeIndexHandle(this , i + 2);
+                }
+            }else if (WORKLOAD_MODE == 1){
+                bp_tree_indexes.resize(11);
+                for (int i = 0 ; i < 11 ; i++){
+                    bp_tree_indexes[i] = new BPTreeIndexHandle(this , i + 11);
+                }
+            }else {
+                assert(false);
             }
+            
+
             // if (node_->node_id == 0){
             //     MetaManager *meta_man = node_->meta_manager_;
             //     IndexCache *index_cache = meta_man->get_index_cache();
@@ -327,9 +338,12 @@ public:
     Rid get_rid_from_bptree(table_id_t table_id , itemkey_t key){
         std::vector<Rid> results;
         bool exist = bp_tree_indexes[table_id]->search(&key , &results);
-        assert(exist);
-        assert(!results.empty());
-        return results[0];
+        // assert(exist);
+        // assert(!results.empty());
+        if (exist){
+            return results[0];
+        }
+        return INDEX_NOT_FOUND;
     }
 
     void PushPageToOther(table_id_t table_id , page_id_t page_id , node_id_t dest_node_id);

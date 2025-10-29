@@ -159,9 +159,9 @@ public:
                 }
             }
             else if(SYSTEM_MODE == 1) {
-                lazy_local_page_lock_tables.reserve(11);
-                local_page_lock_tables.reserve(11);
-                for(int i = 0; i < 11; i++){
+                lazy_local_page_lock_tables.reserve(22);
+                local_page_lock_tables.reserve(22);
+                for(int i = 0; i < 22; i++){
                     lazy_local_page_lock_tables.emplace_back(new LRLocalPageLockTable());
                     local_page_lock_tables.emplace_back(nullptr);
                 }
@@ -183,16 +183,18 @@ public:
             std::vector<int> max_page_per_table;
             std::copy(meta_manager->max_page_num_per_tables.begin(), meta_manager->max_page_num_per_tables.end(),
                         std::back_inserter(max_page_per_table));;
-            assert(meta_manager->max_page_num_per_tables.size() == 11);
-            local_buffer_pools.reserve(11);
+            assert(meta_manager->max_page_num_per_tables.size() == 22);
+            local_buffer_pools.reserve(22);
             // 修复：在后续使用下标赋值之前，必须 resize 到目标大小
-            local_buffer_pools.resize(11);
+            local_buffer_pools.resize(22);
             std::vector<std::string> table_name;
-            for(int table_id = 0; table_id < 11;table_id++) {
-            //     // 对于过大的表，每次只获取部分页
+            for(int table_id = 0; table_id < 11 ;table_id++) {
                 size_t pool_sz = has_table_pool_size_cfg ? table_pool_size_cfg : (size_t)(max_page_per_table[table_id] / 5);
-                // pool_sz = max_page_per_table[table_id];
                 local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id]);
+            }
+            for (int table_id = 11 ; table_id < 22 ; table_id++) {
+                size_t pool_sz = index_pool_size_cfg;
+                local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id - 11]);
             }
         }
         // 不知道干啥的，这里先给他设置 10000 吧

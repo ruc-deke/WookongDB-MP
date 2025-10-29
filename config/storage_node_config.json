@@ -5,7 +5,7 @@
     "local_rpc_port": 33001,
     "local_meta_port": 33002,
     "use_rdma": false,
-    "workload": "SmallBank"
+    "workload": "TPCC"
   },
   "remote_compute_nodes": {
     "compute_node_ips": [

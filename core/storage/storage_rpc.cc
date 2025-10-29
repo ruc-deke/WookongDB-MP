@@ -154,16 +154,12 @@ namespace storage_service{
             while (log_replay->pageid_batch_count_[page_id].second > 0) {
                 // wait
                 // LOG(INFO) << "the log replay queue is has another item...." << "  batch item cnt: "<<
-                    log_replay->pageid_batch_count_[page_id].second;
+                    // log_replay->pageid_batch_count_[page_id].second;
                 usleep(10);
             }
             log_replay->pageid_batch_count_[page_id].first.unlock();
             log_replay->latch3_.unlock();
-            // std::cout << "read page " << page_no << " from disk\n";
             disk_manager_->read_page(fd, page_no, data, PAGE_SIZE);
-
-            BPFileHdr *file_hdr = new BPFileHdr(0 , 0 , 0);
-            file_hdr->deserialize(data);
             
             return_data.append(std::string(data, PAGE_SIZE));
         }

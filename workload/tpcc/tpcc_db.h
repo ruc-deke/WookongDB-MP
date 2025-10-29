@@ -15,7 +15,9 @@
 #include "record/rm_manager.h"
 #include "record/rm_file_handle.h"
 #include "cache/index_cache.h"
+#include "index/index_manager.h"
 #include "dtx/dtx.h"
+#include "storage/bp_tree/bp_tree.h"
 
 // YYYY-MM-DD HH:MM:SS This is supposed to be a date/time field from Jan 1st 1900 -
 // Dec 31st 2100 with a resolution of 1 second. See TPC-C 5.11.0.
@@ -476,10 +478,22 @@ public:
     RmManager* rm_manager;
     IndexCache* index_cache;
 
+    IndexManager *index_manager;
+
+    // 存储层用的，只负责插入初始化的那些数据
+    std::vector<S_BPTreeIndexHandle*> bp_tree_indexes;
+
 
 
     // For server and client usage: Provide interfaces to servers for loading tables
     TPCC(RmManager* rm_manager): rm_manager(rm_manager) {
+        if (rm_manager){
+            index_manager = new IndexManager(rm_manager->get_diskmanager());
+            // 11 颗 B+ 树
+            for (int i = 0 ; i < 11 ; i++){
+                bp_tree_indexes.emplace_back(new S_BPTreeIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 11 , "tpcc"));
+            }
+        }
         bench_name = "TPCC";
         index_cache = new IndexCache;
         std::string warehouse_config_filepath = "../../workload/tpcc/tpcc_tables/warehouse.json";

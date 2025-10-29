@@ -406,7 +406,7 @@ void ComputeServer::InitTableNameMeta(){
     }
     else if(WORKLOAD_MODE == 1){
         // TODO
-        table_name_meta.resize(11);
+        table_name_meta.resize(22);
         table_name_meta[0] = "../storage_server/TPCC_warehouse";
         table_name_meta[1] = "../storage_server/TPCC_district";
         table_name_meta[2] = "../storage_server/TPCC_customer";
@@ -418,6 +418,17 @@ void ComputeServer::InitTableNameMeta(){
         table_name_meta[8] = "../storage_server/TPCC_stock";
         table_name_meta[9] = "../storage_server/TPCC_customerindex";
         table_name_meta[10] = "../storage_server/TPCC_orderindex";
+        table_name_meta[11] = "../storage_server/TPCC_warehouse_bp";
+        table_name_meta[12] = "../storage_server/TPCC_district_bp";
+        table_name_meta[13] = "../storage_server/TPCC_customer_bp";
+        table_name_meta[14] = "../storage_server/TPCC_customerhistory_bp";
+        table_name_meta[15] = "../storage_server/TPCC_ordernew_bp";
+        table_name_meta[16] = "../storage_server/TPCC_order_bp";
+        table_name_meta[17] = "../storage_server/TPCC_orderline_bp";
+        table_name_meta[18] = "../storage_server/TPCC_item_bp";
+        table_name_meta[19] = "../storage_server/TPCC_stock_bp";
+        table_name_meta[20] = "../storage_server/TPCC_customerindex_bp";
+        table_name_meta[21] = "../storage_server/TPCC_orderindex_bp";
     }
 }
 

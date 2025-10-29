@@ -115,13 +115,10 @@ class S_BPTreeIndexHandle : public std::enable_shared_from_this<S_BPTreeIndexHan
 public:
     typedef std::shared_ptr<S_BPTreeIndexHandle> ptr;
 
-    S_BPTreeIndexHandle(DiskManager *dm, StorageBufferPoolManager *bpm, table_id_t table_id_)
+    S_BPTreeIndexHandle(DiskManager *dm, StorageBufferPoolManager *bpm, table_id_t table_id_ , std::string bench_name)
         : disk_manager(dm), buffer_pool(bpm), table_id(table_id_) {
-        // 将逻辑 table_id 映射为索引文件路径，并打开得到 fd
-        if (table_id_ == 2) index_path = "smallbank_savings_bp";
-        else if (table_id_ == 3) index_path = "smallbank_checking_bp";
-        else { assert(false); }
 
+        table2name(table_id , bench_name);
         // 如果存在就删除，如果不存在就创建；随后统一创建空文件
         if (disk_manager->is_file(index_path)) {
             disk_manager->destroy_file(index_path);
@@ -180,6 +177,47 @@ public:
         }
 
         disk_manager->set_fd2pageno(fd , BP_INIT_PAGE_NUM);
+    }
+
+    void table2name(table_id_t table_id , std::string bench_name){
+        // 将 table_id 映射为索引名，然后打开   
+        if (bench_name == "smallbank"){
+            if (table_id == 2){
+                index_path = "smallbank_savings_bp";
+            } else if (table_id == 3){
+                index_path = "smallbank_checking_bp";
+            } else { 
+                assert(false); 
+            }
+        }else if (bench_name == "tpcc"){
+            if (table_id == 11){
+                index_path = "TPCC_warehouse_bp";
+            }else if (table_id == 12){
+                index_path = "TPCC_district_bp";
+            }else if (table_id == 13){
+                index_path = "TPCC_customer_bp";
+            }else if (table_id == 14){
+                index_path = "TPCC_customerhistory_bp";
+            }else if (table_id == 15){
+                index_path = "TPCC_ordernew_bp";
+            }else if (table_id == 16){
+                index_path = "TPCC_order_bp";
+            }else if (table_id == 17){
+                index_path = "TPCC_orderline_bp";
+            }else if (table_id == 18){
+                index_path = "TPCC_item_bp";
+            }else if (table_id == 19){
+                index_path = "TPCC_stock_bp";
+            }else if (table_id == 20){
+                index_path = "TPCC_customerindex_bp";
+            }else if (table_id == 21){
+                index_path = "TPCC_orderindex_bp";
+            }else {
+                assert(false);
+            }
+        }else {
+            assert(false);
+        }
     }
 
     ~S_BPTreeIndexHandle() = default;
