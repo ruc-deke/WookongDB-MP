@@ -280,7 +280,7 @@ public:
     
 
     // 三个核心函数，search , insert 和 delete
-    bool search(const itemkey_t *key , std::vector<Rid> *results);
+    bool search(const itemkey_t *key , Rid &result);
     page_id_t insert_entry(const itemkey_t *key , const Rid &value);
     bool delete_entry(const itemkey_t *key);
 

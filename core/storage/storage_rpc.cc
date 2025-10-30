@@ -307,7 +307,7 @@ namespace storage_service{
             disk_manager_->update_value(fd, PAGE_NO_RM_FILE_HDR, OFFSET_FIRST_FREE_PAGE_NO, reinterpret_cast<char*>(&first_free_page_no), sizeof(int));
         }
 
-        std::cout << "Create a new page , page_no = " << new_page_no << "\n";
+        //std::cout << "Create a new page , page_no = " << new_page_no << "\n";
 
         disk_manager_->close_file(fd);
 

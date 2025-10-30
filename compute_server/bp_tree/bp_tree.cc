@@ -87,9 +87,9 @@ int BPTreeNodeHandle::insert(const itemkey_t* key, const Rid& value){
 
     int pos = lower_bound(key);
     // 先假设不能插入一个相同的 key
-    if (pos != get_size()){
-        assert(!isIt(pos , key));
-    }
+    // if (pos != get_size()){
+    //     assert(!isIt(pos , key));
+    // }
 
     insert_pair(pos , key , &value);
     return node_hdr->num_key;
@@ -112,7 +112,10 @@ void BPTreeNodeHandle::erase_pair(int pos){
 int BPTreeNodeHandle::remove(const itemkey_t* key){
     int pos = lower_bound(key);
     // 假设删除的 key 一定存在
-    assert(isIt(pos , key));
+    // assert(isIt(pos , key));
+    if (!isIt(pos , key)){
+        return node_hdr->num_key;
+    }
     erase_pair(pos);
     return node_hdr->num_key;
 }
@@ -201,9 +204,9 @@ void BPTreeIndexHandle::find_leaf_page_with_print(const itemkey_t *key){
 }
 
 std::pair<BPTreeNodeHandle* , bool> BPTreeIndexHandle::find_leaf_page(const itemkey_t * key , BPOperation opera , std::list<BPTreeNodeHandle*> &hold_lock_nodes){
-    // 根节点是否还在锁
     bool root_is_locked = true;
-    // 先把根给锁了，这里的锁不是给根节点用的，而是给 file_hdr 用的，因为可能去改 root，就可能去改 file_hdr 的 root_page_id
+    // 这里的锁不是给根节点用的，而是给 file_hdr 用的
+    // 考虑一个场景，如果没有这个锁，某个线程阻塞在了获取根节点上，但是其它线程修改了根节点位置
     root_mtx.lock();
     // 先获取到头文件页
     s_get_file_hdr();
@@ -616,7 +619,7 @@ void BPTreeIndexHandle::maintain_parent(BPTreeNodeHandle *node){
 
 
 std::atomic<int> cnt1{0};
-bool BPTreeIndexHandle::search(const itemkey_t *key , std::vector<Rid> *results){
+bool BPTreeIndexHandle::search(const itemkey_t *key , Rid &result){
     std::list<BPTreeNodeHandle*> hold_lock_nodes;
 
     auto res = find_leaf_page(key , BPOperation::SEARCH_OPERA , hold_lock_nodes);
@@ -625,9 +628,8 @@ bool BPTreeIndexHandle::search(const itemkey_t *key , std::vector<Rid> *results)
     bool exist = res.first->leaf_lookup(key , &rid);
 
     // 在释放页锁之前先把结果复制出来，避免 lazy release 使页面内存失效
-    Rid got{};
     if (exist) {
-        got = *rid;
+        result = *rid;
     }
     
     // 对于查找操作，最后锁住的一定只有一个叶子节点
@@ -636,15 +638,7 @@ bool BPTreeIndexHandle::search(const itemkey_t *key , std::vector<Rid> *results)
         release_node(hold_lock_nodes.front()->get_page_no() , BPOperation::SEARCH_OPERA);
         hold_lock_nodes.pop_front();
     } 
-
-    // DEBUG
-    // if (!exist){
-    //     find_leaf_page_with_print(key);
-    // }
-
-    if (exist){
-        results->emplace_back(got);
-    }
+    
     return exist;
 }
 
@@ -658,7 +652,9 @@ page_id_t BPTreeIndexHandle::insert_entry(const itemkey_t *key , const Rid &valu
 
     int old_size = leaf->get_size();
     int new_size = leaf->insert(key , value);
-    assert(old_size != new_size);    // 不允许插入相同 key
+    if (old_size == new_size){
+        return INVALID_PAGE_ID;
+    }
 
     int insert_idx = leaf->lower_bound(key);
     assert(*leaf->get_key(insert_idx) == *key);
@@ -703,7 +699,9 @@ bool BPTreeIndexHandle::delete_entry(const itemkey_t *key){
     int delete_pos = leaf->lower_bound(key);
     int old_size = leaf->get_size();
     int new_size = leaf->remove(key);
-    assert(new_size != old_size);   // 不允许删除一个不存在的 key
+    if (new_size == old_size){
+        return false;
+    }
 
     coalesce_or_redistribute(leaf , &root_is_latched , hold_lock_nodes);
     if (root_is_latched){

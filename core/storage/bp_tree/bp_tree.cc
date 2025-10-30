@@ -305,7 +305,7 @@ void S_BPTreeIndexHandle::insert_into_parent(S_BPTreeNodeHandle *old_node , cons
     if (old_node->is_root_page()){
         page_id_t new_root_id = create_node();
         S_BPTreeNodeHandle *new_root = fetch_node(new_root_id , BPOperation::INSERT_OPERA);
-        std::cout << "Create A New Root : page_id = " << new_root_id << "\n";
+        std::cout << "Root : page_id = " << new_root_id << "\n";
 
         new_root->set_is_leaf(false);
         new_root->set_next_leaf(INVALID_PAGE_ID);

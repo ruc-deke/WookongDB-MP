@@ -177,8 +177,10 @@ public:
             // 初始化全局的bufferpool和page_lock_table
             global_page_lock_table_list_ = new std::vector<GlobalLockTable*>();
             global_valid_table_list_ = new std::vector<GlobalValidTable*>();
-            // TPCC 最多 22 个表，11 张主表 + 11 张 B+ 树表
-            for(int i=0; i < 22; i++){
+
+            // SmallBank 2 张表，TPCC 22 张表
+            int table_cnt = (WORKLOAD_MODE == 0) ? 4 : 22;
+            for(int i=0; i < table_cnt; i++){
                 global_page_lock_table_list_->push_back(new GlobalLockTable());
                 global_valid_table_list_->push_back(new GlobalValidTable());
             }
@@ -208,112 +210,8 @@ public:
             }else {
                 assert(false);
             }
-            
 
-            // if (node_->node_id == 0){
-            //     MetaManager *meta_man = node_->meta_manager_;
-            //     IndexCache *index_cache = meta_man->get_index_cache();
-            //     int num_insert_threads = 15;
-            //     for (auto &item : index_cache->getRidsMap()){
-            //         table_id_t item_table_id = item.first;
-
-            //         std::vector<std::pair<itemkey_t , Rid>> entries;
-            //         entries.reserve(item.second.size());
-            //         for (auto &kv : item.second){
-            //             entries.emplace_back(kv.first , kv.second);
-            //         }
-            //         size_t N = entries.size();
-            //         size_t chunk = (N + num_insert_threads - 1) / num_insert_threads;
-
-            //         std::vector<std::thread> insert_threads;
-            //         insert_threads.reserve(num_insert_threads);
-
-            //         for (int t = 0 ; t < num_insert_threads ; t++){
-            //             size_t begin = static_cast<size_t>(t) * chunk;
-            //             if (begin >= N) break;
-            //             size_t end = std::min(N, begin + chunk);
-
-            //             insert_threads.emplace_back([this, item_table_id, &entries, begin, end](){
-            //                 BPTreeIndexHandle* handle = bp_tree_indexes[item_table_id];
-            //                 for (size_t i = begin; i < end; ++i) {
-            //                     itemkey_t key = entries[i].first;
-            //                     Rid rid = entries[i].second;
-            //                     handle->insert_entry(&key, rid);
-
-            //                     // 验证刚刚插入的元素找得到
-            //                     std::vector<Rid> results;
-            //                     bool exist = handle->search(&key , &results);
-            //                     assert(exist && !results.empty());
-            //                     Rid got = results[0];
-            //                     assert (got.page_no_ == rid.page_no_ && got.slot_no_ == rid.slot_no_);
-            //                 }
-            //             });
-            //         }
-
-            //         for (auto &th : insert_threads){
-            //             th.join();
-            //         }
-
-            //         // // 验证删除
-            //         std::vector<std::thread> delete_threads;
-            //         int num_delete_threads = 12;
-            //         delete_threads.reserve(num_delete_threads);
-
-            //         for (int t = 0 ; t < num_delete_threads ; t++){
-            //             size_t begin = static_cast<size_t>(t) * chunk;
-            //             if (begin >= N) break;
-            //             size_t end = begin + chunk; if (end > N) end = N;
-
-            //             delete_threads.emplace_back([this, item_table_id, &entries, begin, end, t](){
-            //                 BPTreeIndexHandle* handle = bp_tree_indexes[item_table_id];
-            //                 for (size_t i = begin; i < end; ++i) {
-            //                     itemkey_t key = entries[i].first;
-            //                     handle->delete_entry(&key);
-
-            //                     std::vector<Rid> results;
-            //                     bool exist = handle->search(&key , &results);
-            //                     assert(!exist && results.empty());
-            //                 }
-            //             });
-            //         }
-            //         std::cout << "Yalu\n\n\n\n";
-
-
-            //         for (auto &th : delete_threads) {
-            //             if (th.joinable()) th.join();
-            //         }
-
-            //         // 验证确实删干净了
-            //         std::vector<std::thread> search_threads;
-            //         int num_thread_search = 5;
-            //         search_threads.reserve(num_thread_search);
-
-            //         for (int t = 0 ; t < num_thread_search ; t++){
-            //             size_t begin = static_cast<size_t>(t) * chunk;
-            //             if (begin >= N) break;
-            //             size_t end = begin + chunk; if (end > N) end = N;
-
-            //             search_threads.emplace_back([this, item_table_id, &entries, begin, end, t](){
-            //                 BPTreeIndexHandle* handle = bp_tree_indexes[item_table_id];
-            //                 for (size_t i = begin; i < end; ++i) {
-            //                     itemkey_t key = entries[i].first;
-            //                     Rid expected = entries[i].second;
-            //                     std::vector<Rid> results;
-            //                     bool exist = handle->search(&key, &results);
-            //                     assert(!exist && results.empty());
-            //                     // Rid got = results[0];
-            //                     // assert (got.page_no_ == expected.page_no_ && got.slot_no_ == expected.slot_no_);
-            //                 }
-            //             });
-            //         }
-
-
-            //         for (auto &th : search_threads) {
-            //             if (th.joinable()) th.join();
-            //         }
-            //         std::cout << "--------------Baga\n\n\n\n\n\n\n";
-                // }
-            // }
+            test_bptree_concurrency(0);
 
             butil::EndPoint point;
             point = butil::EndPoint(butil::IP_ANY, compute_ports[node_->getNodeID()]);
@@ -336,14 +234,63 @@ public:
 
 
     Rid get_rid_from_bptree(table_id_t table_id , itemkey_t key){
-        std::vector<Rid> results;
-        bool exist = bp_tree_indexes[table_id]->search(&key , &results);
+        Rid result;
+        bool exist = bp_tree_indexes[table_id]->search(&key , result);
         // assert(exist);
         // assert(!results.empty());
         if (exist){
-            return results[0];
+            return result;
         }
         return INDEX_NOT_FOUND;
+    }
+
+    void test_bptree_concurrency(table_id_t table_id){
+        while(true){
+            std::unordered_set<itemkey_t> maps;
+
+            int num_test_threads = 10;
+            std::vector<std::thread> test_threads;
+
+            std::vector<itemkey_t> test_keys;
+            std::mt19937_64 rng(std::random_device{}());
+            std::uniform_int_distribution<itemkey_t> key_dist(300000 , 90000000);
+            int num_test_keys = 20000000;
+            for (int i = 0 ; i < num_test_keys ; i++){
+                itemkey_t gen_key = key_dist(rng);
+                if (maps.find(gen_key) != maps.end()){
+                    i--;
+                    continue;
+                }
+                maps.insert(gen_key);
+                test_keys.push_back(gen_key);
+            }
+
+            size_t chunk_size = test_keys.size() / num_test_threads;
+            for (int t = 0 ; t < num_test_threads ; t++){
+                size_t start = t * chunk_size;
+                size_t end = (t == num_test_threads - 1 ) ? test_keys.size() : start + chunk_size;
+
+                test_threads.emplace_back([this , table_id , &test_keys , start , end](){
+                    BPTreeIndexHandle *bp_tree = bp_tree_indexes[table_id];
+                    for (int i = start ; i < end ; i++){
+                        bp_tree->insert_entry(&test_keys[i] , {.page_no_ = -1 , .slot_no_ = -1});
+                        if (i % 50 == 10){
+                            Rid result;
+                            bool exist = bp_tree->search(&test_keys[i - 10] , result);
+                            assert(exist);
+                            bp_tree->delete_entry(&test_keys[i - 10]);
+                            std::vector<Rid> results;
+                            exist = bp_tree->search(&test_keys[i - 10] , result);
+                            assert(!exist);
+                        }
+                    }
+                });
+            }
+
+            for (int t = 0 ; t < num_test_threads ; t++){
+                test_threads[t].join();
+            }
+        }
     }
 
     void PushPageToOther(table_id_t table_id , page_id_t page_id , node_id_t dest_node_id);

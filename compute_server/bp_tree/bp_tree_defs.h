@@ -30,7 +30,7 @@ struct BPNodeHdr{
     bool is_leaf;
 };
 
-// 整颗 B+ 树的头文件，保存在页面 0 中
+// 整颗 B+ 树的头文件，保存在页面 1 中
 struct BPFileHdr{
     page_id_t root_page_id;
     page_id_t first_leaf;
