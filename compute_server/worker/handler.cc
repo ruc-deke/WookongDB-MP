@@ -158,7 +158,7 @@ void Handler::GenThreads(std::string bench_name) {
 
   // std::cout << "Got Here1\n";
 
-  // LOG(INFO) << "Spawn threads to execute...";
+  LOG(INFO) << "Spawn threads to execute...";
   t_id_t i = 0;
   for (; i < thread_num_per_machine; i++) { 
     param_arr[i].thread_global_id = (machine_id * thread_num_per_machine) + i;
@@ -197,7 +197,7 @@ void Handler::GenThreads(std::string bench_name) {
       std::cout << "thread " << i << " joined" << std::endl;
     }
   }
-  // LOG(INFO) << "All workers DONE, Waiting for all compute nodes to finish...";
+  LOG(INFO) << "All workers DONE, Waiting for all compute nodes to finish...";
 
   // 统计compute server中的统计信息
   tx_update_time = compute_server->tx_update_time;
@@ -210,7 +210,7 @@ void Handler::GenThreads(std::string bench_name) {
   // Wait for all compute nodes to finish
   socket_finish_client(global_meta_man->remote_server_nodes[0].ip, global_meta_man->remote_server_meta_port);
 
-  // LOG(INFO) << "All compute nodes have finished";
+  LOG(INFO) << "All compute nodes have finished";
 
   std::ofstream result_file("delay_fetch_remote.txt");
   result_file << "fetch_all: " << *fetch_all_vec.rbegin() << std::endl;

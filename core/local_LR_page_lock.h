@@ -66,7 +66,7 @@ public:
     }
     
     bool LockShared() {
-        // // LOG(INFO) << "LockShared: " << page_id;
+        // LOG(INFO) << "LockShared: " << page_id;
         bool lock_remote = false;
         bool try_latch = true;
         while(try_latch){
@@ -116,7 +116,7 @@ public:
     }
 
     bool LockExclusive() {
-        // // LOG(INFO) << "LockExclusive: " << page_id << std::endl;
+        // LOG(INFO) << "LockExclusive: " << page_id << std::endl;
         bool lock_remote = false;
         bool try_latch = true;
         while(try_latch){
@@ -178,6 +178,17 @@ public:
         cv.notify_one(); // 通知等待的线程远程锁成功
     }
 
+    void TryGetPushData(table_id_t table_id){
+        LOG(INFO) << "Try Get Push Data , table_id = " << table_id << " page_id = " << page_id;
+        std::unique_lock<std::mutex> lock(mutex);
+        assert(is_granting == true);
+        cv.wait(lock , [this]{
+            return update_success;
+        });
+        LOG(INFO) << "Try Get Push Data Over , table_id = " << table_id << " page_id = " << page_id;
+        update_success = false;
+    }
+
     // 调用时机：fetch s/x page 的时候，无法立刻获得锁，我就来尝试看看能不能拿到锁
     bool TryRemoteLockSuccess(table_id_t table_id , double* wait_push_time = nullptr){
         std::unique_lock<std::mutex> lock(mutex);
@@ -188,10 +199,8 @@ public:
         // push_or_pull = true：远程推送过来，=false：当前节点需要主动去拉取
         bool ret = need_wait;
         if(!need_wait){
-            // LOG(INFO) << "BAGAYALU!!!";
             assert(update_success == false); 
         } else{
-            // LOG(INFO) << "KONIJIWA";
             // 需要等待远程把数据给推送过来
             struct timespec start_time, end_time;
             clock_gettime(CLOCK_REALTIME, &start_time);
@@ -207,7 +216,7 @@ public:
         }
         // 重置远程加锁成功标志位
         success_return = false;
-        // LOG(INFO) << "TryRemote LockSuccess , table_id = " << table_id << " page_id = " << page_id;
+        LOG(INFO) << "TryRemote LockSuccess , table_id = " << table_id << " page_id = " << page_id;
         return ret;
     }
 
@@ -241,16 +250,16 @@ public:
 
     // 调用LockExclusive()或者LockShared()之后, 如果返回true, 则需要调用这个函数将granting状态转换为shared或者exclusive
     void LockRemoteOK(node_id_t node_id){
-        // // LOG(INFO) << "LockRemoteOK: " << page_id << std::endl;
+        // LOG(INFO) << "LockRemoteOK: " << page_id << std::endl;
         mutex.lock();
         assert(is_granting == true);
         // 可以通过lock的值来判断远程的锁模式，因为LockMode::GRANTING和LockMode::UPGRADING的时候其他线程不能加锁
         if(lock == EXCLUSIVE_LOCKED){
-            // // LOG(INFO) << "LockRemoteOK: " << page_id << " EXCLUSIVE_LOCKED in node " << node_id;
+            // LOG(INFO) << "LockRemoteOK: " << page_id << " EXCLUSIVE_LOCKED in node " << node_id;
             remote_mode = LockMode::EXCLUSIVE;
         }
         else{
-            // // LOG(INFO) << "LockRemoteOK: " << page_id << " SHARED in node " << node_id;
+            // LOG(INFO) << "LockRemoteOK: " << page_id << " SHARED in node " << node_id;
             remote_mode = LockMode::SHARED;
         }
         // assert(is_released);
@@ -337,7 +346,7 @@ public:
     int Pending(node_id_t n, bool xpending){
         int unlock_remote = 0;
         mutex.lock();
-        // // LOG(INFO) << "Pending: " << page_id ;
+        // LOG(INFO) << "Pending: " << page_id ;
         assert(!is_pending);
 
         // 如果远程还持有锁
@@ -364,6 +373,7 @@ public:
         }
         else if(is_granting && remote_mode == LockMode::SHARED){  
             // 远程已经获取了S锁，正在申请X锁
+            // 注意此时本地一定不在使用共享锁，因为如果在用的话不会向远程申请，而是等到它用完
             assert(lock == EXCLUSIVE_LOCKED);
             if(xpending){ 
                 is_pending = true;
@@ -371,7 +381,6 @@ public:
             }
             else{
                 // 要求释放S锁
-                // 找到 Bug 了，在这呢，找了一天
                 unlock_remote = 1;
                 remote_mode = LockMode::NONE;
 

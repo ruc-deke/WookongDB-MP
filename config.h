@@ -15,7 +15,7 @@
 // 40: tatp
 // 664: tpcc
 // 40: micro-benchmark
-#define MAX_ITEM_SIZE 664
+#define MAX_ITEM_SIZE 8
 
 #define ComputeNodeBufferPageSize 262144 // 262144*4KB = 1GB
 // #define ComputeNodeBufferPageSize 2621440 // for leap

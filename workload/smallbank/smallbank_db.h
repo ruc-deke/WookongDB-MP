@@ -129,8 +129,6 @@ class SmallBank {
         for (int i = 0 ; i < 2 ; i++){
             bp_tree_indexes.emplace_back(new S_BPTreeIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 2 , "smallbank"));
         }
-    }else {
-        sleep(1000000);
     }
     bench_name = "smallbank";
     // Used for populate table (line num) and get account

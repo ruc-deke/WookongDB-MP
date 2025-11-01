@@ -259,9 +259,9 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
     coro_sched->Yield(yield, coro_id);
   }
   coro_sched->FinishCorotine(coro_id);
-  // LOG(INFO) << "thread_local_id: " << thread_local_id << " coro_id: " << coro_id << " is stopped";
+  LOG(INFO) << "thread_local_id: " << thread_local_id << " coro_id: " << coro_id << " is stopped";
   while(coro_sched->isAllCoroStopped() == false) {
-      // // LOG(INFO) << coro_id << " *yield ";
+      // LOG(INFO) << coro_id << " *yield ";
       coro_sched->Yield(yield, coro_id);
   }
   // A coroutine calculate the total execution time and exits
@@ -361,9 +361,9 @@ void RunTPCC(coro_yield_t& yield, coro_id_t coro_id) {
         coro_sched->Yield(yield, coro_id);
     }
     coro_sched->FinishCorotine(coro_id);
-    // LOG(INFO) << "thread_local_id: " << thread_local_id << " coro_id: " << coro_id << " is stopped";
+    LOG(INFO) << "thread_local_id: " << thread_local_id << " coro_id: " << coro_id << " is stopped";
     while(coro_sched->isAllCoroStopped() == false) {
-        // // LOG(INFO) << coro_id << " *yield ";
+        // LOG(INFO) << coro_id << " *yield ";
         coro_sched->Yield(yield, coro_id);
     }
     // A coroutine calculate the total execution time and exits

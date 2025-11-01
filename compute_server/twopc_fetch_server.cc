@@ -146,7 +146,7 @@ void ComputeServer::PrepareRPCDone(twopc_service::PrepareResponse* response, brp
     } else {
         // RPC成功了，response里有我们想要的数据。开始RPC的后续处理.
         if(response->ok() == false){
-            // LOG(INFO) << "Prepare failed";
+            LOG(INFO) << "Prepare failed";
         }
     }
     // NewCallback产生的Closure会在Run结束后删除自己，不用我们做。
@@ -195,7 +195,7 @@ bool ComputeServer::Prepare_2pc(std::unordered_set<node_id_t> node_id, uint64_t 
     for(auto cid: cids){
         brpc::Join(cid);
     }
-    // // LOG(INFO) << "txn_id: " << txn_id << " coordinate write prepare log. ";
+    // LOG(INFO) << "txn_id: " << txn_id << " coordinate write prepare log. ";
     return true;
 }
 
@@ -252,8 +252,8 @@ int ComputeServer::Commit_2pc(std::unordered_map<node_id_t, std::vector<std::pai
             brpc::Join(cid);
         }
     }
-    // // LOG(INFO) << "txn_id: " << txn_id << " coordinate write commit log. ";
-    // // LOG(INFO) << "add latency: " << c/node_data_map.size() << "ms.";
+    // LOG(INFO) << "txn_id: " << txn_id << " coordinate write commit log. ";
+    // LOG(INFO) << "add latency: " << c/node_data_map.size() << "ms.";
     if(c == 0)
         return 0;
     return c/node_data_map.size();

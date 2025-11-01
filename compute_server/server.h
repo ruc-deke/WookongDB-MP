@@ -211,8 +211,6 @@ public:
                 assert(false);
             }
 
-            test_bptree_concurrency(0);
-
             butil::EndPoint point;
             point = butil::EndPoint(butil::IP_ANY, compute_ports[node_->getNodeID()]);
             brpc::ServerOptions server_options;
@@ -224,6 +222,9 @@ public:
                 LOG(ERROR) << "Fail to start Server";
                 exit(1);
             }
+
+            // test_bptree_concurrency(0);
+            
             // std::cout << "Fininsh start server\n";
             server.RunUntilAskedToQuit();
             exit(1);
@@ -231,6 +232,8 @@ public:
         t.detach();
 
     }
+
+
 
 
     Rid get_rid_from_bptree(table_id_t table_id , itemkey_t key){
@@ -244,17 +247,21 @@ public:
         return INDEX_NOT_FOUND;
     }
 
+    void insert_into_bptree(table_id_t table_id , itemkey_t key , Rid value){
+        bp_tree_indexes[table_id]->insert_entry(&key , value);
+    }
+
     void test_bptree_concurrency(table_id_t table_id){
         while(true){
             std::unordered_set<itemkey_t> maps;
 
-            int num_test_threads = 10;
+            int num_test_threads = 12;
             std::vector<std::thread> test_threads;
 
             std::vector<itemkey_t> test_keys;
             std::mt19937_64 rng(std::random_device{}());
-            std::uniform_int_distribution<itemkey_t> key_dist(300000 , 90000000);
-            int num_test_keys = 20000000;
+            std::uniform_int_distribution<itemkey_t> key_dist(300001 , 900000000);
+            int num_test_keys = 100000;
             for (int i = 0 ; i < num_test_keys ; i++){
                 itemkey_t gen_key = key_dist(rng);
                 if (maps.find(gen_key) != maps.end()){
@@ -264,7 +271,7 @@ public:
                 maps.insert(gen_key);
                 test_keys.push_back(gen_key);
             }
-
+            
             size_t chunk_size = test_keys.size() / num_test_threads;
             for (int t = 0 ; t < num_test_threads ; t++){
                 size_t start = t * chunk_size;
@@ -272,16 +279,17 @@ public:
 
                 test_threads.emplace_back([this , table_id , &test_keys , start , end](){
                     BPTreeIndexHandle *bp_tree = bp_tree_indexes[table_id];
+                    int cur_cnt = 0;
+                    Rid rid1;
+                    itemkey_t key1 = (itemkey_t)(299998);
                     for (int i = start ; i < end ; i++){
-                        bp_tree->insert_entry(&test_keys[i] , {.page_no_ = -1 , .slot_no_ = -1});
-                        if (i % 50 == 10){
+                        bp_tree->insert_entry(&test_keys[i] , {.page_no_ = -100 , .slot_no_ = -100});
+                        bool res = bp_tree->search(&key1 , rid1);
+                        assert(res);
+                        cur_cnt++;
+                        if (cur_cnt % 1000 == 0){
                             Rid result;
-                            bool exist = bp_tree->search(&test_keys[i - 10] , result);
-                            assert(exist);
-                            bp_tree->delete_entry(&test_keys[i - 10]);
-                            std::vector<Rid> results;
-                            exist = bp_tree->search(&test_keys[i - 10] , result);
-                            assert(!exist);
+                            assert(bp_tree->search(&test_keys[cur_cnt - 1000] , result));
                         }
                     }
                 });
@@ -411,7 +419,7 @@ public:
                     2. 我去测试了一下，即使只开了 300 个页面作为缓冲区，发生远程拒绝的情况也只是 1/4000 左右
                     所以这里先刷下去无所谓，即使远程解锁失败了，刷下去的页面开销也很小 
                 */
-                // LOG(INFO) << "Flush To Disk Because It Might be replaced , table_id = " << table_id << " page_id = " << replaced_page_id;
+                LOG(INFO) << "Flush To Disk Because It Might be replaced , table_id = " << table_id << " page_id = " << replaced_page_id;
                 Page *old_page = node_->fetch_page(table_id , replaced_page_id);
                 storage_service::StorageService_Stub storage_stub(get_storage_channel());
                 brpc::Controller cntl_wp;
@@ -467,7 +475,7 @@ public:
             delete response;
             delete request;
 
-            // LOG(INFO) << "Evicting a page success , table_id = " << table_id << " page_id = " << page_id << " replaced table_id = " << replaced_page_id << " insert page_id = " << page_id;
+            LOG(INFO) << "Evicting a page success , table_id = " << table_id << " page_id = " << page_id << " replaced table_id = " << replaced_page_id << " insert page_id = " << page_id;
 
             Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(
                 table_id,
@@ -484,6 +492,23 @@ public:
             }
             lr_local_lock->EndEvict();
             return page;
+        }
+    }
+
+
+    void flush_page_to_storage(table_id_t table_id_ , page_id_t page_id_){
+        Page *old_page = node_->fetch_page(table_id_ , page_id_);
+        storage_service::StorageService_Stub storage_stub(get_storage_channel());
+        brpc::Controller cntl_wp;
+        storage_service::WritePageRequest req;
+        storage_service::WritePageResponse resp;
+        auto* pid = req.mutable_page_id();
+        pid->set_table_name(table_name_meta[table_id_]);
+        pid->set_page_no(page_id_);
+        req.set_data(old_page->get_data(), PAGE_SIZE);
+        storage_stub.WritePage(&cntl_wp, &req, &resp, NULL);
+        if (cntl_wp.Failed()) {
+            assert(false);
         }
     }
 

@@ -33,7 +33,7 @@ bool TxNewOrder(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& y
     */
 
     dtx->TxBegin(tx_id);
-    // // LOG(INFO) << "TxNewOrder begin, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+    // LOG(INFO) << "TxNewOrder begin, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
 
     // Generate parameters
 
@@ -343,7 +343,7 @@ bool TxPayment(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& yi
      */
 
     dtx->TxBegin(tx_id);
-    // // LOG(INFO) << "TxPayment begin, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+    // LOG(INFO) << "TxPayment begin, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
 
     // Generate parameters
 
@@ -492,7 +492,7 @@ bool TxDelivery(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& y
     */
 
     dtx->TxBegin(tx_id);
-    // // LOG(INFO) << "TxDelivery begin, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+    // LOG(INFO) << "TxDelivery begin, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
 
     // Generate parameters
 
@@ -614,7 +614,7 @@ bool TxOrderStatus(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t
     */
 
     dtx->TxBegin(tx_id);
-    // // LOG(INFO) << "TxOrderStatus begin, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+    // LOG(INFO) << "TxOrderStatus begin, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
 
     int y = tpcc_client->RandomNumber(random_generator[dtx->coro_id], 1, 100);
 
@@ -684,7 +684,7 @@ bool TxStockLevel(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t&
      */
 
     dtx->TxBegin(tx_id);
-    // // LOG(INFO) << "TxStockLevel begin, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+    // LOG(INFO) << "TxStockLevel begin, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
 
     int32_t threshold = tpcc_client->RandomNumber(random_generator[dtx->coro_id], tpcc_stock_val_t::MIN_STOCK_LEVEL_THRESHOLD, tpcc_stock_val_t::MAX_STOCK_LEVEL_THRESHOLD);
 

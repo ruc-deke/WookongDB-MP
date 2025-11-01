@@ -33,7 +33,7 @@ namespace storage_service{
                        ::google::protobuf::Closure* done){
             
         brpc::ClosureGuard done_guard(done);
-        // RDMA_// LOG(INFO) << "handle write log request, log is " << request->log();
+        // RDMA_LOG(INFO) << "handle write log request, log is " << request->log();
         log_manager_->write_batch_log_to_disk(request->log());
 
 # if RAFT
@@ -51,7 +51,7 @@ namespace storage_service{
         }
         for(auto cid:cids1){
             brpc::Join(cid);
-            // // LOG(INFO) << "storage node write raft prepare log. ";
+            // LOG(INFO) << "storage node write raft prepare log. ";
         }
 
         // write raft commit log
@@ -68,7 +68,7 @@ namespace storage_service{
         }
         for(auto cid:cids2){
             brpc::Join(cid);
-            // // LOG(INFO) << "storage node write raft commit log. ";
+            // LOG(INFO) << "storage node write raft commit log. ";
         }
 # endif
         std::unordered_map<std::string, int> table_fd_map;
@@ -103,9 +103,9 @@ namespace storage_service{
                        ::google::protobuf::Closure* done){
 
         brpc::ClosureGuard done_guard(done);
-        // RDMA_// LOG(INFO) << "handle write log request, log is " << request->log();
+        // RDMA_LOG(INFO) << "handle write log request, log is " << request->log();
         log_manager_->write_raft_log_to_disk(request->raft_log());
-        // LOG(INFO) << "Receive Raft log";
+        LOG(INFO) << "Receive Raft log";
 
         // 添加模拟延迟
         usleep(NetworkLatency); // 100us
@@ -145,15 +145,15 @@ namespace storage_service{
             batch_id_t request_batch_id = request->require_batch_id();
             LogReplay* log_replay = log_manager_->log_replay_;
 
-            // RDMA_// LOG(INFO) << "handle GetPage request";
-            // RDMA_// LOG(INFO) << "request_batch_id: " << request_batch_id << ", persist_batch_id: " << log_replay->get_persist_batch_id();
+            // RDMA_LOG(INFO) << "handle GetPage request";
+            // RDMA_LOG(INFO) << "request_batch_id: " << request_batch_id << ", persist_batch_id: " << log_replay->get_persist_batch_id();
             char data[PAGE_SIZE];
 
             log_replay->latch3_.lock();
             log_replay->pageid_batch_count_[page_id].first.lock();
             while (log_replay->pageid_batch_count_[page_id].second > 0) {
                 // wait
-                // LOG(INFO) << "the log replay queue is has another item...." << "  batch item cnt: "<<
+                LOG(INFO) << "the log replay queue is has another item...." << "  batch item cnt: "<<
                     // log_replay->pageid_batch_count_[page_id].second;
                 usleep(10);
             }
@@ -169,7 +169,7 @@ namespace storage_service{
         for(auto it = table_fd_map.begin(); it != table_fd_map.end(); it++){
             disk_manager_->close_file(it->second);
         }
-        // RDMA_// LOG(INFO) << "success to GetPage";
+        // RDMA_LOG(INFO) << "success to GetPage";
         return;
     };
 
@@ -179,7 +179,7 @@ namespace storage_service{
                        ::google::protobuf::Closure* done){
         brpc::ClosureGuard done_guard(done);
         std::unordered_map<std::string, int> table_fd_map;
-        // // LOG(INFO) << "handle PrefetchIndex request" << request->table_name() << "  " << request->batch_id();
+        // LOG(INFO) << "handle PrefetchIndex request" << request->table_name() << "  " << request->batch_id();
         std::string table_name = request->table_name();
         std::string index_file_name = table_name + "_index.txt";
         std::ifstream file(index_file_name);
@@ -295,19 +295,27 @@ namespace storage_service{
         memset(zero_page, 0, PAGE_SIZE);
         disk_manager_->write_page(fd, new_page_no, zero_page, PAGE_SIZE);
 
-        // 页头：next_free_page_no_ = RM_NO_PAGE（索引页的 BPNodeHdr 也有该字段，写 0 号偏移无副作用）
-        int next_free = RM_NO_PAGE;
-        disk_manager_->update_value(fd, new_page_no, OFFSET_NEXT_FREE_PAGE_NO, reinterpret_cast<char*>(&next_free), sizeof(int));
-
-        // 仅 RM 表更新 RM 头；索引文件不要写第 0 页的 RM 头字段以免破坏 BPFileHdr
-        if (!is_bp_index) {
+        if (is_bp_index) {
+            // 索引页：正确写入 BPNodeHdr::next_free_page_no，避免覆盖 parent
+            int next_free = INVALID_PAGE_ID;
+            int bp_offset_next_free = static_cast<int>(offsetof(BPNodeHdr, next_free_page_no));
+            disk_manager_->update_value(fd, new_page_no, bp_offset_next_free,
+                                        reinterpret_cast<char*>(&next_free), sizeof(int));
+        } else {
+            // RM 文件：按 RM 页头偏移写 next_free，并维护 RM 文件头
+            int next_free = RM_NO_PAGE;
+            disk_manager_->update_value(fd, new_page_no, OFFSET_NEXT_FREE_PAGE_NO,
+                                        reinterpret_cast<char*>(&next_free), sizeof(int));
+        
             int new_num_pages = static_cast<int>(new_page_no) + 1;
-            disk_manager_->update_value(fd, PAGE_NO_RM_FILE_HDR, OFFSET_NUM_PAGES, reinterpret_cast<char*>(&new_num_pages), sizeof(int));
+            disk_manager_->update_value(fd, PAGE_NO_RM_FILE_HDR, OFFSET_NUM_PAGES,
+                                        reinterpret_cast<char*>(&new_num_pages), sizeof(int));
             int first_free_page_no = static_cast<int>(new_page_no);
-            disk_manager_->update_value(fd, PAGE_NO_RM_FILE_HDR, OFFSET_FIRST_FREE_PAGE_NO, reinterpret_cast<char*>(&first_free_page_no), sizeof(int));
+            disk_manager_->update_value(fd, PAGE_NO_RM_FILE_HDR, OFFSET_FIRST_FREE_PAGE_NO,
+                                        reinterpret_cast<char*>(&first_free_page_no), sizeof(int));
         }
 
-        //std::cout << "Create a new page , page_no = " << new_page_no << "\n";
+        std::cout << "Create a new page , page_no = " << new_page_no << "\n";
 
         disk_manager_->close_file(fd);
 

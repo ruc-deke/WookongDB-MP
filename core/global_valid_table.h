@@ -130,9 +130,9 @@ public:
         }
         else{
             node_id_t ret = newest_node;
-            need_from_storage = (ret == -1);
+            need_from_storage = (ret == INVALID_NODE_ID);
             node_has_newest_page_status[node_id] = true;
-            if (newest_node == -1){
+            if (newest_node == INVALID_NODE_ID){
                 newest_node = node_id;
             }
             mutex.unlock();

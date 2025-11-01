@@ -93,6 +93,6 @@ void CoroutineScheduler::Yield(coro_yield_t& yield, coro_id_t cid) {
 // Start this coroutine. Used by coroutine 0 and Yield()
 ALWAYS_INLINE
 void CoroutineScheduler::RunCoroutine(coro_yield_t& yield, Coroutine* coro) {
-  // // LOG(INFO) << "yield to coro: " << coro->coro_id;
+  // LOG(INFO) << "yield to coro: " << coro->coro_id;
   yield(coro->func);
 }

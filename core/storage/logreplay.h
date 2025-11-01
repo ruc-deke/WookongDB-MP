@@ -26,10 +26,10 @@ public:
     LogReplay(DiskManager* disk_manager):disk_manager_(disk_manager){
         char path[1024];
         getcwd(path, sizeof(path));
-        // LOG(INFO) << "LogReplay current path: " << path;
+        LOG(INFO) << "LogReplay current path: " << path;
         disk_manager->is_file(LOG_FILE_NAME);
         if(!disk_manager_->is_file(LOG_FILE_NAME)) {
-            // LOG(INFO) << "create log file";
+            LOG(INFO) << "create log file";
             disk_manager_->create_file(LOG_FILE_NAME);
             log_replay_fd_ = open(LOG_FILE_NAME, O_RDWR);
             log_write_head_fd_ = open(LOG_FILE_NAME, O_RDWR);
@@ -65,11 +65,11 @@ public:
         
 
         max_replay_off_ = disk_manager_->get_file_size(LOG_FILE_NAME) - 1;
-        // LOG(INFO) << "create log file" << "init max_replay_off_: " << max_replay_off_; 
+        LOG(INFO) << "create log file" << "init max_replay_off_: " << max_replay_off_; 
 
         replay_thread_ = std::thread(&LogReplay::replayFun, this);
 
-        // LOG(INFO) << "create log file" << "Finish start LogReplay";
+        LOG(INFO) << "create log file" << "Finish start LogReplay";
     };
 
     ~LogReplay(){

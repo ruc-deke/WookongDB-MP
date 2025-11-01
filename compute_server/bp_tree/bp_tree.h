@@ -25,8 +25,6 @@ public:
         keys = reinterpret_cast<itemkey_t*>(page->get_data() + sizeof(BPNodeHdr));
         // 用字节偏移计算 rids 的起始位置，避免指针加法按元素数放大
         rids = reinterpret_cast<Rid*>(page->get_data() + sizeof(BPNodeHdr) + (order + 1) * key_size);
-
-
     }
 
     bool isPageSafe(BPOperation opera){
@@ -53,7 +51,7 @@ public:
     }
 
     int get_max_size() const {
-        return order + 1;
+        return order;
     }
 
     int get_min_size() const {
@@ -137,7 +135,7 @@ public:
     void insert_pairs(int pos , const itemkey_t *keys , const Rid *rids , int n);
     void insert_pair(int pos , const itemkey_t *key , const Rid *rid);
     
-    page_id_t internal_lookup(const itemkey_t* target);
+    page_id_t internal_lookup(const itemkey_t* target , itemkey_t &next_key);
     bool leaf_lookup(const itemkey_t* target, Rid** value);
     bool isIt(int pos, const itemkey_t* key);
     int insert(const itemkey_t* key, const Rid& value);
@@ -203,6 +201,7 @@ public:
     // 获得 node 对应子树上，最小的值(最左边叶子节点的最左边 key)
     itemkey_t get_subtree_min_key(BPTreeNodeHandle *node , std::list<BPTreeNodeHandle*> &hold_lock_nodes){
         assert(!node->is_leaf());
+        // std::cout << "Got Here\n\n\n\n";
         // 走到这个函数内的，node 一定在 hold_lock_nodes 中
         assert(fetch_node_from_list(hold_lock_nodes , node->get_page_no()) != nullptr);
 
@@ -265,20 +264,29 @@ public:
         assert(false);
     }
 
-    std::pair<BPTreeNodeHandle* , bool> find_leaf_page(const itemkey_t * key , BPOperation opera , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
-    void find_leaf_page_with_print(const itemkey_t *key);
+    void release_node_in_list(std::list<BPTreeNodeHandle*> &hold_lock_nodes , BPOperation opera){
+        while(!hold_lock_nodes.empty()){
+            release_node(hold_lock_nodes.front()->get_page_no() , opera);
+            delete hold_lock_nodes.front();
+            hold_lock_nodes.pop_front();
+        }
+    }
+
+    BPTreeNodeHandle* find_leaf_page(const itemkey_t * key , BPOperation opera , std::list<BPTreeNodeHandle*> &hold_lock_nodes , itemkey_t &next_key);
+    BPTreeNodeHandle* find_leaf_page_with_print(const itemkey_t * key , BPOperation opera);
     BPTreeNodeHandle *split(BPTreeNodeHandle *node , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
     void maintain_child(BPTreeNodeHandle* node, int child_idx , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
     void maintain_parent(BPTreeNodeHandle *node);
     void insert_into_parent(BPTreeNodeHandle *old_node , const itemkey_t *key ,
                             BPTreeNodeHandle *new_node , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
     bool adjust_root(BPTreeNodeHandle *old_root);
-    bool coalesce_or_redistribute(BPTreeNodeHandle *node , bool *root_is_latched , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
+    bool coalesce_or_redistribute(BPTreeNodeHandle *node , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
     void redistribute(BPTreeNodeHandle *bro , BPTreeNodeHandle *node , BPTreeNodeHandle *parent , int index , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
     bool coalesce(BPTreeNodeHandle **bro , BPTreeNodeHandle **node , 
-            BPTreeNodeHandle **parent , int index , bool *root_is_latched , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
+            BPTreeNodeHandle **parent , int index , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
     
 
+    
     // 三个核心函数，search , insert 和 delete
     bool search(const itemkey_t *key , Rid &result);
     page_id_t insert_entry(const itemkey_t *key , const Rid &value);
@@ -290,5 +298,4 @@ private:
     int fd;
     table_id_t table_id;
     BPFileHdr *file_hdr;
-    std::mutex root_mtx;
 };

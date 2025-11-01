@@ -123,7 +123,13 @@ class DTX {
 
   inline Rid GetRidFromIndexCache(table_id_t table_id, itemkey_t key) { return index_cache->Search(table_id, key); }
   inline Rid GetRidFromBTree(table_id_t table_id , itemkey_t key){
-    return compute_server->get_rid_from_bptree(table_id , key);
+    Rid ret = compute_server->get_rid_from_bptree(table_id , key);
+
+    std::mt19937_64 rng(std::random_device{}());
+    std::uniform_int_distribution<itemkey_t> key_dist(300001 , 900000000);
+    itemkey_t gen_key = key_dist(rng);
+    compute_server->insert_into_bptree(table_id , gen_key , {.page_no_ = -100 , .slot_no_ = -100});
+    return ret;
   }
 
   char* FetchSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id);

@@ -102,6 +102,15 @@ void ComputeNodeServiceImpl::NotifyPushPage(::google::protobuf::RpcController* c
     node_id_t src_node_id = request->src_node_id();
     assert(src_node_id == this->server->get_node()->getNodeID());
 
+    LOG(INFO) << "NotifyPushPage , table_id = " << table_id << " page_id = " << page_id;
+    int try_cnt = 0;
+    while (!server->get_node()->getBufferPoolByIndex(table_id)->is_in_bufferPool(page_id)){
+        usleep(1000);
+        try_cnt++;
+        if (try_cnt == 1000){
+            assert(false);
+        }
+    }
     Page* page = server->get_node()->getBufferPoolByIndex(table_id)->fetch_page(page_id);
     int dest_node_id_size = request->dest_node_ids_size();
     assert(dest_node_id_size != 0);
@@ -150,7 +159,7 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
     int dest_node_id = request->dest_node_id();
 
     assert(dest_node_id != server->get_node()->getNodeID());
-    // LOG(INFO) << "Receive Pending , table_id = " << table_id << " page_id = " << page_id << " dest_node_id = " << dest_node_id ;
+    LOG(INFO) << "Receive Pending , table_id = " << table_id << " page_id = " << page_id << " dest_node_id = " << dest_node_id ;
 
 
     int unlock_remote = server->get_node()->PendingPage(page_id, xpending, table_id);
@@ -161,7 +170,7 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
         // 只有两个主节点的时候，不会出现 unlock_remote = 3 的情况，这里先 assert 一下 debug
         assert(unlock_remote != 3);
         if(unlock_remote != 3){
-            // LOG(INFO) << "Pending Release , table_id = " << table_id << " page_id = " << page_id << " dest_node_id = " << dest_node_id;
+            LOG(INFO) << "Pending Release , table_id = " << table_id << " page_id = " << page_id << " dest_node_id = " << dest_node_id;
             // std::cout << "Got Here3\n";
 
             // 如果锁已经用完了，那就先向下一轮获得锁的某个节点发送一次 Push 数据
@@ -178,8 +187,7 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
                 4. LRPAnyUnlock 把锁给了另外一个节点，由于请求队列里还有我，所以同时会给另外一个节点发Pending，同时告诉它需要向我Push数据
                 5. 另外一个节点跑完后，把数据页推给了我，关键点来了，此时我第3步的Pending还没跑完，最后我把这个数据页给扔了，就导致这里找不到数据页
             */
-            // 不需要在这里写回存储，因为走到这里一定会发生所有权的转移
-            // LOG(INFO) << "Pending Release Page , table_id = " << table_id << " page_id = " << page_id;
+            LOG(INFO) << "Pending Release Page , table_id = " << table_id << " page_id = " << page_id;
             server->get_node()->getBufferPoolByIndex(table_id)->releaseBufferPage(table_id , page_id);
 
             brpc::Channel* page_table_channel =  server->get_compute_channel() + server->get_node_id_by_page_id(table_id, page_id);
@@ -212,7 +220,7 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
         }
     }else {
         // TODO：其实在这里可以优化下，如果是读锁的话，在这里直接把页面推过去就行，写锁延迟到 lazy_release 的时候推
-        // LOG(INFO) << "Pending Wait Lock Release , table_id = " << table_id << " page_id = " << page_id;
+        LOG(INFO) << "Pending Wait Lock Release , table_id = " << table_id << " page_id = " << page_id;
         if (dest_node_id != INVALID_NODE_ID){
             // 保存下来，等到 lazy_release 的时候再 Push
             server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->setDestNodeIDNoBlock(dest_node_id);
@@ -269,7 +277,7 @@ void ComputeNodeServiceImpl::PushPage(::google::protobuf::RpcController* control
         assert(src_node_id != dest_node_id);
         assert(server->get_node()->getNodeID() == dest_node_id);
 
-        // LOG(INFO) << "Receive Page , src_node_id = " << src_node_id << " table_id = " << table_id << " page_id = " << page_id;
+        LOG(INFO) << "Receive Page , src_node_id = " << src_node_id << " table_id = " << table_id << " page_id = " << page_id;
         
         // std::cout << "Receive Pushed Data From : " << src_node_id << " table_id = " << table_id << " page_id = " << page_id << "\n";
         server->put_page_into_local_buffer(table_id , page_id , request->page_data().c_str());
@@ -322,7 +330,7 @@ void ComputeServer::PushPageToOther(table_id_t table_id , page_id_t page_id , no
     assert(dest_node_id != -1);
     assert(dest_node_id != src_node_id);
 
-    // LOG(INFO) << "Push Page to node" << dest_node_id << " table_id = " << table_id << " page_id = " << page_id;
+    LOG(INFO) << "Push Page to node" << dest_node_id << " table_id = " << table_id << " page_id = " << page_id;
 
     compute_node_service::PushPageRequest push_request;
     compute_node_service::PushPageResponse* push_response = new compute_node_service::PushPageResponse();
@@ -341,7 +349,7 @@ void ComputeServer::PushPageToOther(table_id_t table_id , page_id_t page_id , no
 }
 
 std::string ComputeServer::UpdatePageFromRemoteCompute(table_id_t table_id, page_id_t page_id, node_id_t node_id){
-    // LOG(INFO) << "need to update page from node " << node_id << " table id = " << table_id << " page_id = " << page_id ;
+    LOG(INFO) << "need to update page from node " << node_id << " table id = " << table_id << " page_id = " << page_id ;
     // 从远程取数据页
     struct timespec start_time, end_time;
     clock_gettime(CLOCK_REALTIME, &start_time);
@@ -363,11 +371,11 @@ std::string ComputeServer::UpdatePageFromRemoteCompute(table_id_t table_id, page
     std::string ret;
     // 如果对方提前把数据页给丢掉了，那你就自己去存储拿
     if (response->need_to_storage()){
-        // LOG(INFO) << "Fetch From Storage , table_id = " << table_id << " page_id = " << page_id << " Remote node_id = " << node_id;
+        LOG(INFO) << "Remote No Page , Fetch From Storage , table_id = " << table_id << " page_id = " << page_id << " Remote node_id = " << node_id;
         ret = rpc_fetch_page_from_storage(table_id , page_id);
         // memcpy(page->get_data() , data.c_str() , PAGE_SIZE);
     }else {
-        // LOG(INFO) << "Fetch From Remote , table_id = " << table_id << " page_id = " << page_id << " Remote node_id = " << node_id;
+        LOG(INFO) << "Fetch From Remote , table_id = " << table_id << " page_id = " << page_id << " Remote node_id = " << node_id;
         assert(response->page_data().size() == PAGE_SIZE);
         ret = response->page_data();
         // memcpy(page->get_data(), response->page_data().c_str(), response->page_data().size());
@@ -441,6 +449,7 @@ std::string ComputeServer::rpc_fetch_page_from_storage(table_id_t table_id, page
     page_id_pb->set_page_no(page_id);
     page_id_pb->set_table_name(table_name_meta[table_id]);
     // std::cout << "Fetch Page From Storage , table_id = " << table_id << " table_name = " << table_name_meta[table_id] << "\n";
+    LOG(INFO) << "Fetch Page From Storage , table_id = " << table_id << " page_id = " << page_id;
     brpc::Controller cntl;
     storage_stub.GetPage(&cntl, &request, &response, NULL);
     if(cntl.Failed()){
