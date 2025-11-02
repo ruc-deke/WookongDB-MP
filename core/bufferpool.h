@@ -75,7 +75,7 @@ public:
 
     // 直接从缓冲区里面把这个页面删掉，这个是当节点释放页面所有权的时候调用的
     void release_page(table_id_t table_id , page_id_t page_id){
-        LOG(INFO) << "now release page , table_id = " << table_id << " page_id = " << page_id ; 
+        // LOG(INFO) << "now release page , table_id = " << table_id << " page_id = " << page_id ; 
         auto it = page_table.find(page_id);
         assert(it != page_table.end());
 
@@ -125,6 +125,10 @@ public:
     bool checkIfDirectlyPutInBuffer(page_id_t page_id , frame_id_t &frame_id){
         std::lock_guard<std::mutex> lk(mtx);
         assert(page_table.find(page_id) == page_table.end());
+        // if (page_table.find(page_id) != page_table.end()){
+        //     frame_id = -2;
+        //     return true;
+        // }
         if (!free_lists.empty()){
             frame_id = free_lists.front();
             free_lists.pop_front();
@@ -183,7 +187,7 @@ public:
             assert(replaced_page != INVALID_PAGE_ID);
             // assert(page_table.find(replaced_page) != page_table.end());
             assert(page_table.find(replaced_page) != page_table.end());
-            LOG(INFO) << "Replace a page , table_id = " << table_id << " page_id = " << replaced_page;
+            // LOG(INFO) << "Replace a page , table_id = " << table_id << " page_id = " << replaced_page;
             page_table.erase(replaced_page);
         }                                                                                           
 

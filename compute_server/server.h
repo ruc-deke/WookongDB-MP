@@ -247,6 +247,10 @@ public:
         return INDEX_NOT_FOUND;
     }
 
+    void delete_from_bptree(table_id_t table_id , itemkey_t key){
+        bp_tree_indexes[table_id]->delete_entry(&key);
+    }
+
     void insert_into_bptree(table_id_t table_id , itemkey_t key , Rid value){
         bp_tree_indexes[table_id]->insert_entry(&key , value);
     }
@@ -349,6 +353,16 @@ public:
     Page* checkIfDirectlyPutInBuffer(table_id_t table_id , page_id_t page_id , const void *data){
         frame_id_t frame_id = INVALID_FRAME_ID;
         bool ans = node_->getBufferPoolByIndex(table_id)->checkIfDirectlyPutInBuffer(page_id , frame_id);
+        // if (frame_id == -2){
+        //     Page *page = node_->fetch_page(table_id , page_id);
+        //     assert(data != nullptr);
+
+        //     std::memcpy(page->get_data() , data , PAGE_SIZE);
+        //     page->page_id_ = page_id;
+        //     page->id_.table_id = table_id;
+        //     page->id_.page_no = page_id;
+        //     return page;
+        // }
         if (ans){
             Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(
                 table_id,
@@ -410,7 +424,8 @@ public:
                 continue;
             }
 
-            if (unlock_remote == 2){
+            // 读锁和写锁都要放
+            {
                 /*
                     这里把页面写回到磁盘，至于为啥是先写回到磁盘，再去远程解锁呢，难道不怕远程不允许解锁吗？
                     有两个方面的考虑：
@@ -419,7 +434,7 @@ public:
                     2. 我去测试了一下，即使只开了 300 个页面作为缓冲区，发生远程拒绝的情况也只是 1/4000 左右
                     所以这里先刷下去无所谓，即使远程解锁失败了，刷下去的页面开销也很小 
                 */
-                LOG(INFO) << "Flush To Disk Because It Might be replaced , table_id = " << table_id << " page_id = " << replaced_page_id;
+                // LOG(INFO) << "Flush To Disk Because It Might be replaced , table_id = " << table_id << " page_id = " << replaced_page_id;
                 Page *old_page = node_->fetch_page(table_id , replaced_page_id);
                 storage_service::StorageService_Stub storage_stub(get_storage_channel());
                 brpc::Controller cntl_wp;
@@ -475,7 +490,7 @@ public:
             delete response;
             delete request;
 
-            LOG(INFO) << "Evicting a page success , table_id = " << table_id << " page_id = " << page_id << " replaced table_id = " << replaced_page_id << " insert page_id = " << page_id;
+            // LOG(INFO) << "Evicting a page success , table_id = " << table_id << " page_id = " << page_id << " replaced table_id = " << replaced_page_id << " insert page_id = " << page_id;
 
             Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(
                 table_id,

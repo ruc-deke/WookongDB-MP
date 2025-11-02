@@ -7,7 +7,7 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
         case LogType::INSERT: {
             InsertLogRecord* insert_log = dynamic_cast<InsertLogRecord*>(log);
 
-            LOG(INFO) << "Insert log: insert page_no: " << insert_log->rid_.page_no_;
+            // LOG(INFO) << "Insert log: insert page_no: " << insert_log->rid_.page_no_;
 
             std::string table_name(insert_log->table_name_, insert_log->table_name_ + insert_log->table_name_size_);
             int fd = disk_manager_->get_file_fd(table_name);
@@ -22,7 +22,7 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
         case LogType::DELETE: {
             DeleteLogRecord* delete_log = dynamic_cast<DeleteLogRecord*>(log);
 
-            LOG(INFO) << "Delete log: page_no: " << delete_log->page_no_;
+            // LOG(INFO) << "Delete log: page_no: " << delete_log->page_no_;
             
             std::string table_name(delete_log->table_name_, delete_log->table_name_ + delete_log->table_name_size_);
             int fd = disk_manager_->get_file_fd(table_name);
@@ -33,7 +33,7 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
         case LogType::UPDATE: {
             UpdateLogRecord* update_log = dynamic_cast<UpdateLogRecord*>(log);
             
-            LOG(INFO) << "Update log: page_no: " << update_log->rid_.page_no_;
+            // LOG(INFO) << "Update log: page_no: " << update_log->rid_.page_no_;
             
             std::string table_name(update_log->table_name_, update_log->table_name_ + update_log->table_name_size_);
             int fd = disk_manager_->get_file_fd(table_name);
@@ -42,7 +42,7 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
         case LogType::NEWPAGE: {
             NewPageLogRecord* new_page_log = dynamic_cast<NewPageLogRecord*>(log);
 
-            LOG(INFO) << "New page log: page_no: " << new_page_log->page_no_;
+            // LOG(INFO) << "New page log: page_no: " << new_page_log->page_no_;
 
             std::string table_name(new_page_log->table_name_, new_page_log->table_name_ + new_page_log->table_name_size_);
             int fd = disk_manager_->get_file_fd(table_name);
@@ -65,8 +65,8 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
             persist_off_ = curr_offset + batch_end_log->log_tot_len_;
             latch.unlock();
 
-            // LOG(INFO) << "Update persist_batch_id, new persist_batch_id: " << persist_batch_id_;
-            // LOG(INFO) << "Update persist_off, new persist_off: " << persist_off_;
+            // // LOG(INFO) << "Update persist_batch_id, new persist_batch_id: " << persist_batch_id_;
+            // // LOG(INFO) << "Update persist_off, new persist_off: " << persist_off_;
 
             lseek(log_write_head_fd_, 0, SEEK_SET);
             ssize_t result = write(log_write_head_fd_, &persist_batch_id_, sizeof(batch_id_t));
@@ -111,20 +111,20 @@ void LogReplay::replayFun(){
     int offset = persist_off_ + 1;
     int read_bytes;
     while (!replay_stop) {
-        // LOG(INFO) << "max_replay_off_: " << max_replay_off_ << ", offset: " << offset;
+        // // LOG(INFO) << "max_replay_off_: " << max_replay_off_ << ", offset: " << offset;
         // 用size_t 如果出现负数就会有问题
         int read_size = std::min((int)max_replay_off_ - (int)offset + 1, (int)LOG_REPLAY_BUFFER_SIZE);
-        // LOG(INFO) << "Replay log size: " << read_size;
+        // // LOG(INFO) << "Replay log size: " << read_size;
         if(read_size <= 0){
             // don't need to replay
             std::this_thread::sleep_for(std::chrono::milliseconds(50)); //sleep 50 ms
             continue;
         }
-        // LOG(INFO) << "Begin apply log, apply size is " << read_size << ", max_replay_off_: " << max_replay_off_ << ", offset: " << offset;
+        // // LOG(INFO) << "Begin apply log, apply size is " << read_size << ", max_replay_off_: " << max_replay_off_ << ", offset: " << offset;
         // offset为要读取数据的起始位置，persist_off_为已经读取的字节的结尾位置，所以需要+1
         // offset ++;
         read_bytes = read_log(buffer_.buffer_, read_size, offset);
-        // LOG(INFO) << "read bytes: " << read_bytes;
+        // // LOG(INFO) << "read bytes: " << read_bytes;
         buffer_.offset_ = read_bytes - 1;
 
         int inner_offset = 0;
@@ -133,14 +133,14 @@ void LogReplay::replayFun(){
             
             // buffer.offset_存储了buffer中数据的最大长度，判断在buffer存储的数据内能否读到下一条日志的总长度数据
             if (inner_offset + OFFSET_LOG_TOT_LEN + sizeof(uint32_t) > (unsigned long)buffer_.offset_) {
-                LOG(INFO) << "the next log record's tot_len cannot be read, inner_offset: " << inner_offset << ", buffer_offset: " << buffer_.offset_;
+                // LOG(INFO) << "the next log record's tot_len cannot be read, inner_offset: " << inner_offset << ", buffer_offset: " << buffer_.offset_;
                 break;
             }
             // 获取日志记录长度
             uint32_t size = *reinterpret_cast<const uint32_t *>(buffer_.buffer_ + inner_offset + OFFSET_LOG_TOT_LEN);
             // 如果剩余数据不是一条完整的日志记录，则不再进行读取
             if (size == 0 || size + inner_offset > (unsigned int)buffer_.offset_ + 1) {
-                // LOG(INFO) << "The remain data does not contain a complete log record, the next log record's size is: " << size << ", inner_offset: " << inner_offset << ", buffer_offset: " << buffer_.offset_;
+                // // LOG(INFO) << "The remain data does not contain a complete log record, the next log record's size is: " << size << ", inner_offset: " << inner_offset << ", buffer_offset: " << buffer_.offset_;
                 usleep(1000);
                 break;
             }

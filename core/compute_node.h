@@ -48,7 +48,7 @@ public:
     */
     ComputeNode(int nodeid, std::string remote_server_ip, int remote_server_port, MetaManager* meta_manager = nullptr) :node_id(nodeid), meta_manager_(meta_manager) {
         // connect to remote pagetable&bufferpool server
-        LOG(INFO) << "brpc connect to remote pagetable&bufferpool server: " << remote_server_ip << ":" << remote_server_port;
+        // LOG(INFO) << "brpc connect to remote pagetable&bufferpool server: " << remote_server_ip << ":" << remote_server_port;
         brpc::ChannelOptions options;
         options.use_rdma = use_rdma;
         // options.timeout_ms = 5000; // 5s超时
@@ -216,7 +216,7 @@ public:
       int unlock_remote;
       if(SYSTEM_MODE == 1){ // lazy release
         assert(lazy_local_page_lock_tables[table_id] != nullptr && local_page_lock_tables[table_id] == nullptr);
-        unlock_remote = lazy_local_page_lock_tables[table_id]->GetLock(page_id)->Pending(node_id, xpending);
+        return lazy_local_page_lock_tables[table_id]->GetLock(page_id)->Pending(node_id, xpending);
       }
       else{
         assert(false);

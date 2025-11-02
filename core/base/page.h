@@ -64,6 +64,7 @@ class Page {
     friend class StorageBufferPoolManager;
     friend class BufferFusion;
     friend class BufferPool;
+    friend class ComputeServer;
    public:
     
     Page() { reset_memory(); }

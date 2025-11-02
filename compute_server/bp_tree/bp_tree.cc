@@ -121,7 +121,7 @@ void BPTreeNodeHandle::erase_pair(int pos){
 int BPTreeNodeHandle::remove(const itemkey_t* key){
     int pos = lower_bound(key);
     // 如果删除的 key 不存在，直接返回
-    if (!isIt(pos , key)){
+    if (pos == get_size() || !isIt(pos , key)){
         return node_hdr->num_key;
     }
     erase_pair(pos);
@@ -236,14 +236,15 @@ BPTreeNodeHandle* BPTreeIndexHandle::find_leaf_page(const itemkey_t * key , BPOp
         depth++;
         page_id_t child_page_no = node->internal_lookup(key , next_key);
         BPTreeNodeHandle *child = fetch_node(child_page_no , opera);
+        assert(child_page_no > 1);
         // // DEBUG
-        if (child_page_no == 0){
-            page_id_t debug_page_id = node->get_page_no();
-            release_node_in_list(hold_lock_nodes , opera);
-            release_node(child_page_no , opera);
-            find_leaf_page_with_print(key , opera);
-            assert(false);
-        }
+        // if (child_page_no == 0){
+        //     page_id_t debug_page_id = node->get_page_no();
+        //     release_node_in_list(hold_lock_nodes , opera);
+        //     release_node(child_page_no , opera);
+        //     find_leaf_page_with_print(key , opera);
+        //     assert(false);
+        // }
         // 孩子安全了，释放祖先
         if (child->isPageSafe(opera)){
             while (!hold_lock_nodes.empty()){
@@ -650,9 +651,6 @@ bool BPTreeIndexHandle::search(const itemkey_t *key , Rid &result){
     // 在释放页锁之前先把结果复制出来，避免 lazy release 使页面内存失效
     if (exist) {
         result = *rid;
-    }else {
-        // release_node_in_list()
-        assert(false);
     }
     
     // 对于查找操作，最后锁住的一定只有一个叶子节点
@@ -709,25 +707,25 @@ page_id_t BPTreeIndexHandle::insert_entry(const itemkey_t *key , const Rid &valu
         //     BPTreeNodeHandle *par = fetch_node_from_list(hold_lock_nodes , bro->get_parent());
         //     assert(par);
         //     std::stringstream ss1;
-        //     LOG(INFO) << "Par Node : " << par->get_page_no() << "Size : " << par->get_size();
+        //     // LOG(INFO) << "Par Node : " << par->get_page_no() << "Size : " << par->get_size();
         //     for (int i = 0 ; i < par->get_size() ; i++){
         //         ss1 << *par->get_key(i) << " ";
         //     }
-        //     LOG(INFO) << ss1.str();
+        //     // LOG(INFO) << ss1.str();
     
         //     std::stringstream ss2;
-        //     LOG(INFO) << "Leaf : " << leaf->get_page_no() << "Size : " << leaf->get_size();
+        //     // LOG(INFO) << "Leaf : " << leaf->get_page_no() << "Size : " << leaf->get_size();
         //     for (int i = 0 ; i < leaf->get_size() ; i++){
         //         ss2 << *leaf->get_key(i) << " ";
         //     }
-        //     LOG(INFO) << ss2.str();
+        //     // LOG(INFO) << ss2.str();
             
-        //     LOG(INFO) << "Bro : " << bro->get_page_no() << " Bro Size : " << bro->get_size();
+        //     // LOG(INFO) << "Bro : " << bro->get_page_no() << " Bro Size : " << bro->get_size();
         //     std::stringstream ss3;
         //     for (int i = 0 ; i < bro->get_size() ; i++){
         //         ss3 << *bro->get_key(i) << " ";
         //     }
-        //     LOG(INFO) << ss3.str() << "\n\n";
+        //     // LOG(INFO) << ss3.str() << "\n\n";
         //     output_mtx.unlock();
         // }
     }

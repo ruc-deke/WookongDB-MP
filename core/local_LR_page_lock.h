@@ -66,7 +66,7 @@ public:
     }
     
     bool LockShared() {
-        // LOG(INFO) << "LockShared: " << page_id;
+        // // LOG(INFO) << "LockShared: " << page_id;
         bool lock_remote = false;
         bool try_latch = true;
         while(try_latch){
@@ -116,7 +116,7 @@ public:
     }
 
     bool LockExclusive() {
-        // LOG(INFO) << "LockExclusive: " << page_id << std::endl;
+        // // LOG(INFO) << "LockExclusive: " << page_id << std::endl;
         bool lock_remote = false;
         bool try_latch = true;
         while(try_latch){
@@ -179,13 +179,13 @@ public:
     }
 
     void TryGetPushData(table_id_t table_id){
-        LOG(INFO) << "Try Get Push Data , table_id = " << table_id << " page_id = " << page_id;
+        // LOG(INFO) << "Try Get Push Data , table_id = " << table_id << " page_id = " << page_id;
         std::unique_lock<std::mutex> lock(mutex);
         assert(is_granting == true);
         cv.wait(lock , [this]{
             return update_success;
         });
-        LOG(INFO) << "Try Get Push Data Over , table_id = " << table_id << " page_id = " << page_id;
+        // LOG(INFO) << "Try Get Push Data Over , table_id = " << table_id << " page_id = " << page_id;
         update_success = false;
     }
 
@@ -216,7 +216,7 @@ public:
         }
         // 重置远程加锁成功标志位
         success_return = false;
-        LOG(INFO) << "TryRemote LockSuccess , table_id = " << table_id << " page_id = " << page_id;
+        // LOG(INFO) << "TryRemote LockSuccess , table_id = " << table_id << " page_id = " << page_id;
         return ret;
     }
 
@@ -250,16 +250,16 @@ public:
 
     // 调用LockExclusive()或者LockShared()之后, 如果返回true, 则需要调用这个函数将granting状态转换为shared或者exclusive
     void LockRemoteOK(node_id_t node_id){
-        // LOG(INFO) << "LockRemoteOK: " << page_id << std::endl;
+        // // LOG(INFO) << "LockRemoteOK: " << page_id << std::endl;
         mutex.lock();
         assert(is_granting == true);
         // 可以通过lock的值来判断远程的锁模式，因为LockMode::GRANTING和LockMode::UPGRADING的时候其他线程不能加锁
         if(lock == EXCLUSIVE_LOCKED){
-            // LOG(INFO) << "LockRemoteOK: " << page_id << " EXCLUSIVE_LOCKED in node " << node_id;
+            // // LOG(INFO) << "LockRemoteOK: " << page_id << " EXCLUSIVE_LOCKED in node " << node_id;
             remote_mode = LockMode::EXCLUSIVE;
         }
         else{
-            // LOG(INFO) << "LockRemoteOK: " << page_id << " SHARED in node " << node_id;
+            // // LOG(INFO) << "LockRemoteOK: " << page_id << " SHARED in node " << node_id;
             remote_mode = LockMode::SHARED;
         }
         // assert(is_released);
@@ -346,7 +346,6 @@ public:
     int Pending(node_id_t n, bool xpending){
         int unlock_remote = 0;
         mutex.lock();
-        // LOG(INFO) << "Pending: " << page_id ;
         assert(!is_pending);
 
         // 如果远程还持有锁

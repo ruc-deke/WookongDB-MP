@@ -2,13 +2,13 @@
   "local_compute_node": {
     "machine_num": 3,
 "machine_id": 2,
-"thread_num_per_machine": 4,
+"thread_num_per_machine": 8,
 "coroutine_num": 1,
 "txn_system": 1,
     "batch_size": 400
   },
-  "table_buffer_pool_size": 500,  // 每张表分配的缓冲池大小
-  "index_buffer_pool_size": 100,   // 每个索引分配的缓冲池大小
+  "table_buffer_pool_size": 2000,  // 每张表分配的缓冲池大小
+  "index_buffer_pool_size": 1000,   // 每个索引分配的缓冲池大小
   "remote_compute_nodes": {
     "remote_compute_node_ips": [
       "127.0.0.1",

@@ -30,6 +30,8 @@
 #include "remote_page_table/timestamp_rpc.h"
 #include "thread_pool.h"
 
+static std::vector<std::pair<table_id_t , itemkey_t> > insert_key;
+static int cur_cnt = 0;
 struct DataSetItem {
   DataSetItem(DataItemPtr item) {
     item_ptr = std::move(item);
@@ -125,10 +127,18 @@ class DTX {
   inline Rid GetRidFromBTree(table_id_t table_id , itemkey_t key){
     Rid ret = compute_server->get_rid_from_bptree(table_id , key);
 
-    std::mt19937_64 rng(std::random_device{}());
-    std::uniform_int_distribution<itemkey_t> key_dist(300001 , 900000000);
-    itemkey_t gen_key = key_dist(rng);
-    compute_server->insert_into_bptree(table_id , gen_key , {.page_no_ = -100 , .slot_no_ = -100});
+    cur_cnt++;
+    if (cur_cnt % 100 == 0){
+      itemkey_t gen_key = (itemkey_t)(table_id * 200000 + key * 3 - 29293 + (key - table_id) * 2 + cur_cnt / 2);
+      insert_key.emplace_back(std::make_pair(table_id , gen_key));
+      compute_server->insert_into_bptree(table_id , gen_key , {.page_no_ = -100 , .slot_no_ = -100});
+      auto res = insert_key[insert_key.size() / 2];
+  
+      if (res.second >= 300000){
+        compute_server->get_rid_from_bptree(res.first , res.second);
+        compute_server->delete_from_bptree(res.first , res.second);
+      }
+    }
     return ret;
   }
 

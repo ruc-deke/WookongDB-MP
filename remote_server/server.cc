@@ -132,7 +132,7 @@ int socket_start_server(Server *server) {
         clientSockets[i] = accept(serverSocket, nullptr, nullptr);
         // 接收客户端发送的节点数目
         recv(clientSockets[i], &ComputeNodeCount, sizeof(ComputeNodeCount), 0);
-        LOG(INFO) << "Receive: ComputeNodeCount: " << ComputeNodeCount;
+        // LOG(INFO) << "Receive: ComputeNodeCount: " << ComputeNodeCount;
     }
 
     // 计算节点已经启动，建立连接
@@ -148,7 +148,7 @@ int socket_start_server(Server *server) {
         send(clientSockets[i], "SYN-BEGIN", 9, 0);
         close(clientSockets[i]);
     }
-    LOG(INFO) << "Send SYN message to compute nodes";
+    // LOG(INFO) << "Send SYN message to compute nodes";
 
     // 关闭套接字
     close(serverSocket);
