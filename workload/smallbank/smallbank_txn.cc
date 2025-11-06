@@ -306,8 +306,9 @@ bool SmallBankDTX::ReTxWriteCheck(coro_yield_t& yield) {
 /******************** The original logic (Transaction) start ********************/
 
 bool SmallBankDTX::TxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned) {
+  // 设置开始时间戳
   dtx->TxBegin(tx_id);
- //  // LOG(INFO) << "TxAmalgamate" ;
+
   /* Transaction parameters */
   uint64_t acct_id_0, acct_id_1;
 #if UniformHot
@@ -333,7 +334,8 @@ bool SmallBankDTX::TxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, cor
   auto chk_obj_1 = std::make_shared<DataItem>((table_id_t)SmallBankTableType::kCheckingTable, chk_key_1.item_key);
   dtx->AddToReadWriteSet(chk_obj_1, true);
 
-    if (!dtx->TxExe(yield)) return false;
+  // 执行事务，其实就是去读取和修改页面
+  if (!dtx->TxExe(yield)) return false;
   
   /* If we are here, execution succeeded and we have locks */
   smallbank_savings_val_t* sav_val_0 = (smallbank_savings_val_t*)sav_obj_0->value;
@@ -358,7 +360,7 @@ bool SmallBankDTX::TxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, cor
   sav_val_0->bal = 0;
   chk_val_0->bal = 0;
 
-    bool commit_status = dtx->TxCommit(yield);
+  bool commit_status = dtx->TxCommit(yield);
   
   return commit_status;
 
@@ -401,7 +403,6 @@ bool SmallBankDTX::TxBalance(SmallBank* smallbank_client, uint64_t* seed, coro_y
   }
   // assert(sav_val->magic == smallbank_savings_magic);
   // assert(chk_val->magic == smallbank_checking_magic);
-
 
   bool commit_status = dtx->TxCommit(yield);
   

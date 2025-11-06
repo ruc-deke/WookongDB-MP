@@ -282,10 +282,7 @@ void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_
             LOG(ERROR) << "Fail to unlock page " << page_id << " in remote page table";
         }
     }
-    
-    // if (unlock_remote == 2){
-    //     flush_page_to_storage(table_id , page_id);
-    // }
+
     node_->getBufferPoolByIndex(table_id)->releaseBufferPage(table_id , page_id);
     lr_lock->UnlockRemoteOK();
 
@@ -343,10 +340,6 @@ void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_
     }
 
     // 不需要写回到存储层，能到这里的，说明页面肯定会发给别人
-
-    // if (unlock_remote == 2){
-    //     flush_page_to_storage(table_id , page_id);
-    // }
     // 释放掉自己的缓冲区
     node_->getBufferPoolByIndex(table_id)->releaseBufferPage(table_id , page_id);
     lr_lock->UnlockRemoteOK();

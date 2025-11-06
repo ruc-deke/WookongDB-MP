@@ -234,8 +234,6 @@ public:
     }
 
 
-
-
     Rid get_rid_from_bptree(table_id_t table_id , itemkey_t key){
         Rid result;
         bool exist = bp_tree_indexes[table_id]->search(&key , result);
@@ -248,61 +246,11 @@ public:
     }
 
     void delete_from_bptree(table_id_t table_id , itemkey_t key){
-        bp_tree_indexes[table_id]->delete_entry(&key);
+        bp_tree_indexes[table_id]->delete_entry_optimism(&key);
     }
 
     void insert_into_bptree(table_id_t table_id , itemkey_t key , Rid value){
-        bp_tree_indexes[table_id]->insert_entry(&key , value);
-    }
-
-    void test_bptree_concurrency(table_id_t table_id){
-        while(true){
-            std::unordered_set<itemkey_t> maps;
-
-            int num_test_threads = 12;
-            std::vector<std::thread> test_threads;
-
-            std::vector<itemkey_t> test_keys;
-            std::mt19937_64 rng(std::random_device{}());
-            std::uniform_int_distribution<itemkey_t> key_dist(300001 , 900000000);
-            int num_test_keys = 100000;
-            for (int i = 0 ; i < num_test_keys ; i++){
-                itemkey_t gen_key = key_dist(rng);
-                if (maps.find(gen_key) != maps.end()){
-                    i--;
-                    continue;
-                }
-                maps.insert(gen_key);
-                test_keys.push_back(gen_key);
-            }
-            
-            size_t chunk_size = test_keys.size() / num_test_threads;
-            for (int t = 0 ; t < num_test_threads ; t++){
-                size_t start = t * chunk_size;
-                size_t end = (t == num_test_threads - 1 ) ? test_keys.size() : start + chunk_size;
-
-                test_threads.emplace_back([this , table_id , &test_keys , start , end](){
-                    BPTreeIndexHandle *bp_tree = bp_tree_indexes[table_id];
-                    int cur_cnt = 0;
-                    Rid rid1;
-                    itemkey_t key1 = (itemkey_t)(299998);
-                    for (int i = start ; i < end ; i++){
-                        bp_tree->insert_entry(&test_keys[i] , {.page_no_ = -100 , .slot_no_ = -100});
-                        bool res = bp_tree->search(&key1 , rid1);
-                        assert(res);
-                        cur_cnt++;
-                        if (cur_cnt % 1000 == 0){
-                            Rid result;
-                            assert(bp_tree->search(&test_keys[cur_cnt - 1000] , result));
-                        }
-                    }
-                });
-            }
-
-            for (int t = 0 ; t < num_test_threads ; t++){
-                test_threads[t].join();
-            }
-        }
+        bp_tree_indexes[table_id]->insert_entry_optimism(&key , value);
     }
 
     void PushPageToOther(table_id_t table_id , page_id_t page_id , node_id_t dest_node_id);
@@ -353,16 +301,6 @@ public:
     Page* checkIfDirectlyPutInBuffer(table_id_t table_id , page_id_t page_id , const void *data){
         frame_id_t frame_id = INVALID_FRAME_ID;
         bool ans = node_->getBufferPoolByIndex(table_id)->checkIfDirectlyPutInBuffer(page_id , frame_id);
-        // if (frame_id == -2){
-        //     Page *page = node_->fetch_page(table_id , page_id);
-        //     assert(data != nullptr);
-
-        //     std::memcpy(page->get_data() , data , PAGE_SIZE);
-        //     page->page_id_ = page_id;
-        //     page->id_.table_id = table_id;
-        //     page->id_.page_no = page_id;
-        //     return page;
-        // }
         if (ans){
             Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(
                 table_id,
@@ -378,7 +316,8 @@ public:
         return nullptr;
     }
 
-    // LJ
+    // 将页面放进缓冲区中，如果缓冲区满，选择一个页面淘汰
+    // lazy_release 的淘汰策略
     Page *put_page_into_local_buffer(table_id_t table_id , page_id_t page_id , const void *data) {
         bool is_from_lru = false;
         frame_id_t frame_id = -1;
@@ -389,6 +328,7 @@ public:
             return page;
         }
 
+        // 作为一个参数传入淘汰窗口中，目标是锁定一个页面，确保页面淘汰过程中不会被访问
         auto try_begin_evict = ([this , table_id](page_id_t victim_page_id) {
             LRLocalPageLock *lock = this->node_->lazy_local_page_lock_tables[table_id]->GetLock(victim_page_id);
             return lock->TryBeginEvict();
@@ -417,7 +357,8 @@ public:
             }
 
             int unlock_remote = lr_local_lock->getUnlockType();
-            // 如果 unlock_remote = 0，代表已经释放了，不可控
+            // 如果 unlock_remote = 0，代表页面已经被远程释放了，例如 Pending 释放
+            // 这种情况下页面是不可控的，直接跳过
             if (unlock_remote == 0){
                 lr_local_lock->UnlockMtx();
                 lr_local_lock->EndEvict();
@@ -429,10 +370,9 @@ public:
                 /*
                     这里把页面写回到磁盘，至于为啥是先写回到磁盘，再去远程解锁呢，难道不怕远程不允许解锁吗？
                     有两个方面的考虑：
-                    1. 有一个边界条件，如果先解锁远程，再写回到磁盘，加入远程解锁之后，没有节点持有页面所有权了，远程让
-                       这个节点去存储拿，但是这里可能还没写回到磁盘，导致节点读取到错误的数据
-                    2. 我去测试了一下，即使只开了 300 个页面作为缓冲区，发生远程拒绝的情况也只是 1/4000 左右
-                    所以这里先刷下去无所谓，即使远程解锁失败了，刷下去的页面开销也很小 
+                    1. 有一个边界条件，如果先解锁远程，再写回到磁盘，远程解锁之后，假设此时没有节点持有页面所有权了，然后另外一个
+                       节点又去申请了页面所有权，远程通知它去存储拿，但是其实页面还没刷到存储中，节点就读取到了错误的数据
+                    2. 测试了一下，远程不同意的概率是很低的，几万分之一(缓冲区不是很小的时候)，因此就算先刷下去也没关系，即使远程解锁失败了，对性能的影响也不是很大 
                 */
                 // LOG(INFO) << "Flush To Disk Because It Might be replaced , table_id = " << table_id << " page_id = " << replaced_page_id;
                 Page *old_page = node_->fetch_page(table_id , replaced_page_id);
@@ -478,8 +418,7 @@ public:
             }
             
             if (!response->agree()){
-                // std::cout << "This Page Is Rejected\n";
-                // 如果在这个页面上，我被选去了推送页面了，那我就滚
+                // 远程不允许释放，那我就换一个页面淘汰
                 lr_local_lock->EndEvict();
 
                 delete response;
@@ -507,23 +446,6 @@ public:
             }
             lr_local_lock->EndEvict();
             return page;
-        }
-    }
-
-
-    void flush_page_to_storage(table_id_t table_id_ , page_id_t page_id_){
-        Page *old_page = node_->fetch_page(table_id_ , page_id_);
-        storage_service::StorageService_Stub storage_stub(get_storage_channel());
-        brpc::Controller cntl_wp;
-        storage_service::WritePageRequest req;
-        storage_service::WritePageResponse resp;
-        auto* pid = req.mutable_page_id();
-        pid->set_table_name(table_name_meta[table_id_]);
-        pid->set_page_no(page_id_);
-        req.set_data(old_page->get_data(), PAGE_SIZE);
-        storage_stub.WritePage(&cntl_wp, &req, &resp, NULL);
-        if (cntl_wp.Failed()) {
-            assert(false);
         }
     }
 

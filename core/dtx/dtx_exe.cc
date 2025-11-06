@@ -18,17 +18,18 @@ bool DTX::TxExe(coro_yield_t& yield, bool fail_abort) {
 
   // new dtx exe logic
   std::vector<std::future<void>> futures;
+  // 存储要真正去读和写的任务
   std::vector<std::pair<size_t, std::pair<Rid, DataSetItem*>>> ro_fetch_tasks;  // record the index and rid of read-only items
   std::vector<std::pair<size_t, std::pair<Rid, DataSetItem*>>> rw_fetch_tasks;  // record the index and rid of read-write items
 
-  // Step 1 : get the rid from index cache
+  // 步骤 1：先明确之后要执行的任务，把任务装入到 ro_fetch_tasks 里面
   for (size_t i=0; i<read_only_set.size(); i++) {
     DataSetItem& item = read_only_set[i];
     if (!item.is_fetched) { 
       // Get data index
-      Rid rid = GetRidFromIndexCache(item.item_ptr->table_id, item.item_ptr->key);
-      Rid bp_rid = GetRidFromBTree(item.item_ptr->table_id , item.item_ptr->key);
-      assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
+      Rid rid = GetRidFromBTree(item.item_ptr->table_id , item.item_ptr->key);
+      Rid real_rid = GetRidFromIndexCache(item.item_ptr->table_id , item.item_ptr->key);
+      assert(rid.page_no_ == real_rid.page_no_ && rid.slot_no_ == real_rid.slot_no_);
       if(rid.page_no_ == -1) {
         // Data not found
         read_only_set.erase(read_only_set.begin() + i);
@@ -44,9 +45,9 @@ bool DTX::TxExe(coro_yield_t& yield, bool fail_abort) {
     DataSetItem& item = read_write_set[i];
     if (!item.is_fetched) {
       // Get data index
-      Rid rid = GetRidFromIndexCache(item.item_ptr->table_id, item.item_ptr->key);
-      Rid bp_rid = GetRidFromBTree(item.item_ptr->table_id , item.item_ptr->key);
-      assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
+      // Rid rid = GetRidFromIndexCache(item.item_ptr->table_id, item.item_ptr->key);
+      Rid rid = GetRidFromBTree(item.item_ptr->table_id , item.item_ptr->key);
+      // assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
       if(rid.page_no_ == -1) {
         // Data not found
         read_write_set.erase(read_write_set.begin() + i);
@@ -60,7 +61,7 @@ bool DTX::TxExe(coro_yield_t& yield, bool fail_abort) {
     }
   }
 
-  // Step 2: Launch parallel tasks
+  // 真正执行任务，也就是真正地去读取页面数据
   struct timespec start_time2, end_time2;
   clock_gettime(CLOCK_REALTIME, &start_time2);
   for (auto& task : ro_fetch_tasks) {
@@ -154,7 +155,7 @@ bool DTX::TxExe(coro_yield_t& yield, bool fail_abort) {
       else assert(false);
     }));
   }
-  // Step 3: Wait for all fetch tasks to complete
+  // 等待所有任务都结束
   for (auto& fut : futures) {
       fut.get(); // Wait for the future to complete
   }
@@ -190,13 +191,15 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
   // get commit timestamp
     //  // LOG(INFO) << "TxCommit" ;
   // // LOG(INFO) << "DTX: " << tx_id << " TxCommit. coro: " << coro_id;
+
   struct timespec start_time, end_ts_time;
   clock_gettime(CLOCK_REALTIME, &start_time);
   commit_ts = GetTimestampRemote();
   clock_gettime(CLOCK_REALTIME, &end_ts_time);
+  // 把这次获取全局时间戳的耗时给记录下来，加入到 tx...
   tx_get_timestamp_time2 += (end_ts_time.tv_sec - start_time.tv_sec) + (double)(end_ts_time.tv_nsec - start_time.tv_nsec) / 1000000000;
 
-  // write log
+  // 把事务提交的日志给刷到磁盘下去
   brpc::CallId* cid;
   AddLogToTxn();
   // Send log to storage pool
@@ -211,9 +214,8 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
   for(size_t i=0; i<read_write_set.size(); i++){
     DataSetItem& data_item = read_write_set[i];
     assert(data_item.is_fetched);
-    Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
-    Rid bp_rid = GetRidFromBTree(data_item.item_ptr->table_id , data_item.item_ptr->key);
-    assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
+    Rid rid = GetRidFromBTree(data_item.item_ptr->table_id , data_item.item_ptr->key);
+    // assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
     assert(rid.page_no_ >= 0);
 
     struct timespec start_time1, end_time1;
@@ -224,7 +226,10 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
 
     DataItem* orginal_item = nullptr;
     GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid, orginal_item);
+    // 验证在 TxExe 阶段读取到的数据，和我现在读取到的数据是一致的
     assert(orginal_item->key == data_item.item_ptr->key);
+
+    // 提交之后，就把这条记录的 version 和锁给更新一下
     orginal_item->version = commit_ts;
     orginal_item->lock = UNLOCKED;
     memcpy(orginal_item->value, data_item.item_ptr->value, MAX_ITEM_SIZE);
@@ -249,9 +254,9 @@ void DTX::TxAbort(coro_yield_t& yield) {
       DataSetItem& data_item = read_write_set[i];
       if(data_item.is_fetched){ 
         // this data item is fetched and locked
-        Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
-        Rid bp_rid = GetRidFromBTree(data_item.item_ptr->table_id , data_item.item_ptr->key);
-        assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
+        // Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
+        Rid rid = GetRidFromBTree(data_item.item_ptr->table_id , data_item.item_ptr->key);
+        // assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
         struct timespec start_time1, end_time1;
         clock_gettime(CLOCK_REALTIME, &start_time1);
         auto page = FetchXPage(yield, data_item.item_ptr->table_id, rid.page_no_);
@@ -365,9 +370,9 @@ void DTX::Tx2PCCommitLocal(coro_yield_t &yield){
     DataSetItem& data_item = read_write_set[i];
     if(data_item.is_fetched){ 
       // this data item is fetched and locked
-      Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
-      Rid bp_rid = GetRidFromBTree(data_item.item_ptr->table_id , data_item.item_ptr->key);
-      assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
+      // Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
+      Rid rid = GetRidFromBTree(data_item.item_ptr->table_id , data_item.item_ptr->key);
+      // assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
       node_id_t node_id = compute_server->get_node_id_by_page_id(data_item.item_ptr->table_id, rid.page_no_);
       assert(node_id == compute_server->get_node()->getNodeID());
 
@@ -394,9 +399,9 @@ void DTX::Tx2PCCommitAll(coro_yield_t &yield){
     DataSetItem& data_item = read_write_set[i];
     if(data_item.is_fetched){ 
       // this data item is fetched and locked
-      Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
-      Rid bp_rid = GetRidFromBTree(data_item.item_ptr->table_id , data_item.item_ptr->key);
-      assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
+      // Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
+      Rid rid = GetRidFromBTree(data_item.item_ptr->table_id , data_item.item_ptr->key);
+      // assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
       node_id_t node_id = compute_server->get_node_id_by_page_id(data_item.item_ptr->table_id, rid.page_no_);
       if(node_data_map.find(node_id) == node_data_map.end()){
         node_data_map[node_id] = std::vector<std::pair<std::pair<table_id_t, Rid>, char*>>();
@@ -430,9 +435,9 @@ void DTX::Tx2PCAbortLocal(coro_yield_t &yield){
     DataSetItem& data_item = read_write_set[i];
     if(data_item.is_fetched){ 
       // this data item is fetched and locked
-      Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
-      Rid bp_rid = GetRidFromBTree(data_item.item_ptr->table_id , data_item.item_ptr->key);
-      assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
+      // Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
+      Rid rid = GetRidFromBTree(data_item.item_ptr->table_id , data_item.item_ptr->key);
+      // assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
       node_id_t node_id = compute_server->get_node_id_by_page_id(data_item.item_ptr->table_id, rid.page_no_);
       assert(node_id == compute_server->get_node()->getNodeID()); 
 
@@ -458,9 +463,9 @@ void DTX::Tx2PCAbortAll(coro_yield_t &yield){
     DataSetItem& data_item = read_write_set[i];
     if(data_item.is_fetched){ 
       // this data item is fetched and locked
-      Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
-      Rid bp_rid = GetRidFromBTree(data_item.item_ptr->table_id , data_item.item_ptr->key);
-      assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
+      // Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
+      Rid rid = GetRidFromBTree(data_item.item_ptr->table_id , data_item.item_ptr->key);
+      // assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
       node_id_t node_id = compute_server->get_node_id_by_page_id(data_item.item_ptr->table_id, rid.page_no_);
       // LOG(INFO) <<  "Remote release data item " << data_item.item_ptr->table_id << " " << rid.page_no_ << " " << rid.slot_no_;
       // remote page

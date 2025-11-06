@@ -190,6 +190,7 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
   while (true) {
     // static int cnt = 0;
     //std::cout << cnt++ << "\n";
+
     bool is_partitioned = FastRand(&seed) % 100 < (LOCAL_TRASACTION_RATE * 100); // local transaction rate
     SmallBankTxType tx_type = smallbank_workgen_arr[FastRand(&seed) % 100];
     uint64_t iter = ++tx_id_generator;  // Global atomic transaction id

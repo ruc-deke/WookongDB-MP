@@ -19,6 +19,7 @@ static void LogOnRPCDone(storage_service::LogWriteResponse* response, brpc::Cont
     // NewCallback产生的Closure会在Run结束后删除自己，不用我们做。
 }
 
+// 把一条表示事务结束的日志加入到日志集合中
 void DTX::AddLogToTxn(){
     if(txn_log == nullptr){
         txn_log = new TxnLog();
@@ -30,7 +31,7 @@ void DTX::AddLogToTxn(){
     // txn_log->log_mutex.unlock();
 }
 
-// 发送日志到存储层
+// 把这个事务的全部日志序列化成一个字符串，写入到存储层中
 void DTX::SendLogToStoragePool(uint64_t bid, brpc::CallId* cid){
     storage_service::StorageService_Stub stub(storage_log_channel);
     brpc::Controller* cntl = new brpc::Controller();

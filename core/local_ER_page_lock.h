@@ -16,6 +16,7 @@ private:
     bool is_dirty;              // 数据页是否脏页, 仅用于phase-switch, 标记在partitioned_phase中是否被更改
     LockMode remote_mode;       // 这个计算节点申请的远程节点的锁模式
     bool is_granting = false;   // 是否正在授权
+    bool is_evicting = false;   // 是否正在淘汰页面
 
 private:
     std::mutex mutex;           // 用于保护读写锁的互斥锁
@@ -40,7 +41,7 @@ public:
         bool try_latch = true;
         while(try_latch){
             mutex.lock();
-            if(is_granting){
+            if(is_granting || is_evicting){
                 mutex.unlock();
             }
             else if(remote_mode == LockMode::EXCLUSIVE){
@@ -48,7 +49,8 @@ public:
                     mutex.unlock();
                 }
                 else {
-                    // 由于是Eager Release, 不会出现这种情况
+                    // 远程已经持有排他锁，如果本地不在用排他锁，就可以直接用读锁
+                    // 由于采用了 eager-release，所以不会出现这种情况
                     assert(false);
                 }
             }
@@ -61,6 +63,7 @@ public:
                 mutex.unlock();
             }
             else{
+                // 远程没有锁，要去远程获取锁
                 assert(lock == 0);
                 lock++;
                 is_granting = true;
@@ -77,7 +80,7 @@ public:
         bool try_latch = true;
         while(try_latch){
             mutex.lock();
-            if(is_granting){
+            if(is_granting || is_evicting){
                 mutex.unlock();
             }
             else if(remote_mode == LockMode::EXCLUSIVE){

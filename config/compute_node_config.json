@@ -3,7 +3,7 @@
     "machine_num": 3,
 "machine_id": 2,
 "thread_num_per_machine": 8,
-"coroutine_num": 1,
+"coroutine_num": 8,
 "txn_system": 1,
     "batch_size": 400
   },

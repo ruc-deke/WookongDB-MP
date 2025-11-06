@@ -30,8 +30,9 @@
 #include "remote_page_table/timestamp_rpc.h"
 #include "thread_pool.h"
 
-static std::vector<std::pair<table_id_t , itemkey_t> > insert_key;
-static int cur_cnt = 0;
+static thread_local std::vector<std::pair<table_id_t , itemkey_t> > insert_key;
+static thread_local int cur_cnt = 0;
+
 struct DataSetItem {
   DataSetItem(DataItemPtr item) {
     item_ptr = std::move(item);
@@ -128,16 +129,18 @@ class DTX {
     Rid ret = compute_server->get_rid_from_bptree(table_id , key);
 
     cur_cnt++;
-    if (cur_cnt % 100 == 0){
+    if (cur_cnt % 10 == 0){
       itemkey_t gen_key = (itemkey_t)(table_id * 200000 + key * 3 - 29293 + (key - table_id) * 2 + cur_cnt / 2);
-      insert_key.emplace_back(std::make_pair(table_id , gen_key));
       compute_server->insert_into_bptree(table_id , gen_key , {.page_no_ = -100 , .slot_no_ = -100});
+      insert_key.emplace_back(std::make_pair(table_id , gen_key));
       auto res = insert_key[insert_key.size() / 2];
+      Rid result = compute_server->get_rid_from_bptree(res.first , res.second);
+      assert(result != INDEX_NOT_FOUND);
   
-      if (res.second >= 300000){
-        compute_server->get_rid_from_bptree(res.first , res.second);
-        compute_server->delete_from_bptree(res.first , res.second);
-      }
+      // if (res.second >= 300000){
+      //   compute_server->get_rid_from_bptree(res.first , res.second);
+      //   compute_server->delete_from_bptree(res.first , res.second);
+      // }
     }
     return ret;
   }
@@ -200,9 +203,12 @@ class DTX {
 
   TXStatus tx_status;
 
-  std::vector<DataSetItem> read_only_set;
-
-  std::vector<DataSetItem> read_write_set;
+  /*
+    这个项目采用了悲观并发控制的算法
+    元组的锁保存在记录上，事务执行的过程中，如果发现了冲突，那就回滚
+  */
+  std::vector<DataSetItem> read_only_set;     // 本事务读取过的数据项集合
+  std::vector<DataSetItem> read_write_set;    // 本事务修改的数据项集合
 
   IndexCache* index_cache;
   PageCache* page_cache;
@@ -256,6 +262,8 @@ void DTX::TxInit(tx_id_t txid) {
   // start_ts = GetTimestampRemote();
 }
 
+// 初始化事务 ，设置事务的开始时间
+// 开始时间用于 MVCC，仅能看到 version <= start_ts 的数据版本
 ALWAYS_INLINE
 void DTX::TxBegin(tx_id_t txid) {
     struct timespec start_time, end_time;

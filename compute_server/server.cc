@@ -104,6 +104,8 @@ void ComputeNodeServiceImpl::NotifyPushPage(::google::protobuf::RpcController* c
 
     // LOG(INFO) << "NotifyPushPage , table_id = " << table_id << " page_id = " << page_id;
     int try_cnt = 0;
+    // 这里是一个边界条件：我目前持有所有权，但是还在存储里面拿，此时另外一个 S 锁进来了，通知我把页面推送给它
+    // 因此在这里等待，节点把页面从存储拿上来以后，再推送给目标节点
     while (!server->get_node()->getBufferPoolByIndex(table_id)->is_in_bufferPool(page_id)){
         usleep(50);
     }
@@ -215,7 +217,8 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
             delete unlock_response;
         }
     }else {
-        // TODO：其实在这里可以优化下，如果是读锁的话，在这里直接把页面推过去就行，写锁延迟到 lazy_release 的时候推
+        // 之前有个想法，如果是读锁，可以直接把页面给推出去，不需要等到 release 的时候，但是发现不行，原因是就算有所有权，页面也不一定在内存里，可能正在淘汰页面，或者正在从存储拿
+        // 所以这里只能先标记一下需要向谁推送页面，然后等到 lazy_release 的时候，再把页面给推出去
         // LOG(INFO) << "Pending Wait Lock Release , table_id = " << table_id << " page_id = " << page_id;
         if (dest_node_id != INVALID_NODE_ID){
             // 保存下来，等到 lazy_release 的时候再 Push
@@ -226,7 +229,7 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
     }
 
     // 添加模拟延迟
-    usleep(NetworkLatency); // 100us
+    // usleep(NetworkLatency); // 100us
     return;
 }
 

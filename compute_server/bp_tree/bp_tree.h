@@ -135,7 +135,7 @@ public:
     void insert_pairs(int pos , const itemkey_t *keys , const Rid *rids , int n);
     void insert_pair(int pos , const itemkey_t *key , const Rid *rid);
     
-    page_id_t internal_lookup(const itemkey_t* target , itemkey_t &next_key);
+    page_id_t internal_lookup(const itemkey_t* target);
     bool leaf_lookup(const itemkey_t* target, Rid** value);
     bool isIt(int pos, const itemkey_t* key);
     int insert(const itemkey_t* key, const Rid& value);
@@ -272,7 +272,9 @@ public:
         }
     }
 
-    BPTreeNodeHandle* find_leaf_page(const itemkey_t * key , BPOperation opera , std::list<BPTreeNodeHandle*> &hold_lock_nodes , itemkey_t &next_key);
+    BPTreeNodeHandle* find_leaf_page_pessimism(const itemkey_t * key , BPOperation opera , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
+    BPTreeNodeHandle *find_leaf_page_optimism (const itemkey_t *key , BPOperation opera);
+
     BPTreeNodeHandle* find_leaf_page_with_print(const itemkey_t * key , BPOperation opera);
     BPTreeNodeHandle *split(BPTreeNodeHandle *node , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
     void maintain_child(BPTreeNodeHandle* node, int child_idx , std::list<BPTreeNodeHandle*> &hold_lock_nodes);
@@ -289,8 +291,10 @@ public:
     
     // 三个核心函数，search , insert 和 delete
     bool search(const itemkey_t *key , Rid &result);
-    page_id_t insert_entry(const itemkey_t *key , const Rid &value);
-    bool delete_entry(const itemkey_t *key);
+    page_id_t insert_entry_optimism(const itemkey_t *key , const Rid &value);
+    page_id_t insert_entry_pessimism(const itemkey_t *key , const Rid &value);
+    bool delete_entry_optimism(const itemkey_t *key);
+    bool delete_entry_pessimism(const itemkey_t *key);
 
 private:
     ComputeServer* server;

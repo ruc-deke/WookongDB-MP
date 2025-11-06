@@ -20,8 +20,8 @@ DTX::DTX(MetaManager* meta_man,
          int* using_which_coro_sched_) {
   // Transaction setup
   tx_id = 0;
-  t_id = tid;
-  local_t_id = l_tid;
+  t_id = tid;           // thread_ID(Gloabl)
+  local_t_id = l_tid;   // thread_ID(Local)
   coro_id = coroid;
   coro_sched = sched;
   
@@ -40,6 +40,12 @@ DTX::DTX(MetaManager* meta_man,
   thread_pool = thd_pool;
 }
 
+/*
+    每个事务都需要一个开始时间戳
+    如果每个事务都像远程请求一个全局时间戳，那开销太大了
+    因此设置一个 BatchTimeStamp，让远程给我分配 100 个连续的时间戳
+    然后我内部自己再去消化这 100 个时间戳
+*/
 timestamp_t DTX::GetTimestampRemote() {
   timestamp_t ret;
   if(local_timestamp % BatchTimeStamp != 0){

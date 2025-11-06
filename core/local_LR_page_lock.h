@@ -400,6 +400,14 @@ public:
         return unlock_remote;
     }
 
+    int getLockType(){
+        assert(lock != 0);
+        if (lock != EXCLUSIVE_LOCKED){
+            return 1;
+        }
+        return 2;
+    }
+
     void VarifyRemoteLock(bool status){
         mutex.lock();
         if(status == true){

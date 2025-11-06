@@ -51,14 +51,9 @@ void BPTreeNodeHandle::insert_pair(int pos , const itemkey_t *key , const Rid *r
 }
 
 // 内部节点查找 target 所在的子树
-page_id_t BPTreeNodeHandle::internal_lookup(const itemkey_t* target , itemkey_t &next_key){
+page_id_t BPTreeNodeHandle::internal_lookup(const itemkey_t* target){
     assert(!is_leaf());
     int pos = upper_bound(target);
-    if (pos < get_size()){
-        next_key = *get_key(pos);
-    }else{
-        next_key = -1231;
-    }
     page_id_t page_no = value_at(pos - 1);
 
     // 不可能找到 0 和 1 号页面
@@ -177,8 +172,7 @@ BPTreeNodeHandle* BPTreeIndexHandle::find_leaf_page_with_print(const itemkey_t *
         }
         std::cout << "\n\n";
         depth++;
-        itemkey_t baga = 12;
-        page_id_t child_page_no = node->internal_lookup(key , baga);
+        page_id_t child_page_no = node->internal_lookup(key);
         BPTreeNodeHandle *child = fetch_node(child_page_no , opera);
         assert(child_page_no > 1);
 
@@ -204,7 +198,7 @@ BPTreeNodeHandle* BPTreeIndexHandle::find_leaf_page_with_print(const itemkey_t *
     return node;
 }
 
-BPTreeNodeHandle* BPTreeIndexHandle::find_leaf_page(const itemkey_t * key , BPOperation opera , std::list<BPTreeNodeHandle*> &hold_lock_nodes , itemkey_t &next_key){
+BPTreeNodeHandle* BPTreeIndexHandle::find_leaf_page_pessimism(const itemkey_t * key , BPOperation opera , std::list<BPTreeNodeHandle*> &hold_lock_nodes){
     // std::cout << "Got Here\n\n";
     BPTreeNodeHandle *node = nullptr;
     page_id_t root_id;
@@ -234,17 +228,9 @@ BPTreeNodeHandle* BPTreeIndexHandle::find_leaf_page(const itemkey_t * key , BPOp
     int depth = 1;
     while (!node->is_leaf()){
         depth++;
-        page_id_t child_page_no = node->internal_lookup(key , next_key);
+        page_id_t child_page_no = node->internal_lookup(key);
         BPTreeNodeHandle *child = fetch_node(child_page_no , opera);
         assert(child_page_no > 1);
-        // // DEBUG
-        // if (child_page_no == 0){
-        //     page_id_t debug_page_id = node->get_page_no();
-        //     release_node_in_list(hold_lock_nodes , opera);
-        //     release_node(child_page_no , opera);
-        //     find_leaf_page_with_print(key , opera);
-        //     assert(false);
-        // }
         // 孩子安全了，释放祖先
         if (child->isPageSafe(opera)){
             while (!hold_lock_nodes.empty()){
@@ -260,6 +246,40 @@ BPTreeNodeHandle* BPTreeIndexHandle::find_leaf_page(const itemkey_t * key , BPOp
 
     assert(node->is_leaf());
 
+    return node;
+}
+
+// 只有 insert 和 delete 会调用这个函数
+BPTreeNodeHandle *BPTreeIndexHandle::find_leaf_page_optimism(const itemkey_t *key , BPOperation opera){
+    BPTreeNodeHandle *node = nullptr;
+    page_id_t root_id = INVALID_PAGE_ID;
+    while (true){
+        s_get_file_hdr();
+        root_id = file_hdr->root_page_id;
+        s_release_file_hdr();
+
+        node = fetch_node(root_id , BPOperation::SEARCH_OPERA);
+        if (node->is_root_page()){
+            break;
+        }else{
+            release_node(root_id , BPOperation::SEARCH_OPERA);
+        }
+    }
+
+    int depth = 1;
+    while(!node->is_leaf()){
+        depth++;
+        page_id_t child_page_no = node->internal_lookup(key);
+        assert(child_page_no > 1);
+        BPTreeNodeHandle *child = fetch_node(child_page_no , BPOperation::SEARCH_OPERA);
+        // 如果孩子是叶子节点，那就把读锁给升级为写锁
+        if (child->is_leaf()){
+            release_node(child->get_page_no() , BPOperation::SEARCH_OPERA);
+            child = fetch_node(child_page_no , opera);
+        }
+        release_node(node->get_page_no() , BPOperation::SEARCH_OPERA);
+        node = child;
+    }
     return node;
 }
 
@@ -458,6 +478,7 @@ bool BPTreeIndexHandle::coalesce(BPTreeNodeHandle **bro , BPTreeNodeHandle **nod
     return coalesce_or_redistribute(*parent , hold_lock_nodes);
 }
 
+// 合并兄弟的，或者让兄弟把我吞了
 bool BPTreeIndexHandle::coalesce_or_redistribute(BPTreeNodeHandle *node , std::list<BPTreeNodeHandle*> &hold_lock_nodes){
     if (node->is_root_page()){
         bool need_to_delete_root = adjust_root(node);
@@ -635,15 +656,17 @@ void BPTreeIndexHandle::maintain_parent(BPTreeNodeHandle *node){
         release_node(parent->get_page_no() , BPOperation::UPDATE_OPERA);
     }
 }
-std::atomic<int> cnt3{0};
-bool BPTreeIndexHandle::search(const itemkey_t *key , Rid &result){
-    if (cnt3++ % 10000 == 0){
-        std::cout << cnt3 << "\n";
-    }
-    std::list<BPTreeNodeHandle*> hold_lock_nodes;
 
-    itemkey_t next_key;
-    BPTreeNodeHandle *leaf = find_leaf_page(key , BPOperation::SEARCH_OPERA , hold_lock_nodes , next_key);
+bool BPTreeIndexHandle::search(const itemkey_t *key , Rid &result){
+    /*
+        需要用一个 list，来追溯本次操作加上锁的那些节点
+        因为没有办法用 fetch_page 来获取到页面，fetch_page 相当于是一次全新的锁请求
+    */
+    std::list<BPTreeNodeHandle*> hold_lock_nodes;
+    // 对于查找操作来说，乐观和悲观一样的
+    BPTreeNodeHandle *leaf = find_leaf_page_pessimism(key , BPOperation::SEARCH_OPERA , hold_lock_nodes);
+
+    // 对于查找操作来说，最后锁住的一定只有一个页面，即查找的叶子节点
     assert(hold_lock_nodes.size() == 1);
     Rid *rid;
     bool exist = leaf->leaf_lookup(key , &rid);
@@ -664,16 +687,40 @@ bool BPTreeIndexHandle::search(const itemkey_t *key , Rid &result){
     return exist;
 }
 
-// split 完成后，需要把新加的key 插入到 parent 中
-page_id_t BPTreeIndexHandle::insert_entry(const itemkey_t *key , const Rid &value){
-    if (cnt3++ % 10000 == 0){
-        std::cout << cnt3 << "\n";
+page_id_t BPTreeIndexHandle::insert_entry_optimism(const itemkey_t *key , const Rid &value){
+    BPTreeNodeHandle *leaf = find_leaf_page_optimism(key , BPOperation::INSERT_OPERA);
+    assert(leaf->is_leaf());
+
+    int pos = leaf->lower_bound(key);
+    if (leaf->isIt(pos , key)){
+        release_node(leaf->get_page_no() , BPOperation::INSERT_OPERA);
+        return INVALID_PAGE_ID;
     }
+
+    // 这里查找到的 leaf 可能还是 root，因此需要特殊处理一下
+    if (!leaf->isPageSafe(BPOperation::INSERT_OPERA) || leaf->is_root_page()){
+        // 如果插入之后会分裂，那就采用悲观的策略
+        release_node(leaf->get_page_no() , BPOperation::INSERT_OPERA);
+        return insert_entry_pessimism(key , value);
+    }
+
+    int old_size = leaf->get_size();
+    int new_size = leaf->insert(key , value);
+    assert(old_size != new_size);
+
+    int ret = leaf->get_page_no();
+    release_node(leaf->get_page_no() , BPOperation::INSERT_OPERA);
+    return ret;
+}
+
+// split 完成后，需要把新加的key 插入到 parent 中
+page_id_t BPTreeIndexHandle::insert_entry_pessimism(const itemkey_t *key , const Rid &value){
     std::list<BPTreeNodeHandle*> hold_lock_nodes;
 
-    itemkey_t next_key;
-    BPTreeNodeHandle *leaf = find_leaf_page(key , BPOperation::INSERT_OPERA , hold_lock_nodes , next_key);
+    BPTreeNodeHandle *leaf = find_leaf_page_pessimism(key , BPOperation::INSERT_OPERA , hold_lock_nodes);
     assert(leaf->is_leaf());
+
+    // 对于插入操作，锁住的页面数量一定大于等于 1，至少也有一个叶子节点
     assert(hold_lock_nodes.size() >= 1);
 
     int old_size = leaf->get_size();
@@ -683,10 +730,6 @@ page_id_t BPTreeIndexHandle::insert_entry(const itemkey_t *key , const Rid &valu
         release_node_in_list(hold_lock_nodes , BPOperation::INSERT_OPERA);
         return ret;
     }
-
-    // 验证插入成功
-    int insert_idx = leaf->lower_bound(key);
-    assert(*leaf->get_key(insert_idx) == *key);
 
     if (leaf->get_size() == leaf->get_max_size()){
         BPTreeNodeHandle *bro = split(leaf , hold_lock_nodes);
@@ -702,48 +745,17 @@ page_id_t BPTreeIndexHandle::insert_entry(const itemkey_t *key , const Rid &valu
         }
         // 执行完分裂后，需要把分裂出去的那个建插入到父亲
         insert_into_parent(leaf , bro->get_key(0) , bro , hold_lock_nodes);
-        // {
-        //     output_mtx.lock();
-        //     BPTreeNodeHandle *par = fetch_node_from_list(hold_lock_nodes , bro->get_parent());
-        //     assert(par);
-        //     std::stringstream ss1;
-        //     // LOG(INFO) << "Par Node : " << par->get_page_no() << "Size : " << par->get_size();
-        //     for (int i = 0 ; i < par->get_size() ; i++){
-        //         ss1 << *par->get_key(i) << " ";
-        //     }
-        //     // LOG(INFO) << ss1.str();
-    
-        //     std::stringstream ss2;
-        //     // LOG(INFO) << "Leaf : " << leaf->get_page_no() << "Size : " << leaf->get_size();
-        //     for (int i = 0 ; i < leaf->get_size() ; i++){
-        //         ss2 << *leaf->get_key(i) << " ";
-        //     }
-        //     // LOG(INFO) << ss2.str();
-            
-        //     // LOG(INFO) << "Bro : " << bro->get_page_no() << " Bro Size : " << bro->get_size();
-        //     std::stringstream ss3;
-        //     for (int i = 0 ; i < bro->get_size() ; i++){
-        //         ss3 << *bro->get_key(i) << " ";
-        //     }
-        //     // LOG(INFO) << ss3.str() << "\n\n";
-        //     output_mtx.unlock();
-        // }
     }
 
     int ret = leaf->get_page_no();
-
     release_node_in_list(hold_lock_nodes , BPOperation::INSERT_OPERA);
 
     return ret;
 }
 
-bool BPTreeIndexHandle::delete_entry(const itemkey_t *key){
-    if (cnt3++ % 10000 == 0){
-        std::cout << cnt3 << "\n";
-    }
+bool BPTreeIndexHandle::delete_entry_pessimism(const itemkey_t *key){
     std::list<BPTreeNodeHandle*> hold_lock_nodes;
-    itemkey_t next_key;
-    BPTreeNodeHandle *leaf = find_leaf_page(key , BPOperation::DELETE_OPERA , hold_lock_nodes , next_key);
+    BPTreeNodeHandle *leaf = find_leaf_page_pessimism(key , BPOperation::DELETE_OPERA , hold_lock_nodes);
     // 对于删除操作，锁住的节点数量一定 ≥ 1
     assert(hold_lock_nodes.size() >= 1);  
 
@@ -759,5 +771,29 @@ bool BPTreeIndexHandle::delete_entry(const itemkey_t *key){
 
     release_node_in_list(hold_lock_nodes , BPOperation::DELETE_OPERA);
 
+    return true;
+}
+
+bool BPTreeIndexHandle::delete_entry_optimism(const itemkey_t *key){
+    itemkey_t next_key;
+    BPTreeNodeHandle *leaf = find_leaf_page_optimism(key , BPOperation::DELETE_OPERA);
+
+    int delete_pos = leaf->lower_bound(key);
+    if (!leaf->isIt(delete_pos , key)){
+        release_node(leaf->get_page_no() , BPOperation::DELETE_OPERA);
+        return false;
+    }
+
+    // 如果删掉这个元素会导致合并，那就按照悲观的再来一次
+    if (!leaf->isPageSafe(BPOperation::DELETE_OPERA) || leaf->is_root_page()){
+        release_node(leaf->get_page_no() , BPOperation::DELETE_OPERA);
+        return delete_entry_pessimism(key);
+    }
+
+    int old_size = leaf->get_size();
+    int new_size = leaf->remove(key);
+    assert(old_size != new_size);
+
+    release_node(leaf->get_page_no() , BPOperation::DELETE_OPERA);
     return true;
 }
