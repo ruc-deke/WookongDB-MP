@@ -123,6 +123,16 @@ int BPTreeNodeHandle::remove(const itemkey_t* key){
     return node_hdr->num_key;
 }
 
+bool BPTreeNodeHandle::need_delete(const itemkey_t *key){
+    int pos = lower_bound(key);
+    if (pos == get_size() || !isIt(pos , key)){
+        return false;
+    }
+    return true;
+}
+
+
+
 int BPTreeNodeHandle::find_child(page_id_t child_page_id){
     for (int i = 0 ; i < get_size() ; i++){
         if (value_at(i) == child_page_id){
@@ -532,7 +542,7 @@ void BPTreeIndexHandle::insert_into_parent(BPTreeNodeHandle *old_node , const it
     // 如果把根节点分裂了，那就构造一个新的根节点
     if (old_node->is_root_page()){
         page_id_t new_root_id = create_node();
-        std::cout << "Create A New Root , page_id = " << new_root_id << "\n";
+        std::cout << "Create A New Root , page_id = " << new_root_id << "\n\n\n\n";
         BPTreeNodeHandle *new_root = fetch_node(new_root_id , BPOperation::INSERT_OPERA);
 
         new_root->set_is_leaf(false);
@@ -662,6 +672,7 @@ bool BPTreeIndexHandle::search(const itemkey_t *key , Rid &result){
         需要用一个 list，来追溯本次操作加上锁的那些节点
         因为没有办法用 fetch_page 来获取到页面，fetch_page 相当于是一次全新的锁请求
     */
+    
     std::list<BPTreeNodeHandle*> hold_lock_nodes;
     // 对于查找操作来说，乐观和悲观一样的
     BPTreeNodeHandle *leaf = find_leaf_page_pessimism(key , BPOperation::SEARCH_OPERA , hold_lock_nodes);
@@ -778,8 +789,8 @@ bool BPTreeIndexHandle::delete_entry_optimism(const itemkey_t *key){
     itemkey_t next_key;
     BPTreeNodeHandle *leaf = find_leaf_page_optimism(key , BPOperation::DELETE_OPERA);
 
-    int delete_pos = leaf->lower_bound(key);
-    if (!leaf->isIt(delete_pos , key)){
+    // 如果没有要删除的元素，直接返回即可
+    if (!leaf->need_delete(key)){
         release_node(leaf->get_page_no() , BPOperation::DELETE_OPERA);
         return false;
     }

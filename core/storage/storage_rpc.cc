@@ -255,6 +255,7 @@ namespace storage_service{
 
     static std::mutex g_create_page_map_mu;
     static std::unordered_map<table_id_t, std::unique_ptr<std::mutex>> g_create_page_mu;
+    static int create_cnt = 0;
     // TODO：目前创建 Page 是搭积木式的，递增地往前加东西，由于没有垃圾回收策略，所以就算前面有空闲页面，也不管它
     void StoragePoolImpl::CreatePage(::google::protobuf::RpcController* controller , 
                         const ::storage_service::CreatePageRequest *request ,
@@ -315,7 +316,11 @@ namespace storage_service{
                                         reinterpret_cast<char*>(&first_free_page_no), sizeof(int));
         }
 
-        std::cout << "Create A Page , table_id = " << table_id << " page_id = " << new_page_no << "\n";
+        // std::cout << "Create A Page , table_id = " << table_id << " page_id = " << new_page_no << "\n";
+        create_cnt++;
+        if (create_cnt % 2000 == 0){
+            std::cout << "create_cnt = " << create_cnt << "\n";
+        }
 
         disk_manager_->close_file(fd);
 

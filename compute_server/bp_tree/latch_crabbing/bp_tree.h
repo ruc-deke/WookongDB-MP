@@ -141,6 +141,7 @@ public:
     int insert(const itemkey_t* key, const Rid& value);
     void erase_pair(int pos);
     int remove(const itemkey_t* key);
+    bool need_delete(const itemkey_t *key);
 
     int find_child(page_id_t child_page_id);    // 找到 child_page_id 在节点内的位置
 

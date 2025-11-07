@@ -319,6 +319,10 @@ public:
     inline MetaManager* getMetaManager(){
         return meta_manager_;
     }
+
+    node_id_t get_node_id() const {
+        return node_id;
+    }
     
 private:
     node_id_t node_id;

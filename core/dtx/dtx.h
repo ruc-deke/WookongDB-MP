@@ -30,8 +30,11 @@
 #include "remote_page_table/timestamp_rpc.h"
 #include "thread_pool.h"
 
-static thread_local std::vector<std::pair<table_id_t , itemkey_t> > insert_key;
-static thread_local int cur_cnt = 0;
+// static thread_local std::vector<std::pair<table_id_t , std::pair<itemkey_t , bool>>> insert_key;
+// static thread_local int cur_cnt = 0;
+
+static std::atomic<itemkey_t> cur_group{0};
+static std::atomic<itemkey_t> delete_cnt{0};
 
 struct DataSetItem {
   DataSetItem(DataItemPtr item) {
@@ -128,20 +131,35 @@ class DTX {
   inline Rid GetRidFromBTree(table_id_t table_id , itemkey_t key){
     Rid ret = compute_server->get_rid_from_bptree(table_id , key);
 
-    cur_cnt++;
-    if (cur_cnt % 10 == 0){
-      itemkey_t gen_key = (itemkey_t)(table_id * 200000 + key * 3 - 29293 + (key - table_id) * 2 + cur_cnt / 2);
-      compute_server->insert_into_bptree(table_id , gen_key , {.page_no_ = -100 , .slot_no_ = -100});
-      insert_key.emplace_back(std::make_pair(table_id , gen_key));
-      auto res = insert_key[insert_key.size() / 2];
-      Rid result = compute_server->get_rid_from_bptree(res.first , res.second);
-      assert(result != INDEX_NOT_FOUND);
-  
-      // if (res.second >= 300000){
-      //   compute_server->get_rid_from_bptree(res.first , res.second);
-      //   compute_server->delete_from_bptree(res.first , res.second);
-      // }
+    static int found_cnt = 0;
+    static int tot_cnt1 = 0;
+    int node_id = compute_server->get_node()->get_node_id();
+    int now_cnt = cur_group++;
+    int begin = node_id  * 100000000 + (cur_group++) * 100 + 300000;
+    int end = begin + 100;
+    for (int i = begin ; i < end ; i++){
+      compute_server->insert_into_bptree(table_id , i , {.page_no_ = i % 100 , .slot_no_ = i % 100});
+      if (i % 10 == 0){
+        itemkey_t delete_idx = node_id * 100000000 + 300000 + delete_cnt;
+        compute_server->delete_from_bptree(table_id , delete_idx);
+        delete_cnt++;
+
+        int search_idx = delete_idx / 2;
+        itemkey_t search_key = node_id * 100000000 + 300000 + (delete_cnt - 1);
+        auto res = compute_server->get_rid_from_bptree(table_id , search_key);
+        if (res != INDEX_NOT_FOUND){
+          found_cnt++;
+          if (search_key >= 300000){
+            assert(res.page_no_ == search_key % 100);
+          }
+        }
+        tot_cnt1++;
+        if (tot_cnt1 % 10000 == 0){
+          std::cout << "tot_cnt = " << tot_cnt1 << " found_cnt = " << found_cnt << "\n";
+        }
+      }
     }
+
     return ret;
   }
 

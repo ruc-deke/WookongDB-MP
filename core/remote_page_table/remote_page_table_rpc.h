@@ -353,14 +353,14 @@ class PageTableServiceImpl : public PageTableService {
         */
         // 第一种情况：已经把页面释放完了(注意本节点的请求一定不会在请求队列里，所以不需要考虑请求队列的情况)
         if (!gl->CheckIsHoldNoBlock(node_id)){
-            std::cout << "Rejected " << ++reject_cnt << " agree_cnt = " << agree_cnt << "\n";
+            // std::cout << "Rejected " << ++reject_cnt << " agree_cnt = " << agree_cnt << "\n";
             gl->mutexUnlock();
             response->set_agree(false);
             return;
         }
         // 第二种情况：还在释放页面的过程中
         if (gl->getIsPendingNoBlock()){
-            std::cout << "Rejected " << ++reject_cnt << " agree_cnt = " << agree_cnt << "\n";
+            // std::cout << "Rejected " << ++reject_cnt << " agree_cnt = " << agree_cnt << "\n";
             gl->mutexUnlock();
             response->set_agree(false);
             return;
