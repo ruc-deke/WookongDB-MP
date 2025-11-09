@@ -16,6 +16,7 @@
 #include "index/index_manager.h"
 #include "dtx/dtx.h"
 #include "storage/bp_tree/bp_tree.h"
+#include "storage/blink_tree/blink_tree.h"
 
 /* STORED PROCEDURE EXECUTION FREQUENCIES (0-100) */
 // #define FREQUENCY_AMALGAMATE 15
@@ -119,6 +120,7 @@ class SmallBank {
 
   // 存储层用的，只负责插入初始化的那些数据
   std::vector<S_BPTreeIndexHandle*> bp_tree_indexes;
+  std::vector<S_BLinkIndexHandle*> bl_indexes;
 
   // For server usage: Provide interfaces to servers for loading tables
   // Also for client usage: Provide interfaces to clients for generating ids during tests
@@ -128,6 +130,10 @@ class SmallBank {
         // 2颗 B+ 树
         for (int i = 0 ; i < 2 ; i++){
             bp_tree_indexes.emplace_back(new S_BPTreeIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 2 , "smallbank"));
+        }
+        // 两张 BLink 表
+        for (int i = 0 ; i < 2 ; i++){
+            bl_indexes.emplace_back(new S_BLinkIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 4 , "smallbank"));
         }
     }
     bench_name = "smallbank";

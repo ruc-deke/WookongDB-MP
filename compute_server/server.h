@@ -28,7 +28,8 @@
 #include "global_page_lock.h"
 #include "global_valid_table.h"
 
-#include "bp_tree/bp_tree.h"
+#include "bp_tree/latch_crabbing/bp_tree.h"
+#include "bp_tree/blink/blink.h"
 
 extern double ReadOperationRatio; // for workload generator
 extern int TryOperationCnt;  // only for micro experiment
@@ -179,7 +180,7 @@ public:
             global_valid_table_list_ = new std::vector<GlobalValidTable*>();
 
             // SmallBank 2 张表，TPCC 22 张表
-            int table_cnt = (WORKLOAD_MODE == 0) ? 4 : 22;
+            int table_cnt = (WORKLOAD_MODE == 0) ? 6 : 33;
             for(int i=0; i < table_cnt; i++){
                 global_page_lock_table_list_->push_back(new GlobalLockTable());
                 global_valid_table_list_->push_back(new GlobalValidTable());
@@ -199,13 +200,22 @@ public:
             // 初始化 B+ 树
             if (WORKLOAD_MODE == 0){
                 bp_tree_indexes.resize(2);
+                bl_indexes.resize(2);
                 for (int i = 0 ; i < 2 ; i++){
                     bp_tree_indexes[i] = new BPTreeIndexHandle(this , i + 2);
                 }
+                for (int i = 0 ; i < 2 ; i++){
+                    bl_indexes[i] = new BLinkIndexHandle(this , i + 4);
+                }
+
             }else if (WORKLOAD_MODE == 1){
                 bp_tree_indexes.resize(11);
+                bl_indexes.resize(11);
                 for (int i = 0 ; i < 11 ; i++){
                     bp_tree_indexes[i] = new BPTreeIndexHandle(this , i + 11);
+                }
+                for (int i = 0 ; i < 11 ; i++){
+                    bl_indexes[i] = new BLinkIndexHandle(this , i + 22);
                 }
             }else {
                 assert(false);
@@ -233,6 +243,65 @@ public:
 
     }
 
+    Rid get_rid_from_blink(table_id_t table_id , itemkey_t key){
+        Rid result;
+        bool exist = bl_indexes[table_id]->search(&key , result);
+        if (exist){
+            return result;
+        }
+        return INDEX_NOT_FOUND;
+    }
+
+    page_id_t insert_into_bltree(table_id_t table_id , itemkey_t key , Rid value){
+        return bl_indexes[table_id]->insert_entry(&key , value);
+    }
+
+    // void initBlink(table_id_t table_id){
+    //     {
+    //         // 创建一个 0 号页面
+    //         page_id_t zero_page = rpc_create_page(table_id);
+    //         assert(zero_page == 0);
+    //         Page *page = rpc_lazy_fetch_x_page(table_id , zero_page);
+    //         BLNodeHdr *header = reinterpret_cast<BLNodeHdr*>(page->get_data());
+    //         header->is_leaf = true;
+    //         header->next_leaf = BP_INIT_ROOT_PAGE_ID;
+    //         header->num_key = 0;
+    //         header->parent = INVALID_PAGE_ID;
+    //         header->prev_leaf = BP_INIT_ROOT_PAGE_ID;
+    //         header->high_key = -1;
+    //         header->has_high_key = false;
+    //         header->right_sibling = INVALID_PAGE_ID;
+    //         rpc_flush_page_to_storage(table_id , zero_page);
+    //         rpc_lazy_release_x_page(table_id , zero_page);
+    //     }
+
+    //     {
+    //         BLFileHdr *file_hdr = new BLFileHdr(BP_INIT_ROOT_PAGE_ID , BP_INIT_ROOT_PAGE_ID , BP_INIT_ROOT_PAGE_ID);
+    //         page_id_t first_page_id = rpc_create_page(table_id);
+    //         assert(first_page_id == 1);
+    //         Page *page = rpc_lazy_fetch_x_page(table_id , first_page_id);
+    //         file_hdr->serialize(page->get_data());
+    //         rpc_flush_page_to_storage(table_id , first_page_id);
+    //         rpc_lazy_release_x_page(table_id , first_page_id);
+    //     }
+
+    //     {
+    //         page_id_t root_page_id = rpc_create_page(table_id);
+    //         assert(root_page_id == 2);
+    //         Page *root_page = rpc_lazy_fetch_x_page(table_id , root_page_id);
+    //         BLNodeHdr *root = reinterpret_cast<BLNodeHdr*>(root_page->get_data());
+    //         root->is_leaf = true;
+    //         root->next_leaf = BP_LEAF_HEADER_PAGE_ID;
+    //         root->num_key = 0;
+    //         root->parent = INVALID_PAGE_ID;
+    //         root->prev_leaf = BP_LEAF_HEADER_PAGE_ID;
+    //         root->high_key = -1;
+    //         root->has_high_key = false;
+    //         root->right_sibling = INVALID_PAGE_ID;
+    //         rpc_flush_page_to_storage(table_id , root_page_id);
+    //         rpc_lazy_release_x_page(table_id , root_page_id);
+    //     }
+    // }
 
     Rid get_rid_from_bptree(table_id_t table_id , itemkey_t key){
         Rid result;
@@ -297,6 +366,25 @@ public:
     void rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_id);
     
     void rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_id);
+
+    void rpc_flush_page_to_storage(table_id_t table_id , page_id_t page_id){
+        Page *old_page = node_->fetch_page(table_id , page_id);
+        storage_service::StorageService_Stub storage_stub(get_storage_channel());
+        brpc::Controller cntl_wp;
+        storage_service::WritePageRequest req;
+        storage_service::WritePageResponse resp;
+        auto* pid = req.mutable_page_id();
+        pid->set_table_name(table_name_meta[table_id]);
+        pid->set_page_no(page_id);
+        req.set_data(old_page->get_data(), PAGE_SIZE);
+        storage_stub.WritePage(&cntl_wp, &req, &resp, NULL);
+        if (cntl_wp.Failed()) {
+            LOG(ERROR) << "WritePage RPC failed for table_id=" << table_id
+                        << " page_id=" << page_id
+                        << " err=" << cntl_wp.ErrorText();
+            assert(false);
+        }
+    }
 
     Page* checkIfDirectlyPutInBuffer(table_id_t table_id , page_id_t page_id , const void *data){
         frame_id_t frame_id = INVALID_FRAME_ID;
@@ -581,7 +669,11 @@ private:
     ComputeNode* node_;
     std::vector<GlobalLockTable*>* global_page_lock_table_list_;
     std::vector<GlobalValidTable*>* global_valid_table_list_;
+
+    // BPTree
     std::vector<BPTreeIndexHandle*> bp_tree_indexes;
+    std::vector<BLinkIndexHandle*> bl_indexes;
+
     brpc::Channel* nodes_channel; //与其他计算节点通信的channel
     page_table_service::PageTableServiceImpl* page_table_service_impl_; // 保存在类中，以便本地调用
 };

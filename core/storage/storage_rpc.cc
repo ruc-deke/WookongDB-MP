@@ -241,6 +241,8 @@ namespace storage_service{
         if (WORKLOAD_MODE == 0) {
             if (table_id == 2) return "smallbank_savings_bp";
             if (table_id == 3) return "smallbank_checking_bp";
+            if (table_id == 4) return "smallbank_savings_bl";
+            if (table_id == 5) return "smallbank_checking_bl";
             LOG(ERROR) << "Invalid smallbank table_id=" << table_id;
             assert(false);
         } else if (WORKLOAD_MODE == 1) {
@@ -266,6 +268,13 @@ namespace storage_service{
         table_id_t table_id = request->table_id();
         std::string table_path = TableIdToPrimaryPath(table_id);
 
+        std::ifstream file_check(table_path);
+        if (!file_check.good()) {
+            std::ofstream new_file(table_path);
+            new_file.close();
+        }
+        file_check.close();
+
         // 需要加锁，否则可能返回两个相同的 page_id
         {
             std::lock_guard<std::mutex> lk(g_create_page_map_mu);
@@ -278,6 +287,9 @@ namespace storage_service{
 
         // 判断是否为 B+ 索引文件
         bool is_bp_index = (table_path.find("_bp") != std::string::npos);
+        if (!is_bp_index){
+            is_bp_index = (table_path.find("_bl") != std::string::npos);
+        }
 
         // 创建索引页
         if (is_bp_index) {
@@ -316,7 +328,7 @@ namespace storage_service{
                                         reinterpret_cast<char*>(&first_free_page_no), sizeof(int));
         }
 
-        // std::cout << "Create A Page , table_id = " << table_id << " page_id = " << new_page_no << "\n";
+        std::cout << "Create A Page , table_id = " << table_id << " page_id = " << new_page_no << "\n";
         create_cnt++;
         if (create_cnt % 2000 == 0){
             std::cout << "create_cnt = " << create_cnt << "\n";

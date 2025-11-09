@@ -1,5 +1,17 @@
 #include "index_manager.h"
 
+void IndexManager::create_primary_blink(const std::string &file_name){
+    std::string index_name = get_primary_blink(file_name);
+    std::cout << "Creating Primary : " << index_name << "\n";
+
+    int fd = disk_manager->open_file(index_name);
+    int key_size = sizeof(itemkey_t);
+    int col_num = 1;
+
+    int bptree_order = static_cast<int>((PAGE_SIZE - sizeof(BPNodeHdr)) / (key_size + sizeof(Rid)) - 1);
+    assert(bptree_order > 2);
+}
+
 void IndexManager::create_primary(const std::string &file_name){
     std::string index_name = get_primary_name(file_name);
     std::cout << "Creating Primary : " << index_name << "\n";

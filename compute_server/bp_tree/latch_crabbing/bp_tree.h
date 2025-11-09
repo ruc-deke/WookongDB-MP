@@ -1,6 +1,6 @@
 #pragma once
 
-#include "bp_tree_defs.h"
+#include "../bp_tree_defs.h"
 #include "record/rm_manager.h"
 
 #include "memory"
@@ -23,7 +23,6 @@ public:
 
         node_hdr = reinterpret_cast<BPNodeHdr*>(page->get_data());
         keys = reinterpret_cast<itemkey_t*>(page->get_data() + sizeof(BPNodeHdr));
-        // 用字节偏移计算 rids 的起始位置，避免指针加法按元素数放大
         rids = reinterpret_cast<Rid*>(page->get_data() + sizeof(BPNodeHdr) + (order + 1) * key_size);
     }
 

@@ -133,12 +133,12 @@ public:
         int file_size = disk_manager->get_file_size(index_path);
         assert(file_size == 0);
 
-        char abs_path[1000];
-        if (realpath(index_path.c_str() , abs_path) != nullptr){
-            std::cout << "Absolute path: " << abs_path << "\n";
-        }else {
-            assert(false);
-        }
+        // char abs_path[1000];
+        // if (realpath(index_path.c_str() , abs_path) != nullptr){
+        //     std::cout << "Absolute path: " << abs_path << "\n";
+        // }else {
+        //     assert(false);
+        // }
 
         int key_size = sizeof(itemkey_t);
         {

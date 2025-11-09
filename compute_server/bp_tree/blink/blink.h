@@ -28,7 +28,7 @@ public:
     }
 
     bool is_root() const {
-        return node_hdr->parent == INVALID_PAGE_ID;
+        return node_hdr->is_root;
     }
     bool is_leaf() const {
         return node_hdr->is_leaf;
@@ -58,6 +58,10 @@ public:
         rids[index] = rid;
     }
 
+    void set_is_root(bool val){
+        node_hdr->is_root = val;
+    }
+
     int get_size() const {
         return node_hdr->num_key;
     }
@@ -81,7 +85,7 @@ public:
 
     bool need_to_right(itemkey_t target){
         itemkey_t high_key = get_high_key();
-        return (has_high_key() && bl_compare(&high_key , &target) < 0 && get_right_sibling() != INVALID_PAGE_ID);
+        return (has_high_key() && bl_compare(&high_key , &target) <= 0 && get_right_sibling() != INVALID_PAGE_ID);
     }
 
     page_id_t get_page_no() const {
@@ -104,12 +108,12 @@ public:
         node_hdr->next_leaf = nex;
     }
 
-    page_id_t get_parent() const {
-        return node_hdr->parent;
-    }
-    void set_parent(page_id_t par){
-        node_hdr->parent = par;
-    }
+    // page_id_t get_parent() const {
+    //     return node_hdr->parent;
+    // }
+    // void set_parent(page_id_t par){
+    //     node_hdr->parent = par;
+    // }
 
     page_id_t get_right_sibling() const {
         return node_hdr->right_sibling;
@@ -125,7 +129,8 @@ public:
         node_hdr->has_high_key = val;
     }
     void set_high_key(itemkey_t high_key){
-        node_hdr->high_key = high_key;
+        node_hdr->high_key = high_key;  
+        node_hdr->has_high_key = true;  
     }
     itemkey_t get_high_key() const {
         return node_hdr->high_key;
@@ -183,20 +188,22 @@ public:
 
     void write_to_file_hdr();
     void s_get_file_hdr();
-    void x_get_file_hdr();
+    Page* x_get_file_hdr();
     void s_release_file_hdr();
-    void x_release_file_hdr();
+    void x_release_file_hdr(Page *page);
 
     page_id_t create_node();
     void destroy_node(page_id_t page_id);
 
     itemkey_t get_subtree_min_key(BLinkNodeHandle *node);
-    BLinkNodeHandle* find_leaf_for_search(const itemkey_t * key);
-    BLinkNodeHandle* find_leaf_for_insert(const itemkey_t * key);
+    BLinkNodeHandle* find_leaf_for_search(const itemkey_t * key , std::stringstream &ss);
+    BLinkNodeHandle* find_leaf_for_insert(const itemkey_t * key , std::vector<page_id_t> &path);
 
     // 分裂与父插入
-    BLinkNodeHandle *split(BLinkNodeHandle *node);
-    void insert_into_parent(BLinkNodeHandle *old_node , const itemkey_t sep_key , BLinkNodeHandle *new_node);
+    std::pair<BLinkNodeHandle* , itemkey_t> split(BLinkNodeHandle *node);
+    void insert_into_parent(BLinkNodeHandle *old_node , const itemkey_t sep_key ,
+                                      BLinkNodeHandle *new_node ,
+                                      std::vector<page_id_t> &path);
 
     // 三个核心函数：search / insert（delete 暂不实现）
     bool search(const itemkey_t *key , Rid &result);

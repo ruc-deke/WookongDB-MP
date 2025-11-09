@@ -576,6 +576,7 @@ int TPCC::LoadRecord(RmFileHandle* file_handle,
     bp_tree_indexes[table_id]->insert_entry(&item_key , rid);
     bp_tree_indexes[table_id]->write_file_hdr_to_page();
 
+
     std::vector<Rid> results;
     bool exist = bp_tree_indexes[table_id]->search(&item_key , &results);
     assert(exist);

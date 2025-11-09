@@ -33,9 +33,6 @@
 // static thread_local std::vector<std::pair<table_id_t , std::pair<itemkey_t , bool>>> insert_key;
 // static thread_local int cur_cnt = 0;
 
-static std::atomic<itemkey_t> cur_group{0};
-static std::atomic<itemkey_t> delete_cnt{0};
-
 struct DataSetItem {
   DataSetItem(DataItemPtr item) {
     item_ptr = std::move(item);
@@ -131,34 +128,85 @@ class DTX {
   inline Rid GetRidFromBTree(table_id_t table_id , itemkey_t key){
     Rid ret = compute_server->get_rid_from_bptree(table_id , key);
 
-    static int found_cnt = 0;
-    static int tot_cnt1 = 0;
-    int node_id = compute_server->get_node()->get_node_id();
-    int now_cnt = cur_group++;
-    int begin = node_id  * 100000000 + (cur_group++) * 100 + 300000;
-    int end = begin + 100;
-    for (int i = begin ; i < end ; i++){
-      compute_server->insert_into_bptree(table_id , i , {.page_no_ = i % 100 , .slot_no_ = i % 100});
-      if (i % 10 == 0){
-        itemkey_t delete_idx = node_id * 100000000 + 300000 + delete_cnt;
-        compute_server->delete_from_bptree(table_id , delete_idx);
-        delete_cnt++;
+    if (table_id == 0){
+        static std::atomic<int> cur_group{0};
+        int now_cnt = cur_group.fetch_add(1, std::memory_order_relaxed);
 
-        int search_idx = delete_idx / 2;
-        itemkey_t search_key = node_id * 100000000 + 300000 + (delete_cnt - 1);
-        auto res = compute_server->get_rid_from_bptree(table_id , search_key);
-        if (res != INDEX_NOT_FOUND){
-          found_cnt++;
-          if (search_key >= 300000){
-            assert(res.page_no_ == search_key % 100);
+        static std::mutex g_mtx;
+        static std::vector<itemkey_t> g_inserted_keys;
+        static std::unordered_map<itemkey_t, Rid> g_inserted_map;
+        
+        // 建议：构造键范围更清晰，避免重叠；插入真实 rid 或同时校验 slot_no_
+        int node_id = compute_server->get_node()->get_node_id();
+        int node_begin = node_id * 100000000 + 1;
+        int begin = node_id * 100000000 + now_cnt * 100 + 1;
+        int end   = begin + 100;
+
+        
+        for (int i = begin; i < end; ++i) {
+            Rid insert_rid = { .page_no_ = i % 100, .slot_no_ = (i / 100) % 100 }; // 建议至少随机/变化 slot
+            compute_server->insert_into_bltree(table_id, i, insert_rid);
+
+            {
+                std::lock_guard<std::mutex> lk(g_mtx);
+                g_inserted_keys.push_back(i);
+                g_inserted_map[i] = insert_rid;
+            }
+        
+            auto res = compute_server->get_rid_from_blink(table_id, i);
+            assert(res != INDEX_NOT_FOUND);
+            assert(res.page_no_ == insert_rid.page_no_);
+            assert(res.slot_no_ == insert_rid.slot_no_);
+
+        }
+
+        {
+          static thread_local std::mt19937_64 rng(std::random_device{}());
+
+          itemkey_t check_key;
+          Rid expect_rid;
+          {
+              std::lock_guard<std::mutex> lk(g_mtx);
+              std::uniform_int_distribution<size_t> dist(0, g_inserted_keys.size() - 1);
+              check_key = g_inserted_keys[dist(rng)];
+              expect_rid = g_inserted_map[check_key];
           }
-        }
-        tot_cnt1++;
-        if (tot_cnt1 % 10000 == 0){
-          std::cout << "tot_cnt = " << tot_cnt1 << " found_cnt = " << found_cnt << "\n";
-        }
+
+          auto res2 = compute_server->get_rid_from_blink(table_id , check_key);
+          assert(res2 != INDEX_NOT_FOUND);
+          assert(res2.page_no_ == expect_rid.page_no_);
       }
     }
+
+
+    // static int found_cnt = 0;
+    // static int tot_cnt1 = 0;
+    // int node_id = compute_server->get_node()->get_node_id();
+    // int now_cnt = cur_group++;
+    // int begin = node_id  * 100000000 + (cur_group++) * 100 + 300000;
+    // int end = begin + 100;
+    // for (int i = begin ; i < end ; i++){
+    //   compute_server->insert_into_bptree(table_id , i , {.page_no_ = i % 100 , .slot_no_ = i % 100});
+    //   if (i % 10 == 0){
+    //     itemkey_t delete_idx = node_id * 100000000 + 300000 + delete_cnt;
+    //     compute_server->delete_from_bptree(table_id , delete_idx);
+    //     delete_cnt++;
+
+    //     int search_idx = delete_idx / 2;
+    //     itemkey_t search_key = node_id * 100000000 + 300000 + (delete_cnt - 1);
+    //     auto res = compute_server->get_rid_from_bptree(table_id , search_key);
+    //     if (res != INDEX_NOT_FOUND){
+    //       found_cnt++;
+    //       if (search_key >= 300000){
+    //         assert(res.page_no_ == search_key % 100);
+    //       }
+    //     }
+    //     tot_cnt1++;
+    //     if (tot_cnt1 % 10000 == 0){
+    //       std::cout << "tot_cnt = " << tot_cnt1 << " found_cnt = " << found_cnt << "\n";
+    //     }
+    //   }
+    // }
 
     return ret;
   }

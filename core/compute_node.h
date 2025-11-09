@@ -106,9 +106,9 @@ public:
                 }
             }  else if(SYSTEM_MODE == 1) {
                 // 两张 smallbank 表，两个对应的 B+树索引
-                lazy_local_page_lock_tables.reserve(4);
-                local_page_lock_tables.reserve(4);
-                for(int i = 0; i < 4; i++){
+                lazy_local_page_lock_tables.reserve(6);
+                local_page_lock_tables.reserve(6);
+                for(int i = 0; i < 6; i++){
                     lazy_local_page_lock_tables.emplace_back(new LRLocalPageLockTable());
                     local_page_lock_tables.emplace_back(nullptr);
                 }
@@ -131,14 +131,16 @@ public:
                       std::back_inserter(max_page_per_table));
             assert(meta_manager->max_page_num_per_tables.size() == 4);
 
-            local_buffer_pools.reserve(4);
-            local_buffer_pools.resize(4);
+            local_buffer_pools.reserve(6);
+            local_buffer_pools.resize(6);
             std::vector<std::string> table_name;
-            table_name.resize(4);
+            table_name.resize(6);
             table_name[0] = "../storage_server/smallbank_savings";
             table_name[1] = "../storage_server/smallbank_checking";
             table_name[2] = "../storage_server/smallbank_savings_bp";
             table_name[3] = "../storage_server/smallbank_checking_bp";
+            table_name[4] = "../storage_server/smallbank_savings_bl";
+            table_name[5] = "../storage_server/smallbank_checking_bl";
             // 因为要测试 primary <-> buffer <-> storage 交互的功能，所以这里就不预加载了
             for(int table_id = 0; table_id < 2;table_id++) {
                 // 对于过大的表，每次只获取部分页
@@ -151,6 +153,10 @@ public:
                 // 每个 B+ 树的页面数量暂时设置的和表一样大
                 local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id - 2]);
             }
+            for (int table_id = 4 ; table_id < 6 ; table_id++){
+                size_t pool_sz = index_pool_size_cfg;
+                local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id  - 2]);
+            }
         } else if(WORKLOAD_MODE == 1) {
             if(SYSTEM_MODE == 0) {
                 eager_local_page_lock_tables.reserve(11);
@@ -159,9 +165,9 @@ public:
                 }
             }
             else if(SYSTEM_MODE == 1) {
-                lazy_local_page_lock_tables.reserve(22);
-                local_page_lock_tables.reserve(22);
-                for(int i = 0; i < 22; i++){
+                lazy_local_page_lock_tables.reserve(33);
+                local_page_lock_tables.reserve(33);
+                for(int i = 0; i < 33; i++){
                     lazy_local_page_lock_tables.emplace_back(new LRLocalPageLockTable());
                     local_page_lock_tables.emplace_back(nullptr);
                 }
@@ -184,15 +190,19 @@ public:
             std::copy(meta_manager->max_page_num_per_tables.begin(), meta_manager->max_page_num_per_tables.end(),
                         std::back_inserter(max_page_per_table));;
             assert(meta_manager->max_page_num_per_tables.size() == 22);
-            local_buffer_pools.reserve(22);
+            local_buffer_pools.reserve(33);
             // 修复：在后续使用下标赋值之前，必须 resize 到目标大小
-            local_buffer_pools.resize(22);
+            local_buffer_pools.resize(33);
             std::vector<std::string> table_name;
             for(int table_id = 0; table_id < 11 ;table_id++) {
                 size_t pool_sz = has_table_pool_size_cfg ? table_pool_size_cfg : (size_t)(max_page_per_table[table_id] / 5);
                 local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id]);
             }
             for (int table_id = 11 ; table_id < 22 ; table_id++) {
+                size_t pool_sz = index_pool_size_cfg;
+                local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id - 11]);
+            }
+            for (int table_id = 22 ; table_id < 33 ; table_id++){
                 size_t pool_sz = index_pool_size_cfg;
                 local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id - 11]);
             }

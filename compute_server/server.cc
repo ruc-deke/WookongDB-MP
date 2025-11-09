@@ -405,15 +405,17 @@ std::string ComputeServer::UpdatePageFromRemoteCompute(table_id_t table_id, page
 
 void ComputeServer::InitTableNameMeta(){
     if(WORKLOAD_MODE == 0){
-        table_name_meta.resize(4);
+        table_name_meta.resize(6);
         table_name_meta[0] = "../storage_server/smallbank_savings";
         table_name_meta[1] = "../storage_server/smallbank_checking";
         table_name_meta[2] = "../storage_server/smallbank_savings_bp";
         table_name_meta[3] = "../storage_server/smallbank_checking_bp";
+        table_name_meta[4] = "../storage_server/smallbank_savings_bl";
+        table_name_meta[5] = "../storage_server/smallbank_checking_bl";
     }
     else if(WORKLOAD_MODE == 1){
-        // TODO
-        table_name_meta.resize(22);
+        // 11 张原始表，11 张 B+ 树楔形协议表，11 张 BLink 表
+        table_name_meta.resize(33);
         table_name_meta[0] = "../storage_server/TPCC_warehouse";
         table_name_meta[1] = "../storage_server/TPCC_district";
         table_name_meta[2] = "../storage_server/TPCC_customer";
@@ -436,6 +438,17 @@ void ComputeServer::InitTableNameMeta(){
         table_name_meta[19] = "../storage_server/TPCC_stock_bp";
         table_name_meta[20] = "../storage_server/TPCC_customerindex_bp";
         table_name_meta[21] = "../storage_server/TPCC_orderindex_bp";
+        table_name_meta[22] = "../storage_server/TPCC_warehouse_bl";
+        table_name_meta[23] = "../storage_server/TPCC_district_bl";
+        table_name_meta[24] = "../storage_server/TPCC_customer_bl";
+        table_name_meta[25] = "../storage_server/TPCC_customerhistory_bl";
+        table_name_meta[26] = "../storage_server/TPCC_ordernew_bl";
+        table_name_meta[27] = "../storage_server/TPCC_order_bl";
+        table_name_meta[28] = "../storage_server/TPCC_orderline_bl";
+        table_name_meta[29] = "../storage_server/TPCC_item_bl";
+        table_name_meta[30] = "../storage_server/TPCC_stock_bl";
+        table_name_meta[31] = "../storage_server/TPCC_customerindex_bl";
+        table_name_meta[32] = "../storage_server/TPCC_orderindex_bl";
     }
 }
 

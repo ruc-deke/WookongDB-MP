@@ -72,6 +72,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
             node_id_t valid_node = response->newest_node();
             // 如果需要去存储里面拿
             if (need_storage){
+                // std::cout << "Fetch Page From Storage\n";
                 std::string data = rpc_fetch_page_from_storage(table_id , page_id);
                 page = put_page_into_local_buffer(table_id , page_id , data.c_str());
             } else if(valid_node != -1){

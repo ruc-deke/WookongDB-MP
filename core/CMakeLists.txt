@@ -52,6 +52,7 @@ set(Storage_SRC
         storage/storage_rpc.cc
         storage/storage_service.pb.cc
         storage/bp_tree/bp_tree.cc        
+        storage/blink_tree/blink_tree.cc    
 )
 
 add_library(storage STATIC
