@@ -17,6 +17,12 @@
 // 40: micro-benchmark
 #define MAX_ITEM_SIZE 8
 
+enum class TsPhase{
+    BEGIN = 0,          // 初始化
+    RUNNING = 1,        // 在时间片内
+    SWITCHING = 2       // 切换阶段
+};
+
 #define ComputeNodeBufferPageSize 262144 // 262144*4KB = 1GB
 // #define ComputeNodeBufferPageSize 2621440 // for leap
 

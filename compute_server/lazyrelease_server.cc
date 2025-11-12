@@ -5,13 +5,6 @@
 
 std::atomic<int> cnt{0};
 
-
-// 找到问题了，这边还阻塞在 waitLockSuccess，但是远程认为它已经加速成功了
-// 有两种可能：
-// 1. 远程有问题，比如漏掉了给我发LockSuccess
-// 2. PushPage有问题，之后找找
-
-
 Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_id) {
     assert(page_id < ComputeNodeBufferPageSize);
     if (cnt++ % 100000 == 0){
@@ -63,11 +56,9 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
             exit(0);
         }
         // 如果不需要等待远程释放锁，也就是可以立刻获得锁，此时在远程已经加锁成功了
-        /*
-         * 有几种情况不需要等待
-         * 1. 远程是读锁，且没人在等待锁
-         * 2. 没人持有锁
-        */
+        // 只有两种情况不需要等待：
+        // 1. 别的节点是读锁，我也加了个读锁，可以立刻拿到锁
+        // 2. 没有节点持有页面所有权，我直接去存储拿
         if(!response->wait_lock_release()){
             // 会走到这里，说明可以立刻获得锁的所有权
             node_id_t valid_node = response->newest_node();
@@ -173,6 +164,7 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
          * 捋一捋，有几种情况不需要等待：
          * 1. 现在是读锁，只有本节点持有读锁，且这个请求是这个节点发出的写锁
          * 2. 没人持有锁
+         * 3. 我持有读锁，并且目前只有我这个节点持有读锁，然后我想升级为写锁，这种情况可以直接同意加写锁
          **/
         if(!response->wait_lock_release()){
             node_id_t valid_node = response->newest_node();

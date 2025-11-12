@@ -568,6 +568,6 @@ class PageTableServiceImpl : public PageTableService {
     std::vector<GlobalValidTable*>* page_valid_table_list_;
 
     public:
-    std::atomic<int> immedia_transfer = 0;
+    std::atomic<int> immedia_transfer{0};
 };
 };

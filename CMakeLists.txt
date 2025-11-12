@@ -5,6 +5,8 @@ project(Chimera)
 option(LINK_SO "Whether are linked dynamically" ON)
 add_compile_options(-Wno-deprecated-declarations)
 
+set(CMAKE_EXPORT_COMPILECOMMANDS ON)
+
 execute_process(
     COMMAND bash -c "find ${PROJECT_SOURCE_DIR}/ -type d -regex \".*output/include$\" | head -n1 | xargs dirname | tr -d '\n'"
     OUTPUT_VARIABLE OUTPUT_PATH

@@ -380,19 +380,6 @@ std::string ComputeServer::UpdatePageFromRemoteCompute(table_id_t table_id, page
         // memcpy(page->get_data(), response->page_data().c_str(), response->page_data().size());
     }
 
-    {
-        // Debug：检查 page 是否全为 0
-        // bool res = true;
-        // char *page_data = page->get_data();
-        // for (int i = 0 ; i < PAGE_SIZE ; i++){
-        //     if (page_data[i] != 0){
-        //         res = false;
-        //         break;
-        //     }
-        // }
-        // assert(!res);
-    }
-
     // delete response;
     delete response;
     clock_gettime(CLOCK_REALTIME, &end_time);

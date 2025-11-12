@@ -260,53 +260,6 @@ public:
         return bl_indexes[table_id]->delete_entry(&key);
     }
 
-    // void initBlink(table_id_t table_id){
-    //     {
-    //         // 创建一个 0 号页面
-    //         page_id_t zero_page = rpc_create_page(table_id);
-    //         assert(zero_page == 0);
-    //         Page *page = rpc_lazy_fetch_x_page(table_id , zero_page);
-    //         BLNodeHdr *header = reinterpret_cast<BLNodeHdr*>(page->get_data());
-    //         header->is_leaf = true;
-    //         header->next_leaf = BP_INIT_ROOT_PAGE_ID;
-    //         header->num_key = 0;
-    //         header->parent = INVALID_PAGE_ID;
-    //         header->prev_leaf = BP_INIT_ROOT_PAGE_ID;
-    //         header->high_key = -1;
-    //         header->has_high_key = false;
-    //         header->right_sibling = INVALID_PAGE_ID;
-    //         rpc_flush_page_to_storage(table_id , zero_page);
-    //         rpc_lazy_release_x_page(table_id , zero_page);
-    //     }
-
-    //     {
-    //         BLFileHdr *file_hdr = new BLFileHdr(BP_INIT_ROOT_PAGE_ID , BP_INIT_ROOT_PAGE_ID , BP_INIT_ROOT_PAGE_ID);
-    //         page_id_t first_page_id = rpc_create_page(table_id);
-    //         assert(first_page_id == 1);
-    //         Page *page = rpc_lazy_fetch_x_page(table_id , first_page_id);
-    //         file_hdr->serialize(page->get_data());
-    //         rpc_flush_page_to_storage(table_id , first_page_id);
-    //         rpc_lazy_release_x_page(table_id , first_page_id);
-    //     }
-
-    //     {
-    //         page_id_t root_page_id = rpc_create_page(table_id);
-    //         assert(root_page_id == 2);
-    //         Page *root_page = rpc_lazy_fetch_x_page(table_id , root_page_id);
-    //         BLNodeHdr *root = reinterpret_cast<BLNodeHdr*>(root_page->get_data());
-    //         root->is_leaf = true;
-    //         root->next_leaf = BP_LEAF_HEADER_PAGE_ID;
-    //         root->num_key = 0;
-    //         root->parent = INVALID_PAGE_ID;
-    //         root->prev_leaf = BP_LEAF_HEADER_PAGE_ID;
-    //         root->high_key = -1;
-    //         root->has_high_key = false;
-    //         root->right_sibling = INVALID_PAGE_ID;
-    //         rpc_flush_page_to_storage(table_id , root_page_id);
-    //         rpc_lazy_release_x_page(table_id , root_page_id);
-    //     }
-    // }
-
     Rid get_rid_from_bptree(table_id_t table_id , itemkey_t key){
         Rid result;
         bool exist = bp_tree_indexes[table_id]->search(&key , result);
@@ -364,12 +317,31 @@ public:
 
     // ****************** for lazy release *********************
     Page* rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_id);
-
     Page* rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_id);
-
     void rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_id);
-    
     void rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_id);
+    // ****************** lazy release end ********************
+
+    // ******************* for ts fetch ***********************
+    Page *rpc_ts_fetch_s_page(table_id_t table_id , page_id_t page_id);
+    Page *rpc_ts_fetch_x_page(table_id_t table_id , page_id_t page_id);
+    void rpc_ts_release_s_page(table_id_t table_id , page_id_t page_id);
+    void rpc_ts_release_x_page(table_id_t table_id , page_id_t page_id);
+
+    // 切换当前节点所在的时间片
+    void ts_switch_phase();     
+    // 阶段切换的时候，需要向远程发送请求，让他们告诉我目前我的这个分片内，每个页面的最新版本在谁那里
+    void rpc_ts_switch_get_page_locate();    
+    void rpc_ts_switch_invalid_pages();
+
+    inline bool is_ts_par_page(table_id_t table_id , page_id_t page_id){
+        auto max_pages_this_table = node_->meta_manager_->GetMaxPageNumPerTable(table_id);
+        auto partition_size = (max_pages_this_table) / ComputeNodeCount;
+        page_id_t page_begin = node_->ts_cnt * partition_size + 1;
+        page_id_t page_end = node_->ts_cnt * (partition_size + 1) + 1;
+        return page_id >= page_begin && page_id <= page_end;
+    }
+    // ******************* ts fetch end ***********************
 
     void rpc_flush_page_to_storage(table_id_t table_id , page_id_t page_id){
         Page *old_page = node_->fetch_page(table_id , page_id);
@@ -654,6 +626,7 @@ public:
 
     // 从远程取数据页
     std::string UpdatePageFromRemoteCompute(table_id_t table_id, page_id_t page_id, node_id_t node_id);
+    std::string UpdatePageFromRemoteComputeTS(table_id_t table_id , page_id_t page_id , node_id_t node_id);
 
     // 获取与其他计算节点通信的channel
     inline brpc::Channel* get_pagetable_channel(){ return &node_->page_table_channel; }

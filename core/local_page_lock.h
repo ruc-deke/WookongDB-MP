@@ -38,6 +38,10 @@ public:
     void SetNewestNode(node_id_t node_id) {
         newest_node = node_id;
     }
+
+    void UnlockMtx(){
+        mutex.unlock();
+    }
     
     node_id_t LockShared() {
         node_id_t ret = -1;

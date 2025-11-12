@@ -3,11 +3,14 @@
         {
             "name": "Linux",
             "includePath": [
-                "${workspaceFolder}/**"
+                "${workspaceFolder}/**",
+                "/usr/local/workspace/Hybrid_Cloud_MP",
+                "/usr/include/c++/11",
+                "/usr/include"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",
-            "cStandard": "c17",
+            "cStandard": "c11",
             "intelliSenseMode": "linux-gcc-x64",
             "configurationProvider": "ms-vscode.cmake-tools"
         }

@@ -143,7 +143,6 @@ public:
             table_name[5] = "../storage_server/smallbank_checking_bl";
             // 因为要测试 primary <-> buffer <-> storage 交互的功能，所以这里就不预加载了
             for(int table_id = 0; table_id < 2;table_id++) {
-                // 对于过大的表，每次只获取部分页
                 size_t pool_sz = has_table_pool_size_cfg ? table_pool_size_cfg : (size_t)(max_page_per_table[table_id] / 5);
                 // pool_sz = max_page_per_table[table_id];
                 local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id]);
@@ -380,14 +379,14 @@ public:
     std::condition_variable phase_switch_cv;
     std::mutex phase_switch_mutex;
     // phase switch 统计
-    std::atomic<int> partition_cnt = 0;
-    std::atomic<int> global_cnt = 0;
-    std::atomic<int> stat_partition_cnt = 0;
-    std::atomic<int> stat_global_cnt = 0;
-    std::atomic<int> stat_commit_partition_cnt = 0;
-    std::atomic<int> stat_commit_global_cnt = 0;
-    std::atomic<int> stat_hit = 0;
-    std::atomic<int> stat_miss = 0;
+    std::atomic<int> partition_cnt{0};
+    std::atomic<int> global_cnt{0};
+    std::atomic<int> stat_partition_cnt{0};
+    std::atomic<int> stat_global_cnt{0};
+    std::atomic<int> stat_commit_partition_cnt{0};
+    std::atomic<int> stat_commit_global_cnt{0};
+    std::atomic<int> stat_hit{0};
+    std::atomic<int> stat_miss{0};
     double partition_tps = 0;
     double global_tps = 0;
     int partition_ms = EpochTime * (1-CrossNodeAccessRatio);
@@ -395,6 +394,12 @@ public:
     int max_par_txn_queue;
     int max_global_txn_queue;
     int epoch = 0;
+
+    TsPhase ts_phase = TsPhase::BEGIN;     // 所处的阶段
+    int ts_cnt = 0;                 // 当前节点处于哪个时间片中
+    std::mutex ts_switch_mutex;
+    std::condition_variable ts_switch_cond;
+    int ts_time = 100000;         // 单个时间片大小 100000us = 100ms
 
     // for delay release
     bool check_delay_release_finish = false;
