@@ -108,13 +108,6 @@ public:
         node_hdr->next_leaf = nex;
     }
 
-    // page_id_t get_parent() const {
-    //     return node_hdr->parent;
-    // }
-    // void set_parent(page_id_t par){
-    //     node_hdr->parent = par;
-    // }
-
     page_id_t get_right_sibling() const {
         return node_hdr->right_sibling;
     }
@@ -196,8 +189,9 @@ public:
     void destroy_node(page_id_t page_id);
 
     itemkey_t get_subtree_min_key(BLinkNodeHandle *node);
-    BLinkNodeHandle* find_leaf_for_search(const itemkey_t * key , std::stringstream &ss);
+    BLinkNodeHandle* find_leaf_for_search(const itemkey_t * key);
     BLinkNodeHandle* find_leaf_for_insert(const itemkey_t * key , std::vector<page_id_t> &path);
+    BLinkNodeHandle* find_leaf_for_delete(const itemkey_t * key);
 
     // 分裂与父插入
     std::pair<BLinkNodeHandle* , itemkey_t> split(BLinkNodeHandle *node);
@@ -208,6 +202,7 @@ public:
     // 三个核心函数：search / insert（delete 暂不实现）
     bool search(const itemkey_t *key , Rid &result);
     page_id_t insert_entry(const itemkey_t *key , const Rid &value);
+    bool delete_entry(const itemkey_t *key);
 
 private:
     ComputeServer *server;

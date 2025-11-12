@@ -256,6 +256,10 @@ public:
         return bl_indexes[table_id]->insert_entry(&key , value);
     }
 
+    bool delete_from_bltree(table_id_t table_id , itemkey_t key){
+        return bl_indexes[table_id]->delete_entry(&key);
+    }
+
     // void initBlink(table_id_t table_id){
     //     {
     //         // 创建一个 0 号页面

@@ -20,7 +20,7 @@ struct BLNodeHdr{
 
     itemkey_t high_key;
     bool is_leaf;
-    bool has_high_key;  // 每一层，最右边节点为 true，其它节点为 false
+    bool has_high_key;  // 每一层，最右边节点为 false，其它节点为 true
     bool is_root;
 };
 

@@ -152,11 +152,13 @@ void S_BLinkIndexHandle::destroy_node(page_id_t page_id){
     buffer_pool->delete_page(pid);
 }
 
-S_BLinkNodeHandle* S_BLinkIndexHandle::find_leaf(const itemkey_t * key , BPOperation opera){
+S_BLinkNodeHandle* S_BLinkIndexHandle::find_leaf(const itemkey_t * key , BPOperation opera , std::vector<page_id_t> &trace){
     page_id_t root_id = file_hdr->root_page_id;
     S_BLinkNodeHandle *node = fetch_node(root_id , opera);
     while (!node->is_leaf()){
         page_id_t child_page_no = node->internal_lookup(key);
+        trace.emplace_back(node->get_page_no());
+        release_node(child_page_no , BPOperation::SEARCH_OPERA);
         S_BLinkNodeHandle *child = fetch_node(child_page_no , opera);
         node = child;
     }
@@ -165,6 +167,7 @@ S_BLinkNodeHandle* S_BLinkIndexHandle::find_leaf(const itemkey_t * key , BPOpera
 
 
 
+// 更新：S_BLinkIndexHandle::split（设置左页高键标志，内部页维护子亲）
 std::pair<S_BLinkNodeHandle* , itemkey_t> S_BLinkIndexHandle::split(S_BLinkNodeHandle *node){
     assert(node->get_size() == node->get_max_size());
     page_id_t new_node_id = create_node();
@@ -175,6 +178,9 @@ std::pair<S_BLinkNodeHandle* , itemkey_t> S_BLinkIndexHandle::split(S_BLinkNodeH
     new_node->set_prev_leaf(INVALID_PAGE_ID);
     new_node->set_next_leaf(INVALID_PAGE_ID);
     new_node->set_right_sibling(node->get_right_sibling());
+    if (!new_node->is_leaf()){
+        new_node->reset_high_key();
+    }
 
     // 均分
     int old_node_size = node->get_size() / 2;
@@ -187,7 +193,6 @@ std::pair<S_BLinkNodeHandle* , itemkey_t> S_BLinkIndexHandle::split(S_BLinkNodeH
     node->set_size(old_node_size);
 
     itemkey_t old_node_high_key = *new_node->get_key(0);
-    // 维护叶子链
     if (new_node->is_leaf()){
         new_node->set_next_leaf(node->get_next_leaf());
         new_node->set_prev_leaf(node->get_page_no());
@@ -209,7 +214,7 @@ std::pair<S_BLinkNodeHandle* , itemkey_t> S_BLinkIndexHandle::split(S_BLinkNodeH
     return std::make_pair(new_node , old_node_high_key);
 }
 
-void S_BLinkIndexHandle::insert_into_parent(S_BLinkNodeHandle *old_node , const itemkey_t sep_key , S_BLinkNodeHandle *new_node){
+void S_BLinkIndexHandle::insert_into_parent(S_BLinkNodeHandle *old_node , const itemkey_t sep_key , S_BLinkNodeHandle *new_node , std::vector<page_id_t> &trace){
     if (old_node->is_root()){
         page_id_t new_root_id = create_node();
         S_BLinkNodeHandle *new_root = fetch_node(new_root_id , BPOperation::INSERT_OPERA);
@@ -241,13 +246,43 @@ void S_BLinkIndexHandle::insert_into_parent(S_BLinkNodeHandle *old_node , const 
 
     // S_BLinkNodeHandle *parent = fetch_node(old_node->get_parent() , BPOperation::INSERT_OPERA);
     page_id_t old_page_id = old_node->get_page_no();
+    page_id_t new_page_id = new_node->get_page_no();
+    release_node(new_page_id , BPOperation::INSERT_OPERA);
 
+    page_id_t parent_page_id = trace.back();
+    trace.pop_back();
+
+    S_BLinkNodeHandle *parent = fetch_node(parent_page_id , BPOperation::INSERT_OPERA);
+    release_node(old_page_id , BPOperation::INSERT_OPERA);
+
+    int idx = parent->find_child(old_page_id);
+    assert(idx != -1);
+
+    Rid rid2 = {.page_no_ = new_page_id , -1};
+    parent->insert_pairs(idx + 1 , &sep_key , &rid2 , 1);
+
+    delete old_node;
+    delete new_node;
+
+    if (parent->get_size() == parent->get_max_size()){
+        auto res = split(parent);
+        S_BLinkNodeHandle *parent_right_bro = res.first;
+        itemkey_t min_key = res.second;
+        insert_into_parent(parent , min_key , parent_right_bro , trace);
+        return ;
+    }else {
+        release_node(parent->get_page_no() , BPOperation::INSERT_OPERA);
+        return ;
+    }
+    assert(false);
 }
 
 bool S_BLinkIndexHandle::search(const itemkey_t *key , Rid &result){
-    S_BLinkNodeHandle *leaf = find_leaf(key , BPOperation::SEARCH_OPERA);
+    std::vector<page_id_t> baga;
+    S_BLinkNodeHandle *leaf = find_leaf(key , BPOperation::SEARCH_OPERA , baga);
     Rid *rid;
     bool exist = leaf->leaf_lookup(key , &rid);
+    assert(exist);
     if (exist){
         result = *rid;
     }
@@ -257,11 +292,11 @@ bool S_BLinkIndexHandle::search(const itemkey_t *key , Rid &result){
 }
 
 page_id_t S_BLinkIndexHandle::insert_entry(const itemkey_t *key , const Rid &value){
-    S_BLinkNodeHandle *leaf = find_leaf(key , BPOperation::INSERT_OPERA);
+    std::vector<page_id_t> trace;
+    S_BLinkNodeHandle *leaf = find_leaf(key , BPOperation::INSERT_OPERA , trace);
     assert(leaf->is_leaf());
-
     int pos = leaf->lower_bound(key);
-    if (leaf->isIt(pos , key)){
+    if (pos != leaf->get_size() && leaf->isIt(pos , key)){
         page_id_t ret = leaf->get_page_no();
         release_node(leaf->get_page_no() , BPOperation::INSERT_OPERA);
         delete leaf;
@@ -287,7 +322,7 @@ page_id_t S_BLinkIndexHandle::insert_entry(const itemkey_t *key , const Rid &val
             disk_manager->write_page(table_id , BP_HEAD_PAGE_ID , page_buf , PAGE_SIZE);
         }
 
-        insert_into_parent(leaf , *bro->get_key(0) , bro);
+        insert_into_parent(leaf , *bro->get_key(0) , bro , trace);
         return ret;
     }
 
@@ -303,3 +338,5 @@ void S_BLinkIndexHandle::write_file_hdr_to_page() {
     file_hdr->serialize(page_buf);
     disk_manager->write_page(table_id , BP_HEAD_PAGE_ID , page_buf , PAGE_SIZE);
 }
+
+

@@ -13,6 +13,9 @@
 #include <algorithm>
 #include <cassert>
 
+/*
+    本文件只负责构建初始数据，不考虑并发，只是构建一个数据结构而已
+*/
 class S_BLinkNodeHandle{
 public:
     typedef std::shared_ptr<S_BLinkNodeHandle> ptr;
@@ -38,6 +41,7 @@ public:
 
     itemkey_t *get_key(int index) const { return &keys[index]; }
     Rid *get_rid(int index) const { return &rids[index]; }
+
 
     void set_key(int index , itemkey_t key){ keys[index] = key; }
     void set_rid(int index , Rid rid){ rids[index] = rid; }
@@ -222,11 +226,11 @@ public:
     void destroy_node(page_id_t page_id);
 
     // 查找与插入
-    S_BLinkNodeHandle* find_leaf(const itemkey_t * key , BPOperation opera);
+    S_BLinkNodeHandle* find_leaf(const itemkey_t * key , BPOperation opera , std::vector<page_id_t> &trace);
 
     // 分裂与父插入（返回右页与分隔键）
     std::pair<S_BLinkNodeHandle* , itemkey_t> split(S_BLinkNodeHandle *node);
-    void insert_into_parent(S_BLinkNodeHandle *old_node , const itemkey_t sep_key , S_BLinkNodeHandle *new_node);
+    void insert_into_parent(S_BLinkNodeHandle *old_node , const itemkey_t sep_key , S_BLinkNodeHandle *new_node , std::vector<page_id_t> &trace);
 
     // 三个核心函数（不实现 delete）
     bool search(const itemkey_t *key , Rid &result);

@@ -33,11 +33,14 @@ int SmallBank::LoadRecord(RmFileHandle* file_handle,
   Rid rid = file_handle->insert_record(item_key, item_char, nullptr);
   // record index
   indexfile << item_key << " " << rid.page_no_ << " " << rid.slot_no_ << std::endl;
-  bp_tree_indexes[table_id]->insert_entry(&item_key , rid);
-  bp_tree_indexes[table_id]->write_file_hdr_to_page();
-  std::vector<Rid> *results = new std::vector<Rid>{};
-  bool exist = bp_tree_indexes[table_id]->search(&item_key , results);
-  assert(exist && !results->empty());
+  // bp_tree_indexes[table_id]->insert_entry(&item_key , rid);
+  // bp_tree_indexes[table_id]->write_file_hdr_to_page();
+
+  bl_indexes[table_id]->insert_entry(&item_key , rid);
+  // Rid result;
+  // auto res = bl_indexes[table_id]->search(&item_key , result);
+  // assert(res);
+  // assert(result.page_no_ == rid.page_no_ && result.slot_no_ == rid.slot_no_);
 
   // bl_indexes[table_id]->insert_entry(&item_key , rid);
   // bl_indexes[table_id]->write_file_hdr_to_page();

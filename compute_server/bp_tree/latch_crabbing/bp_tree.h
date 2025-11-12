@@ -190,9 +190,9 @@ public:
     
     // 获取到头文件页
     void s_get_file_hdr();
-    void x_get_file_hdr();
+    Page* x_get_file_hdr();
     void s_release_file_hdr();
-    void x_release_file_hdr();
+    void x_release_file_hdr(Page *page);
 
 
     page_id_t create_node();

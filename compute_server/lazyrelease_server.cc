@@ -11,9 +11,10 @@ std::atomic<int> cnt{0};
 // 1. 远程有问题，比如漏掉了给我发LockSuccess
 // 2. PushPage有问题，之后找找
 
+
 Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_id) {
     assert(page_id < ComputeNodeBufferPageSize);
-    if (cnt++ % 1000000 == 0){
+    if (cnt++ % 100000 == 0){
         std::cout << "lazy fetch cnt : " << cnt << "\n";
     }
     
@@ -117,7 +118,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
 
 Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_id) {
     assert(page_id < ComputeNodeBufferPageSize);
-    if (cnt++ % 1000000 == 0){
+    if (cnt++ % 100000 == 0){
         std::cout << "lazy_fetch cnt : " << cnt << "\n";
     }
     
@@ -126,7 +127,6 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
 
     Page *page = nullptr;
     // 先在本地进行加锁
-
 
     bool lock_remote = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->LockExclusive();
     

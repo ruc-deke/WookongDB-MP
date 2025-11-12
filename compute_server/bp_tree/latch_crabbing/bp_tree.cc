@@ -460,14 +460,10 @@ bool BPTreeIndexHandle::coalesce(BPTreeNodeHandle **bro , BPTreeNodeHandle **nod
             maintain_child(*bro , i , hold_lock_nodes);
         }
     } else {
-        s_get_file_hdr();
-        if (file_hdr->last_leaf == (*node)->get_page_no()){
-            s_release_file_hdr();
-            x_get_file_hdr();
+        if ((*bro)->get_next_leaf() == INVALID_PAGE_ID){
+            Page *page = x_get_file_hdr();
             file_hdr->last_leaf = (*bro)->get_page_no();
-            x_release_file_hdr();
-        }else {
-            s_release_file_hdr();
+            x_release_file_hdr(page);
         }
 
         (*bro)->set_next_leaf((*node)->get_next_leaf());
@@ -584,7 +580,7 @@ void BPTreeIndexHandle::insert_into_parent(BPTreeNodeHandle *old_node , const it
             // 叶子节点分裂
             sep = parent_right_bro->get_key(0);
         }else {
-            // 内部节点分裂
+            // TODO:其实不需要这样，只需要在 split 的时候，把第一个 key 给记录下来即可
             itemkey_t min_key = get_subtree_min_key(parent_right_bro , hold_lock_nodes);
             sep = &min_key;
         }
@@ -610,14 +606,16 @@ void BPTreeIndexHandle::s_get_file_hdr(){
     Page *page = server->rpc_lazy_fetch_s_page(table_id , BP_HEAD_PAGE_ID);
     file_hdr->deserialize(page->get_data());
 }
-void BPTreeIndexHandle::x_get_file_hdr(){
+Page* BPTreeIndexHandle::x_get_file_hdr(){
     Page *page = server->rpc_lazy_fetch_x_page(table_id , BP_HEAD_PAGE_ID);
     file_hdr->deserialize(page->get_data());
+    return page;
 }
 void BPTreeIndexHandle::s_release_file_hdr(){
     server->rpc_lazy_release_s_page(table_id , BP_HEAD_PAGE_ID);
 }
-void BPTreeIndexHandle::x_release_file_hdr(){
+void BPTreeIndexHandle::x_release_file_hdr(Page *page){
+    file_hdr->serialize(page->get_data());
     server->rpc_lazy_release_x_page(table_id , BP_HEAD_PAGE_ID);
 }
 
@@ -744,15 +742,11 @@ page_id_t BPTreeIndexHandle::insert_entry_pessimism(const itemkey_t *key , const
 
     if (leaf->get_size() == leaf->get_max_size()){
         BPTreeNodeHandle *bro = split(leaf , hold_lock_nodes);
-        s_get_file_hdr();
-        if (file_hdr->last_leaf == leaf->get_page_no()){
+        if (bro->get_next_leaf() == INVALID_PAGE_ID){
             // 发生的概率非常低，所以这样处理
-            s_release_file_hdr();
-            x_get_file_hdr();
+            Page *page = x_get_file_hdr();
             file_hdr->last_leaf = bro->get_page_no();
-            x_release_file_hdr();
-        }else {
-            s_release_file_hdr();
+            x_release_file_hdr(page);
         }
         // 执行完分裂后，需要把分裂出去的那个建插入到父亲
         insert_into_parent(leaf , bro->get_key(0) , bro , hold_lock_nodes);
