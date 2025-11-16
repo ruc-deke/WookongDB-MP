@@ -10,6 +10,8 @@
 #include "memory"
 #include "mutex"
 #include "iostream"
+#include <cstring>
+#include <mutex>
 #include <string_view>      
 #include "condition_variable"
 #include "functional"
@@ -53,6 +55,21 @@ public:
 
         auto it = page_table.find(page_id);
         assert(it != page_table.end());
+
+        frame_id_t frame_id = it->second;
+        replacer->pin(frame_id);
+        Page *page = pages[frame_id];
+
+        return page;
+    }
+
+    // 尝试去缓冲区拿一个页面，没拿到就算了，没有 fetch_page 那么严格的要求
+    Page *try_fetch_page(page_id_t page_id){
+        std::lock_guard<std::mutex> lk(mtx);
+        auto it = page_table.find(page_id);
+        if (it == page_table.end()){
+            return nullptr;
+        }
 
         frame_id_t frame_id = it->second;
         replacer->pin(frame_id);
@@ -135,6 +152,17 @@ public:
             return true;
         }
         return false;
+    }
+
+    bool checkIfDirectlyUpdate(page_id_t page_id , const void *data){
+        std::lock_guard<std::mutex>lk(mtx);
+        auto it = page_table.find(page_id);
+        if (it == page_table.end()){
+            return false;
+        }
+        frame_id_t frame_id = it->second;
+        memcpy(pages[frame_id]->get_data() , data , PAGE_SIZE);
+        return true;
     }
 
     // 第一个:选中要淘汰的页面

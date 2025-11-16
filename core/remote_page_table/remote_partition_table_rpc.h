@@ -246,7 +246,7 @@ class PartitionTableImpl : public PartitionTableService {
             for(int i=0; i<request->page_id_size(); i++){
                 page_id_t page_id = request->page_id(i).page_no();
                 table_id_t table_id = request->page_id(i).table_id();
-                page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->ReleasePage(node_id);
+                page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->UpdateValid(node_id);
             }
         }
             

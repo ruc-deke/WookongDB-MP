@@ -33,6 +33,8 @@ class CoroutineScheduler {
   // For coroutine yield, used by transactions
   void Yield(coro_yield_t& yield, coro_id_t cid);
 
+  void TsYield(coro_yield_t &yield , coro_id_t cid);
+
   void RunCoroutine(coro_yield_t& yield, Coroutine* coro);
 
   void RunCoroutine(coro_yield_t& yield, coro_id_t cid) {
@@ -86,6 +88,7 @@ ALWAYS_INLINE
 void CoroutineScheduler::Yield(coro_yield_t& yield, coro_id_t cid) {
   coro_id_t next_cid = (cid + 1) % _coro_num;
   if (next_cid == cid) return; // only one coroutine, no need to yield
+  // std::cout << "Yield , Next coro id = " << next_cid << "\n";
   Coroutine* next = coro_array + next_cid;
   RunCoroutine(yield, next);
 }
@@ -93,6 +96,8 @@ void CoroutineScheduler::Yield(coro_yield_t& yield, coro_id_t cid) {
 // Start this coroutine. Used by coroutine 0 and Yield()
 ALWAYS_INLINE
 void CoroutineScheduler::RunCoroutine(coro_yield_t& yield, Coroutine* coro) {
+  assert(coro);
   // // LOG(INFO) << "yield to coro: " << coro->coro_id;
+  // yield(coro->func);
   yield(coro->func);
 }

@@ -10,12 +10,14 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include "common.h"
 #include "config.h"
 #include "base/data_item.h"
 #include "compute_node.h"
 #include "compute_node/compute_node.pb.h"
 #include "compute_node/twoPC.pb.h"
 #include "compute_node/calvin.pb.h"
+#include "local_page_lock.h"
 #include "remote_bufferpool/remote_bufferpool.pb.h"
 #include "remote_page_table/remote_page_table.pb.h"
 #include "remote_page_table/remote_partition_table.pb.h"
@@ -25,6 +27,7 @@
 #include "remote_page_table/remote_page_table_rpc.h"
 #include "remote_page_table/remote_partition_table_rpc.h"
 #include "remote_page_table/timestamp_rpc.h"
+#include "scheduler/corotine_scheduler.h"
 #include "global_page_lock.h"
 #include "global_valid_table.h"
 
@@ -323,22 +326,28 @@ public:
     // ****************** lazy release end ********************
 
     // ******************* for ts fetch ***********************
-    Page *rpc_ts_fetch_s_page(table_id_t table_id , page_id_t page_id);
-    Page *rpc_ts_fetch_x_page(table_id_t table_id , page_id_t page_id);
+    Page *rpc_ts_fetch_s_page(table_id_t table_id , page_id_t page_id, coro_yield_t& yield, CoroutineScheduler* coro_sched, coro_id_t coro_id);
+    Page *rpc_ts_fetch_x_page(table_id_t table_id , page_id_t page_id, coro_yield_t& yield, CoroutineScheduler* coro_sched, coro_id_t coro_id);
     void rpc_ts_release_s_page(table_id_t table_id , page_id_t page_id);
     void rpc_ts_release_x_page(table_id_t table_id , page_id_t page_id);
-
-    // 切换当前节点所在的时间片
-    void ts_switch_phase();     
+   
     // 阶段切换的时候，需要向远程发送请求，让他们告诉我目前我的这个分片内，每个页面的最新版本在谁那里
     void rpc_ts_switch_get_page_locate();    
     void rpc_ts_switch_invalid_pages();
+
+    // 项目初始化的时候跑的，初始化阶段切换的线程
+    void rpc_ts_phase_switch_run(int rpc_ts_phase_switch_run);
+    // 切换当前节点所在的时间片
+    void ts_switch_phase();  
+    void ts_switch_phase_run_thread(int try_operation_cnt , int thread_id);
+
+    Page_request_info generate_random_pageid(std::mt19937& gen, std::uniform_real_distribution<>& dis);
 
     inline bool is_ts_par_page(table_id_t table_id , page_id_t page_id){
         auto max_pages_this_table = node_->meta_manager_->GetMaxPageNumPerTable(table_id);
         auto partition_size = (max_pages_this_table) / ComputeNodeCount;
         page_id_t page_begin = node_->ts_cnt * partition_size + 1;
-        page_id_t page_end = node_->ts_cnt * (partition_size + 1) + 1;
+        page_id_t page_end = (node_->ts_cnt + 1) * partition_size + 1;
         return page_id >= page_begin && page_id <= page_end;
     }
     // ******************* ts fetch end ***********************
@@ -378,6 +387,10 @@ public:
             return page;
         }
         return nullptr;
+    }
+
+    bool checkIfDirectlyUpdate(table_id_t table_id , page_id_t page_id , const void *data){
+        return node_->getBufferPoolByIndex(table_id)->checkIfDirectlyUpdate(page_id , data);
     }
 
     // 将页面放进缓冲区中，如果缓冲区满，选择一个页面淘汰
@@ -508,7 +521,44 @@ public:
             if (lock_type1){
                 lr_local_lock->UnlockRemoteOK();
             }
+            node_->evict_page_cnt++;
             lr_local_lock->EndEvict();
+            return page;
+        }
+    }
+
+    Page *put_page_into_local_buffer_without_remote(table_id_t table_id , page_id_t page_id , const void *data){
+        bool is_from_lru = false;
+        frame_id_t frame_id = -1;
+        if (checkIfDirectlyUpdate(table_id , page_id , data)){
+            return node_->fetch_page(table_id , page_id);
+        }
+        Page *page = checkIfDirectlyPutInBuffer(table_id , page_id , data);
+        if (page != nullptr){
+            return page;
+        }
+
+        auto try_begin_evict = ([this , table_id](page_id_t victim_page_id) {
+            return this->node_->local_page_lock_tables[table_id]->GetLock(victim_page_id)->TryBeginEvict();
+        });
+
+        int try_cnt = 0;
+        while (true){
+            try_cnt++;
+            std::pair<page_id_t , page_id_t> res = node_->getBufferPoolByIndex(table_id)->replace_page(page_id , frame_id , try_cnt , try_begin_evict);
+            page_id_t replaced_page_id = res.first;
+            assert(frame_id >= 0);
+            assert(replaced_page_id != INVALID_PAGE_ID);
+            LocalPageLock *local_lock = node_->local_page_lock_tables[table_id]->GetLock(replaced_page_id);
+            if (res.second == INVALID_PAGE_ID){
+                local_lock->EndEvict();
+                continue;
+            }
+
+            Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(table_id , page_id , frame_id , true , replaced_page_id , data);
+            local_lock->SetDirty(false);
+            node_->evict_page_cnt++;
+            local_lock->EndEvict();
             return page;
         }
     }
@@ -606,7 +656,7 @@ public:
     inline uint64_t get_partitioned_size(table_id_t table_id){
         return node_->meta_manager_->GetMaxPageNumPerTable(table_id) / ComputeNodeCount;
     }
-        
+    
     inline bool is_partitioned_page_new(table_id_t table_id, page_id_t page_id){
         auto max_pages_this_table = node_->meta_manager_->GetMaxPageNumPerTable(table_id);
         auto partition_size = (max_pages_this_table) / ComputeNodeCount;
@@ -626,7 +676,6 @@ public:
 
     // 从远程取数据页
     std::string UpdatePageFromRemoteCompute(table_id_t table_id, page_id_t page_id, node_id_t node_id);
-    std::string UpdatePageFromRemoteComputeTS(table_id_t table_id , page_id_t page_id , node_id_t node_id);
 
     // 获取与其他计算节点通信的channel
     inline brpc::Channel* get_pagetable_channel(){ return &node_->page_table_channel; }

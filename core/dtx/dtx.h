@@ -20,6 +20,7 @@
 
 #include "common.h"
 #include "compute_server/server.h"
+#include "scheduler/coroutine.h"
 #include "storage/txn_log.h"
 #include "base/data_item.h"
 #include "cache/index_cache.h"
@@ -65,6 +66,7 @@ class DTX {
   void ClearReadWriteSet();
 
   bool TxExe(coro_yield_t& yield, bool fail_abort = true);
+  bool TxExe_TS(coro_yield_t &yield , bool fail_abort = true);
 
   bool TxCommit(coro_yield_t& yield);
 

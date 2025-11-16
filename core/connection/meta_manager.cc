@@ -187,7 +187,6 @@ node_id_t MetaManager::GetRemoteStorageMeta(std::string& remote_ip, int remote_p
   for(int i = 0; i < table_num; i++) {
       max_page_num_per_tables.emplace_back(max_page_num_per_table[i]);
   }
-  // ljTag：加两个表来存 B+ 树
   for (int i = table_num ; i < table_num * 2 ; i++){
     max_page_num_per_tables.emplace_back(max_page_num_per_table[i - table_num]);
   }

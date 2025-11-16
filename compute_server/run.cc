@@ -35,6 +35,16 @@ int main(int argc, char* argv[]) {
   std::cout << "Fetch remote ratio: " << fetch_remote_ratio << std::endl;
   double lock_ratio = *lock_remote_vec.rbegin() / *fetch_all_vec.rbegin();
   std::cout << "Lock ratio: " << lock_ratio << std::endl;
+  
+  // 从远程计算节点、存储节点和本地缓存拉取的统计
+  double total_fetch = *fetch_from_remote_vec.rbegin() + *fetch_from_storage_vec.rbegin() + *fetch_from_local_vec.rbegin();
+  double from_remote_ratio = total_fetch > 0 ? *fetch_from_remote_vec.rbegin() / total_fetch : 0;
+  double from_storage_ratio = total_fetch > 0 ? *fetch_from_storage_vec.rbegin() / total_fetch : 0;
+  double from_local_ratio = total_fetch > 0 ? *fetch_from_local_vec.rbegin() / total_fetch : 0;
+  std::cout << "Fetch from remote compute: " << *fetch_from_remote_vec.rbegin() << " (" << from_remote_ratio * 100 << "%)" << std::endl;
+  std::cout << "Fetch from storage: " << *fetch_from_storage_vec.rbegin() << " (" << from_storage_ratio * 100 << "%)" << std::endl;
+  std::cout << "Fetch from local cache: " << *fetch_from_local_vec.rbegin() << " (" << from_local_ratio * 100 << "%)" << std::endl;
+  std::cout << "Evicted pages: " << *evict_page_vec.rbegin() << std::endl;
   double p50_latency = 0;
   for(auto i : medianlat_vec){
       p50_latency += i;
@@ -81,6 +91,13 @@ int main(int argc, char* argv[]) {
     result_file << throughtput << std::endl;
     result_file << fetch_remote_ratio << std::endl;
     result_file << lock_ratio << std::endl;
+    result_file << *fetch_from_remote_vec.rbegin() << std::endl;
+    result_file << *fetch_from_storage_vec.rbegin() << std::endl;
+    result_file << *fetch_from_local_vec.rbegin() << std::endl;
+    result_file << *evict_page_vec.rbegin() << std::endl;
+    result_file << from_remote_ratio << std::endl;
+    result_file << from_storage_ratio << std::endl;
+    result_file << from_local_ratio << std::endl;
     result_file << p50_latency << std::endl;
     result_file << p90_latency << std::endl;
     if(std::string(argv[1]) == "smallbank") {

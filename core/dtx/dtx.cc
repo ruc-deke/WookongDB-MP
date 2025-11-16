@@ -2,6 +2,7 @@
 // Copyright (c) 2024
 
 #include "dtx/dtx.h"
+#include "config.h"
 
 DTX::DTX(MetaManager* meta_man,
          t_id_t tid,
@@ -83,8 +84,11 @@ char* DTX::FetchSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_i
     else if(SYSTEM_MODE == 3){
         assert(false);
         page = compute_server->single_fetch_s_page(table_id,page_id);
+    } else if (SYSTEM_MODE == 12){
+        page = compute_server->rpc_ts_fetch_s_page(table_id , page_id, yield, coro_sched, coro_id);
+    } else{
+        assert(false);
     }
-    else assert(false);
     return page->get_data();
 }
 
@@ -101,6 +105,8 @@ char* DTX::FetchXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_i
     }
     else if(SYSTEM_MODE == 3){
         page = compute_server->single_fetch_x_page(table_id,page_id);
+    }else if (SYSTEM_MODE == 12){
+        page = compute_server->rpc_ts_fetch_x_page(table_id , page_id, yield, coro_sched, coro_id);
     }
     else assert(false);
     return page->get_data();
@@ -118,6 +124,8 @@ void DTX::ReleaseSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_
     }
     else if(SYSTEM_MODE == 3){
         compute_server->single_release_s_page(table_id,page_id);
+    }else if (SYSTEM_MODE == 12){
+        compute_server->rpc_ts_release_s_page(table_id , page_id);
     }
     else assert(false);
 
@@ -135,6 +143,8 @@ void DTX::ReleaseXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_
     }
     else if(SYSTEM_MODE == 3){
         compute_server->single_release_x_page(table_id,page_id);
+    }else if (SYSTEM_MODE == 12){
+        compute_server->rpc_ts_release_x_page(table_id , page_id);
     }
     else assert(false);
     

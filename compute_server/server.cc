@@ -256,8 +256,8 @@ void ComputeNodeServiceImpl::GetPage(::google::protobuf::RpcController* controll
         response->set_need_to_storage(false);
         response->set_page_data(data.c_str(), PAGE_SIZE);
 
-        // 添加模拟延迟
-        usleep(NetworkLatency); // 100us
+        // 性能优化：移除模拟延迟，NetworkLatency已经为0
+        // usleep(NetworkLatency); // 100us
         return;
     }
 
@@ -349,7 +349,9 @@ void ComputeServer::PushPageToOther(table_id_t table_id , page_id_t page_id , no
 
 std::string ComputeServer::UpdatePageFromRemoteCompute(table_id_t table_id, page_id_t page_id, node_id_t node_id){
     // LOG(INFO) << "need to update page from node " << node_id << " table id = " << table_id << " page_id = " << page_id ;
+    // std::cout << "Fetch From Remote\n";
     // 从远程取数据页
+    assert(node_id != node_->get_node_id());
     struct timespec start_time, end_time;
     clock_gettime(CLOCK_REALTIME, &start_time);
     brpc::Controller cntl;
@@ -377,6 +379,7 @@ std::string ComputeServer::UpdatePageFromRemoteCompute(table_id_t table_id, page
         // LOG(INFO) << "Fetch From Remote , table_id = " << table_id << " page_id = " << page_id << " Remote node_id = " << node_id;
         assert(response->page_data().size() == PAGE_SIZE);
         ret = response->page_data();
+        node_->fetch_from_remote_cnt++;
         // memcpy(page->get_data(), response->page_data().c_str(), response->page_data().size());
     }
 
@@ -455,6 +458,7 @@ std::string ComputeServer::rpc_fetch_page_from_storage(table_id_t table_id, page
         LOG(ERROR) << "Fail to fetch page " << page_id << " from remote storage server";
     }
     assert(response.data().size() == PAGE_SIZE);
+    node_->fetch_from_storage_cnt++;
     return response.data(); // hcy todo: string-> char*
     // memcpy(node_->getBufferPoolByIndex(table_id)->GetPage(page_id)->get_data() , response.data().c_str() , PAGE_SIZE);
     // return node_->getBufferPoolByIndex(table_id)->GetPage(page_id);

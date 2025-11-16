@@ -1,5 +1,5 @@
 build/
-cache/
+.cache/
 figure/
 *.pyc
 result.txt

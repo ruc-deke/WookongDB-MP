@@ -51,6 +51,8 @@ public:
         // LOG(INFO) << "brpc connect to remote pagetable&bufferpool server: " << remote_server_ip << ":" << remote_server_port;
         brpc::ChannelOptions options;
         options.use_rdma = use_rdma;
+        ts_cnt = node_id;       // 初始分配的时间片设置成 node_id
+        std::cout << "Node : " << node_id << " allocate a timestamp , id = " << ts_cnt << "\n";
         // options.timeout_ms = 5000; // 5s超时
         options.timeout_ms = 0x7fffffff; // 2147483647ms
         std::string remote_node = remote_server_ip + ":" + std::to_string(remote_server_port);
@@ -73,6 +75,9 @@ public:
         } 
         else if (SYSTEM_MODE == 2 || SYSTEM_MODE == 3) {
             local_page_lock_table = nullptr;
+        }else if (SYSTEM_MODE == 12){
+            local_page_lock_table = nullptr;
+            lazy_local_page_lock_table = nullptr;
         }
         else {
             LOG(ERROR) << "SYSTEM_MODE ERROR!";
@@ -105,7 +110,6 @@ public:
                     eager_local_page_lock_tables.emplace_back(new ERLocalPageLockTable());
                 }
             }  else if(SYSTEM_MODE == 1) {
-                // 两张 smallbank 表，两个对应的 B+树索引
                 lazy_local_page_lock_tables.reserve(6);
                 local_page_lock_tables.reserve(6);
                 for(int i = 0; i < 6; i++){
@@ -123,7 +127,26 @@ public:
                     local_page_lock_tables.emplace_back(new LocalPageLockTable());
                 }
             } 
-            else assert(false);
+            else if (SYSTEM_MODE == 12){
+                local_page_lock_tables.reserve(2);
+                // B+ 树还是需要用到 lazy_local_page_lock_tables 的
+                // 之前写的代码其实有问题，B+ 树固定到 2，3,4,5 几个表里了
+                // 现在只用 BLinl，所以只需要初始化 5,6 两个表就行
+                lazy_local_page_lock_tables.reserve(6);
+                for (int i = 0 ; i < 2 ; i++){
+                    local_page_lock_tables.emplace_back(new LocalPageLockTable());
+                }
+
+                for (int i = 0 ; i < 6 ; i++){
+                    if (i < 4){
+                        lazy_local_page_lock_tables.emplace_back(nullptr);
+                    }else {
+                        lazy_local_page_lock_tables.emplace_back(new LRLocalPageLockTable());
+                    }
+                }
+            }else {
+                assert(false);
+            }
 
             // 读取每张表能够存储的最大页数
             std::vector<int> max_page_per_table;
@@ -147,11 +170,12 @@ public:
                 // pool_sz = max_page_per_table[table_id];
                 local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id]);
             }
-            for (int table_id = 2 ; table_id < 4 ; table_id++){
-                size_t pool_sz = index_pool_size_cfg;
-                // 每个 B+ 树的页面数量暂时设置的和表一样大
-                local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id - 2]);
-            }
+            // 不用蟹行协议了，所以 3,4 号表暂停
+            // for (int table_id = 2 ; table_id < 4 ; table_id++){
+            //     size_t pool_sz = index_pool_size_cfg;
+            //     // 每个 B+ 树的页面数量暂时设置的和表一样大
+            //     local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id - 2]);
+            // }
             for (int table_id = 4 ; table_id < 6 ; table_id++){
                 size_t pool_sz = index_pool_size_cfg;
                 local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id  - 2]);
@@ -183,7 +207,23 @@ public:
                     local_page_lock_tables.emplace_back(new LocalPageLockTable());
                 }
             }
-            else assert(false);
+            else if (SYSTEM_MODE == 12){
+                local_page_lock_tables.reserve(11);
+                lazy_local_page_lock_tables.reserve(33);
+                for (int i = 0 ; i < 11 ; i++){
+                    local_page_lock_tables.reserve(11);
+                }
+
+                for (int i = 0 ; i < 33 ; i++){
+                    if (i < 22){
+                        lazy_local_page_lock_tables.emplace_back(nullptr);
+                    }else {
+                        local_page_lock_tables.emplace_back(new LocalPageLockTable());
+                    }
+                }
+            } else {
+                assert(false);
+            }
 
             std::vector<int> max_page_per_table;
             std::copy(meta_manager->max_page_num_per_tables.begin(), meta_manager->max_page_num_per_tables.end(),
@@ -197,10 +237,11 @@ public:
                 size_t pool_sz = has_table_pool_size_cfg ? table_pool_size_cfg : (size_t)(max_page_per_table[table_id] / 5);
                 local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id]);
             }
-            for (int table_id = 11 ; table_id < 22 ; table_id++) {
-                size_t pool_sz = index_pool_size_cfg;
-                local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id - 11]);
-            }
+            // 蟹行协议的不用了
+            // for (int table_id = 11 ; table_id < 22 ; table_id++) {
+            //     size_t pool_sz = index_pool_size_cfg;
+            //     local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id - 11]);
+            // }
             for (int table_id = 22 ; table_id < 33 ; table_id++){
                 size_t pool_sz = index_pool_size_cfg;
                 local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id - 11]);
@@ -210,6 +251,10 @@ public:
         local_buffer_pool = new BufferPool(ComputeNodeBufferPageSize , 10000);
         fetch_remote_cnt = 0;
         fetch_allpage_cnt = 0;
+        fetch_from_remote_cnt = 0;
+        fetch_from_storage_cnt = 0;
+        fetch_from_local_cnt = 0;
+        evict_page_cnt = 0;
         lock_remote_cnt = 0;
         hit_delayed_release_lock_cnt = 0;
         latency_vec = std::vector<double>();
@@ -239,8 +284,10 @@ public:
         assert(lazy_local_page_lock_tables[table_id] != nullptr && local_page_lock_tables[table_id] == nullptr);
         lazy_local_page_lock_tables[table_id]->GetLock(page_id)->RemotePushPageSuccess();
       }
-      else{
-        assert(false);
+      else if (SYSTEM_MODE == 12){
+        // 对于 TS SWITCH 来说，B+ 树也需要 lazy_lock_page
+        assert(lazy_local_page_lock_tables[table_id] != nullptr);
+        lazy_local_page_lock_tables[table_id]->GetLock(page_id)->RemotePushPageSuccess();
       }
     }
 
@@ -258,6 +305,11 @@ public:
 
     Page *fetch_page(table_id_t table_id , page_id_t page_id){
         return local_buffer_pools[table_id]->fetch_page(page_id);
+    }
+
+    // 不知道缓冲区里有没有，尝试去缓冲区里拿一下页面
+    Page *try_fetch_page(table_id_t table_id , page_id_t page_id){
+        return local_buffer_pools[table_id]->try_fetch_page(page_id);
     }
 
     // Pull 数据的时候，可能已经被换出或者淘汰了，这个时候就让对面自己去存储拿
@@ -285,6 +337,18 @@ public:
     }
     inline int get_fetch_allpage_cnt() {
         return fetch_allpage_cnt.load();
+    }
+    inline int get_fetch_from_remote_cnt() {
+        return fetch_from_remote_cnt.load();
+    }
+    inline int get_fetch_from_storage_cnt() {
+        return fetch_from_storage_cnt.load();
+    }
+    inline int get_fetch_from_local_cnt() {
+        return fetch_from_local_cnt.load();
+    }
+    inline int get_evict_page_cnt() {
+        return evict_page_cnt.load();
     }
     inline int get_lock_remote_cnt() {
         return lock_remote_cnt.load();
@@ -395,11 +459,17 @@ public:
     int max_global_txn_queue;
     int epoch = 0;
 
-    TsPhase ts_phase = TsPhase::BEGIN;     // 所处的阶段
+    // 时间戳阶段转化用的
+    std::atomic<TsPhase> ts_phase{TsPhase::BEGIN};
     int ts_cnt = 0;                 // 当前节点处于哪个时间片中
     std::mutex ts_switch_mutex;
     std::condition_variable ts_switch_cond;
-    int ts_time = 100000;         // 单个时间片大小 100000us = 100ms
+    int ts_time = 20000;         // 单个时间片大小 100000us = 100ms
+    std::vector<bool> ts_threads_switch;
+    std::vector<bool> ts_threads_finish;
+    bool ts_is_phase_switch_finish;
+    // TS: 统计当前正在进行中的 fetch 数，切片切换时等待其归零以保证安全
+    std::atomic<int> ts_inflight_fetch{0};
 
     // for delay release
     bool check_delay_release_finish = false;
@@ -408,6 +478,10 @@ public:
     // 统计信息
     std::atomic<int> fetch_remote_cnt;
     std::atomic<int> fetch_allpage_cnt;
+    std::atomic<int> fetch_from_remote_cnt;
+    std::atomic<int> fetch_from_storage_cnt;
+    std::atomic<int> fetch_from_local_cnt;
+    std::atomic<int> evict_page_cnt;
 
 private:
     std::atomic<int> lock_remote_cnt;

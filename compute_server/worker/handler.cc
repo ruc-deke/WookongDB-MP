@@ -27,6 +27,10 @@ std::vector<double> taillat_vec;
 std::set<double> fetch_remote_vec;
 std::set<double> fetch_all_vec;
 std::set<double> lock_remote_vec;
+std::set<double> fetch_from_remote_vec;
+std::set<double> fetch_from_storage_vec;
+std::set<double> fetch_from_local_vec;
+std::set<double> evict_page_vec;
 std::vector<double> lock_durations;
 std::vector<uint64_t> total_try_times;
 std::vector<uint64_t> total_commit_times;
@@ -74,6 +78,9 @@ void Handler::ConfigureComputeNode(int argc, char* argv[]) {
     txn_system_value = 2;
   } else if (system_name.find("single") != std::string::npos) {
     txn_system_value = 3;
+    } else if (system_name.find("ts_sep") != std::string::npos) {
+    // TS/Chimera 模式：使用时间片分区访问
+    txn_system_value = 12;
   } else {
     LOG(FATAL) << "Unsupported system name: " << system_name;
   }
@@ -126,14 +133,23 @@ void Handler::GenThreads(std::string bench_name) {
     compute_ips[i] = global_meta_man->remote_compute_nodes[i].ip;
     compute_ports[i] = global_meta_man->remote_compute_nodes[i].port;
   }
+
   auto* compute_server = new ComputeServer(compute_node, compute_ips, compute_ports);
 
-  std::this_thread::sleep_for(std::chrono::seconds(10));  // Wait for 3s to ensure that the compute node server has started
+  std::this_thread::sleep_for(std::chrono::seconds(5));  // Wait for 3s to ensure that the compute node server has started
 
   // sleep(10);
 
   // Send TCP requests to remote servers here, and the remote server establishes a connection with the compute node
   socket_start_client(global_meta_man->remote_server_nodes[0].ip, global_meta_man->remote_server_meta_port);
+
+  // After all compute nodes have connected (barrier), start TS phase switching loop if using TS mode
+  if (SYSTEM_MODE == 12) {
+    std::thread ts_switch_thread([compute_server]{
+      compute_server->ts_switch_phase();
+    });
+    ts_switch_thread.detach();
+  }
 
   std::cout << "finish start client\n";
 
@@ -186,10 +202,7 @@ void Handler::GenThreads(std::string bench_name) {
       LOG(WARNING) << "Error calling pthread_setaffinity_np: " << rc;
     }
   }
-
-  // std::cout << "Got Here2\n";
-
-  std::thread switch_thread;
+  
 
   for (t_id_t i = 0; i < thread_num_per_machine; i++) {
     if (thread_arr[i].joinable()) {

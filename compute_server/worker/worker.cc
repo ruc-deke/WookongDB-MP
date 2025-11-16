@@ -2,6 +2,7 @@
 // Copyright (c) 2024
 
 #include "worker.h"
+#include <thread>
 #include <time.h>
 
 #include <atomic>
@@ -10,7 +11,9 @@
 #include <functional>
 #include <memory>
 #include <brpc/channel.h>
+#include <unistd.h>
 
+#include "config.h"
 #include "dtx/dtx.h"
 #include "scheduler/coroutine.h"
 #include "scheduler/corotine_scheduler.h"
@@ -38,6 +41,10 @@ extern std::vector<double> taillat_vec;
 extern std::set<double> fetch_remote_vec;
 extern std::set<double> fetch_all_vec;
 extern std::set<double> lock_remote_vec;
+extern std::set<double> fetch_from_remote_vec;
+extern std::set<double> fetch_from_storage_vec;
+extern std::set<double> fetch_from_local_vec;
+extern std::set<double> evict_page_vec;
 extern double all_time;
 extern double  tx_begin_time,tx_exe_time,tx_commit_time,tx_abort_time,tx_update_time;
 extern double tx_get_timestamp_time1, tx_get_timestamp_time2, tx_write_commit_log_time, tx_write_commit_log_time2, tx_write_prepare_log_time, tx_write_backup_log_time;
@@ -56,53 +63,56 @@ DEFINE_int32(timeout_ms, 0x7fffffff, "RPC timeout in milliseconds");
 DEFINE_int32(max_retry, 3, "Max retries(not including the first RPC)");
 DEFINE_int32(interval_ms, 10, "Milliseconds between consecutive requests");
 
-__thread uint64_t seed;                        // Thread-global random seed
-__thread FastRandom* random_generator = NULL;  // Per coroutine random generator
-__thread t_id_t thread_gid;
-__thread t_id_t thread_local_id;
-__thread t_id_t thread_num;
+// Changed ALL __thread to thread_local for Boost coroutine compatibility
+// __thread is a GCC extension that doesn't work correctly with coroutine stack switching
+thread_local uint64_t seed;                        // Thread-global random seed
+thread_local FastRandom* random_generator = NULL;  // Per coroutine random generator
+thread_local t_id_t thread_gid;
+thread_local t_id_t thread_local_id;
+thread_local t_id_t thread_num;
 
 std::string bench_name;
 
-__thread SmallBank* smallbank_client = nullptr;
-__thread TPCC* tpcc_client = nullptr;
+thread_local SmallBank* smallbank_client = nullptr;
+thread_local TPCC* tpcc_client = nullptr;
 
-__thread IndexCache* index_cache;
-__thread PageCache* page_cache;
-__thread MetaManager* meta_man;
-__thread ComputeServer* compute_server;
+thread_local IndexCache* index_cache;
+thread_local PageCache* page_cache;
+thread_local MetaManager* meta_man;
+thread_local ComputeServer* compute_server;
 
-__thread SmallBankTxType* smallbank_workgen_arr;
-__thread TPCCTxType* tpcc_workgen_arr;
+thread_local SmallBankTxType* smallbank_workgen_arr = nullptr;
+thread_local TPCCTxType* tpcc_workgen_arr = nullptr;
 
-__thread coro_id_t coro_num;
-__thread CoroutineScheduler* coro_sched;  // Each transaction thread has a coroutine scheduler
-__thread CoroutineScheduler* coro_sched_0; // Coroutine 0, use a single sheduler to manage it, only use in long transactions evaluation
-__thread int* using_which_coro_sched; // 0=>coro_sched_0, 1=>coro_sched
+thread_local coro_id_t coro_num;
+// tagtag
+thread_local CoroutineScheduler* coro_sched;  // Each transaction thread has a coroutine scheduler
+thread_local CoroutineScheduler* coro_sched_0; // Coroutine 0, use a single sheduler to manage it, only use in long transactions evaluation
+thread_local int* using_which_coro_sched; // 0=>coro_sched_0, 1=>coro_sched
 
 // Performance measurement (thread granularity)
-__thread struct timespec msr_start, msr_end;
-__thread double* timer;
-__thread std::atomic<uint64_t> stat_attempted_tx_total = 0;  // Issued transaction number
-__thread std::atomic<uint64_t> stat_committed_tx_total = 0;  // Committed transaction number
-__thread std::atomic<uint64_t> stat_enter_commit_tx_total = 0; // for group commit
+thread_local struct timespec msr_start, msr_end;
+thread_local double* timer;
+thread_local std::atomic<uint64_t> stat_attempted_tx_total{0}; // Issued transaction number
+thread_local std::atomic<uint64_t> stat_committed_tx_total{0};// Committed transaction number
+thread_local std::atomic<uint64_t> stat_enter_commit_tx_total{0}; // for group commit
 
-__thread brpc::Channel* data_channel;
-__thread brpc::Channel* log_channel;
-__thread brpc::Channel* remote_server_channel;
+thread_local brpc::Channel* data_channel;
+thread_local brpc::Channel* log_channel;
+thread_local brpc::Channel* remote_server_channel;
 
 // Stat the commit rate
-__thread uint64_t* thread_local_try_times;
-__thread uint64_t* thread_local_commit_times;
+thread_local uint64_t* thread_local_try_times;
+thread_local uint64_t* thread_local_commit_times;
 
 // for thread group commit
-__thread bool just_group_commit = false;
-__thread std::vector<Txn_request_info>* txn_request_infos;
-__thread struct timespec last_commit_log_ts;
-__thread TxnLog* thread_txn_log = nullptr;
+thread_local bool just_group_commit = false;
+thread_local std::vector<Txn_request_info>* txn_request_infos;
+thread_local struct timespec last_commit_log_ts;
+thread_local TxnLog* thread_txn_log = nullptr;
 
 // thread pool per worker thread
-__thread ThreadPool* thread_pool = nullptr;
+thread_local ThreadPool* thread_pool = nullptr;
 
 void RecordTpLat(double msr_sec, DTX* dtx) {
     mux.lock();
@@ -135,10 +145,18 @@ void RecordTpLat(double msr_sec, DTX* dtx) {
   double fetch_remote = 0;
   double fetch_all = 0;
   double lock_remote = 0;
-  if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1) {
+  double fetch_from_remote = 0;
+  double fetch_from_storage = 0;
+  double fetch_from_local = 0;
+  double evict_page = 0;
+  if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 12) {
     fetch_remote = (double)dtx->compute_server->get_node()->get_fetch_remote_cnt() ;
     fetch_all = (double)dtx->compute_server->get_node()->get_fetch_allpage_cnt();
     lock_remote = (double)dtx->compute_server->get_node()->get_lock_remote_cnt();
+    fetch_from_remote = (double)dtx->compute_server->get_node()->get_fetch_from_remote_cnt();
+    fetch_from_storage = (double)dtx->compute_server->get_node()->get_fetch_from_storage_cnt();
+    fetch_from_local = (double)dtx->compute_server->get_node()->get_fetch_from_local_cnt();
+    evict_page = (double)dtx->compute_server->get_node()->get_evict_page_cnt();
   }
 
   std::sort(timer, timer + stat_committed_tx_total);
@@ -156,6 +174,10 @@ void RecordTpLat(double msr_sec, DTX* dtx) {
   fetch_remote_vec.emplace(fetch_remote);
   fetch_all_vec.emplace(fetch_all);
   lock_remote_vec.emplace(lock_remote);
+  fetch_from_remote_vec.emplace(fetch_from_remote);
+  fetch_from_storage_vec.emplace(fetch_from_storage);
+  fetch_from_local_vec.emplace(fetch_from_local);
+  evict_page_vec.emplace(evict_page);
 
   for (size_t i = 0; i < total_try_times.size(); i++) {
     total_try_times[i] += thread_local_try_times[i];
@@ -166,6 +188,7 @@ void RecordTpLat(double msr_sec, DTX* dtx) {
 }
 
 void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
+
   // Each coroutine has a dtx: Each coroutine is a coordinator
   struct timespec tx_end_time;
   bool tx_committed = false;
@@ -190,8 +213,14 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
   while (true) {
     // static int cnt = 0;
     //std::cout << cnt++ << "\n";
-
+    // LOG(INFO) << "[Thread_gid=" << thread_gid << "][Thread_local_id=" << thread_local_id 
+    //           << "][OS_thread_id=" << std::this_thread::get_id() 
+    //           << "][Coro_id=" << coro_id 
+              // << "][Coro_sched=" << (void*)coro_sched << "] RunSmallBank";
     bool is_partitioned = FastRand(&seed) % 100 < (LOCAL_TRASACTION_RATE * 100); // local transaction rate
+    // int index = FastRand(&seed) % 100;
+    // auto debug_vec = smallbank_workgen_arr;
+    // assert(smallbank_workgen_arr != nullptr);
     SmallBankTxType tx_type = smallbank_workgen_arr[FastRand(&seed) % 100];
     uint64_t iter = ++tx_id_generator;  // Global atomic transaction id
     stat_attempted_tx_total++;
@@ -389,6 +418,7 @@ void run_thread(thread_params* params,
 
   // 根据 bench 类型，生成长度 100 的事务类型概率数组，随机抽事务类型
   if (bench_name == "smallbank") { // SmallBank benchmark
+    // std::cout << "ASDDSSDAADS\n\n\n";
     smallbank_client = smallbank_cli;
     smallbank_workgen_arr = smallbank_client->CreateWorkgenArray(READONLY_TXN_RATE);
     thread_local_try_times = new uint64_t[SmallBank_TX_TYPES]();
@@ -414,7 +444,7 @@ void run_thread(thread_params* params,
 
   coro_num = (coro_id_t)params->coro_num;
   // Init coroutines
-  if(SYSTEM_MODE == 0 && SYSTEM_MODE == 1 && SYSTEM_MODE == 2 && SYSTEM_MODE == 3) coro_num = 1;// 0-5只使用一个协程
+  if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3) coro_num = 1;// 0-5只使用一个协程
 
   coro_sched = new CoroutineScheduler(thread_gid, coro_num);
 
@@ -430,15 +460,17 @@ void run_thread(thread_params* params,
     uint64_t coro_seed = static_cast<uint64_t>((static_cast<uint64_t>(thread_gid) << 32) | static_cast<uint64_t>(coro_i));
     random_generator[coro_i].SetSeed(coro_seed);
     coro_sched->coro_array[coro_i].coro_id = coro_i;
+    // std::cout << "Create A CORO , CORO ID = " << coro_i << "\n";
     // Bind workload to coroutine
     if (bench_name == "smallbank") {
-      if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3){
+      // 绑定协程执行的函数为 RunSmallBank
+      if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3 || SYSTEM_MODE == 12){
         coro_sched->coro_array[coro_i].func = coro_call_t(bind(RunSmallBank, _1, coro_i));
       }
     } else if (bench_name == "tpcc") {
-      if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3){
+      if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3 || SYSTEM_MODE == 12){
         coro_sched->coro_array[coro_i].func = coro_call_t(bind(RunTPCC, _1, coro_i));
-      }
+      } 
     } else {
       LOG(FATAL) << "Unsupported benchmark: " << bench_name;
     }
@@ -471,11 +503,13 @@ void run_thread(thread_params* params,
   // // Link all coroutines via pointers in a loop manner
   // coro_sched->LoopLinkCoroutine(coro_num);
   for(coro_id_t coro_i = 0; coro_i < coro_num; coro_i++){
+    // std::cout << "START CORO , CORO ID = " << coro_i << "\n";
     coro_sched->StartCoroutine(coro_i); // Start all coroutines
   }
+  // std::cout << "CORO START END\n";
   // Start the first coroutine
   coro_sched->coro_array[0].func();
-
+  // std::cout << "CORO GOT HERE\n";
   // Wait for all coroutines to finish
   // Clean
   delete[] timer;

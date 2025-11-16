@@ -4,6 +4,7 @@
 #include "config.h"
 #include "common.h"
 #include <bthread/butex.h>
+#include "assert.h"
 
 // 对于单个页面，在每个 Primary 中的有效信息
 class GlobalValidInfo{
@@ -96,6 +97,19 @@ public:
                 newest_node = -1;
             }
         }
+        mutex.unlock();
+    }
+
+    void UpdateValid(node_id_t node_id){
+        mutex.lock();
+        if (node_has_newest_page_status[node_id]){
+            newest_node = node_id;
+            mutex.unlock();
+            return ;
+        }
+
+        newest_node = node_id;
+        node_has_newest_page_status[node_id] = true;
         mutex.unlock();
     }
 
