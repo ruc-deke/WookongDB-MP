@@ -204,7 +204,8 @@ class SmallBank {
       }
       else if(is_partitioned) { //执行本地事务
           // 每个page_id 后面+1是因为page_id从1开始
-          int node_id = gen_node_id;
+          // SYSTEM_MODE == 12: 使用时间片分区，用 ts_cnt 代替固定的 node_id
+          int node_id = (SYSTEM_MODE == 12) ? dtx->compute_server->get_node()->get_ts_cnt() : gen_node_id;
           int page_num = dtx->page_cache->getPageCache().find(table_id)->second.size() + 1;
           page_id_t page_id;
           if(FastRand(seed) % 100 < TX_HOT){ // 如果是热点事务
@@ -227,7 +228,8 @@ class SmallBank {
           }
           *acct_id = dtx->page_cache->SearchRandom(seed, table_id, page_id);
       } else { // 执行跨分区事务
-          int node_id = gen_node_id;
+          // SYSTEM_MODE == 12: 使用时间片分区，用 ts_cnt 代替固定的 node_id
+          int node_id = (SYSTEM_MODE == 12) ? dtx->compute_server->get_node()->get_ts_cnt() : gen_node_id;
           int page_num = dtx->page_cache->getPageCache().find(table_id)->second.size() + 1;
           page_id_t page_id;
           if(FastRand(seed) % 100 < TX_HOT) { // 如果是热点事务
@@ -297,22 +299,26 @@ class SmallBank {
    */
     inline void get_uniform_hot_account(uint64_t* seed, uint64_t* acct_id,const DTX* dtx, bool is_partitioned, node_id_t gen_node_id, table_id_t table_id = 0) const {
         if(is_partitioned){
+            // SYSTEM_MODE == 12: 使用时间片分区，用 ts_cnt 代替固定的 node_id
+            int node_id = (SYSTEM_MODE == 12) ? dtx->compute_server->get_node()->get_ts_cnt() : gen_node_id;
             if(FastRand(seed) % 100 < TX_HOT){ // 如果是热点事务
-                int hot_range = hot_accounts_vec[gen_node_id].size();
-                *acct_id = hot_accounts_vec[gen_node_id][FastRand(seed) % hot_range];
+                int hot_range = hot_accounts_vec[node_id].size();
+                *acct_id = hot_accounts_vec[node_id][FastRand(seed) % hot_range];
             }else{
-                *acct_id = FastRand(seed) % (num_accounts_global / ComputeNodeCount) + gen_node_id * (num_accounts_global / ComputeNodeCount);
+                *acct_id = FastRand(seed) % (num_accounts_global / ComputeNodeCount) + node_id * (num_accounts_global / ComputeNodeCount);
             }
         }else{
+            // SYSTEM_MODE == 12: 使用时间片分区，用 ts_cnt 代替固定的 node_id
+            int node_id = (SYSTEM_MODE == 12) ? dtx->compute_server->get_node()->get_ts_cnt() : gen_node_id;
             if(FastRand(seed) % 100 < TX_HOT){ 
                 int random = FastRand(seed) % (ComputeNodeCount - 1);
-                int hot_par = (random < gen_node_id ? random : random + 1);
+                int hot_par = (random < node_id ? random : random + 1);
                 int hot_range = hot_accounts_vec[hot_par].size();
                 *acct_id = hot_accounts_vec[hot_par][FastRand(seed) % hot_range];
             }
             else{
                 int random = FastRand(seed) % (ComputeNodeCount - 1);
-                int hot_par = (random < gen_node_id ? random : random + 1);
+                int hot_par = (random < node_id ? random : random + 1);
                 *acct_id = FastRand(seed) % (num_accounts_global / ComputeNodeCount) + hot_par * (num_accounts_global / ComputeNodeCount);
             }
         }

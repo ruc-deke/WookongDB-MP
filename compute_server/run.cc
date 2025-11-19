@@ -5,6 +5,7 @@
 #include "worker/worker.cc" // 包含worker.cc文件
 #include <brpc/channel.h>
 #include <thread>
+#include <iomanip>
 
 // Entrance to run threads that spawn coroutines as coordinators to run distributed transactions
 int main(int argc, char* argv[]) {
@@ -41,9 +42,14 @@ int main(int argc, char* argv[]) {
   double from_remote_ratio = total_fetch > 0 ? *fetch_from_remote_vec.rbegin() / total_fetch : 0;
   double from_storage_ratio = total_fetch > 0 ? *fetch_from_storage_vec.rbegin() / total_fetch : 0;
   double from_local_ratio = total_fetch > 0 ? *fetch_from_local_vec.rbegin() / total_fetch : 0;
-  std::cout << "Fetch from remote compute: " << *fetch_from_remote_vec.rbegin() << " (" << from_remote_ratio * 100 << "%)" << std::endl;
-  std::cout << "Fetch from storage: " << *fetch_from_storage_vec.rbegin() << " (" << from_storage_ratio * 100 << "%)" << std::endl;
-  std::cout << "Fetch from local cache: " << *fetch_from_local_vec.rbegin() << " (" << from_local_ratio * 100 << "%)" << std::endl;
+  const auto fetch_remote_cnt = static_cast<long long>(*fetch_from_remote_vec.rbegin());
+  const auto fetch_storage_cnt = static_cast<long long>(*fetch_from_storage_vec.rbegin());
+  const auto fetch_local_cnt = static_cast<long long>(*fetch_from_local_vec.rbegin());
+  std::cout << std::fixed << std::setprecision(2);
+  std::cout << "Fetch from remote compute: " << fetch_remote_cnt << " (" << from_remote_ratio * 100 << "%)" << std::endl;
+  std::cout << "Fetch from storage: " << fetch_storage_cnt << " (" << from_storage_ratio * 100 << "%)" << std::endl;
+  std::cout << "Fetch from local cache: " << fetch_local_cnt << " (" << from_local_ratio * 100 << "%)" << std::endl;
+  std::cout << std::defaultfloat;
   std::cout << "Evicted pages: " << *evict_page_vec.rbegin() << std::endl;
   double p50_latency = 0;
   for(auto i : medianlat_vec){

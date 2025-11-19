@@ -34,6 +34,12 @@ set(INDEX_SRC
         index/index_manager.cc
 )
 
+set(FIBER_SRC
+        fiber/fiber.cc
+        fiber/scheduler.cc
+        fiber/thread.cc
+)
+
 add_library(core STATIC
         ${BufferPool_SRC}
         ${PageTable_SRC}
@@ -41,6 +47,7 @@ add_library(core STATIC
         ${CONNECTION_SRC}
         ${DTX_SRC}
         ${INDEX_SRC}
+        ${FIBER_SRC}
 )
 
 target_link_libraries(core boost_coroutine boost_context boost_system)

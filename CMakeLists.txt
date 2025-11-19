@@ -3,9 +3,9 @@ cmake_minimum_required(VERSION 3.10)
 project(Chimera)
 
 option(LINK_SO "Whether are linked dynamically" ON)
-add_compile_options(-Wno-deprecated-declarations)
+add_compile_options(-w -Wno-deprecated-declarations)
 
-set(CMAKE_EXPORT_COMPILECOMMANDS ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 execute_process(
     COMMAND bash -c "find ${PROJECT_SOURCE_DIR}/ -type d -regex \".*output/include$\" | head -n1 | xargs dirname | tr -d '\n'"
@@ -14,7 +14,7 @@ execute_process(
 
 set(CMAKE_PREFIX_PATH ${OUTPUT_PATH})
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-result -fPIC")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w -Wno-unused-result -fPIC")
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -102,8 +102,10 @@ endif()
 
 set(CMAKE_CPP_FLAGS "${DEFINE_CLOCK_GETTIME} -DGFLAGS_NS=${GFLAGS_NS}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CPP_FLAGS} -DDEBUG -O0 -D__const__=__unused__ -pipe -fPIC -fno-omit-frame-pointer -w")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w")
 set(CMAKE_BUILD_TYPE Debug)
 
+# 抑制所有编译警告（GCC 和 Clang 通用）
 add_compile_options(-w)
 
 find_path(LEVELDB_INCLUDE_PATH NAMES leveldb/db.h)

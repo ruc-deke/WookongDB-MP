@@ -103,11 +103,14 @@ public:
     void UpdateValid(node_id_t node_id){
         mutex.lock();
         if (node_has_newest_page_status[node_id]){
-            newest_node = node_id;
+            assert(newest_node == node_id);
             mutex.unlock();
             return ;
         }
-
+        assert(newest_node != node_id);
+        if (newest_node != -1){
+            node_has_newest_page_status[newest_node] = false;
+        }
         newest_node = node_id;
         node_has_newest_page_status[node_id] = true;
         mutex.unlock();

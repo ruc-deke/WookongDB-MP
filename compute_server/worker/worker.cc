@@ -15,6 +15,7 @@
 
 #include "config.h"
 #include "dtx/dtx.h"
+#include "fiber/fiber.h"
 #include "scheduler/coroutine.h"
 #include "scheduler/corotine_scheduler.h"
 #include "util/fast_random.h"
@@ -431,8 +432,8 @@ void run_thread(thread_params* params,
   } else {
     LOG(FATAL) << "Unsupported benchmark: " << bench_name;
   }
-
-  thread_pool = new ThreadPool(ThreadPoolSizePerWorker, params->thread_id);
+  // 不用线程池
+  if (SYSTEM_MODE != 12) thread_pool = new ThreadPool(ThreadPoolSizePerWorker, params->thread_id);
   // Initialize thread-local variables
   thread_gid = params->thread_global_id;
   thread_local_id = params->thread_id;
@@ -446,7 +447,7 @@ void run_thread(thread_params* params,
   // Init coroutines
   if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3) coro_num = 1;// 0-5只使用一个协程
 
-  coro_sched = new CoroutineScheduler(thread_gid, coro_num);
+  // coro_sched = new CoroutineScheduler(thread_gid, coro_num);
 
   timer = new double[ATTEMPTED_NUM+50]();
   
@@ -455,24 +456,32 @@ void run_thread(thread_params* params,
 
   // Guarantee that each thread has a global different initial seed
   seed = 0xdeadbeef + thread_gid;
-
-  for (coro_id_t coro_i = 0; coro_i < coro_num; coro_i++) {
-    uint64_t coro_seed = static_cast<uint64_t>((static_cast<uint64_t>(thread_gid) << 32) | static_cast<uint64_t>(coro_i));
-    random_generator[coro_i].SetSeed(coro_seed);
-    coro_sched->coro_array[coro_i].coro_id = coro_i;
-    // std::cout << "Create A CORO , CORO ID = " << coro_i << "\n";
-    // Bind workload to coroutine
-    if (bench_name == "smallbank") {
-      // 绑定协程执行的函数为 RunSmallBank
-      if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3 || SYSTEM_MODE == 12){
-        coro_sched->coro_array[coro_i].func = coro_call_t(bind(RunSmallBank, _1, coro_i));
+  if (SYSTEM_MODE != 12){
+    for (coro_id_t coro_i = 0; coro_i < coro_num; coro_i++) {
+      uint64_t coro_seed = static_cast<uint64_t>((static_cast<uint64_t>(thread_gid) << 32) | static_cast<uint64_t>(coro_i));
+      random_generator[coro_i].SetSeed(coro_seed);
+      coro_sched->coro_array[coro_i].coro_id = coro_i;
+      // std::cout << "Create A CORO , CORO ID = " << coro_i << "\n";
+      // Bind workload to coroutine
+      if (bench_name == "smallbank") {
+        // 绑定协程执行的函数为 RunSmallBank
+        if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3 || SYSTEM_MODE == 12){
+          coro_sched->coro_array[coro_i].func = coro_call_t(bind(RunSmallBank, _1, coro_i));
+        }
+      } else if (bench_name == "tpcc") {
+        if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3 || SYSTEM_MODE == 12){
+          coro_sched->coro_array[coro_i].func = coro_call_t(bind(RunTPCC, _1, coro_i));
+        } 
+      } else {
+        LOG(FATAL) << "Unsupported benchmark: " << bench_name;
       }
-    } else if (bench_name == "tpcc") {
-      if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3 || SYSTEM_MODE == 12){
-        coro_sched->coro_array[coro_i].func = coro_call_t(bind(RunTPCC, _1, coro_i));
-      } 
-    } else {
-      LOG(FATAL) << "Unsupported benchmark: " << bench_name;
+    }
+  }else {
+    // SYSTEM_MODE == 12
+    if (bench_name == "smallbank"){
+      
+    }else {
+
     }
   }
   data_channel = new brpc::Channel();

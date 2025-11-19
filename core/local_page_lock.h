@@ -78,7 +78,6 @@ public:
             }
             else {
                 lock = EXCLUSIVE_LOCKED;
-                // 在函数外释放锁
                 is_dirty = true;
                 if(newest_node != -1) {
                     ret = newest_node;

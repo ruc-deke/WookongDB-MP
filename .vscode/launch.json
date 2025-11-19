@@ -4,6 +4,7 @@
     // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+        
         {
             "name": "(gdb) compute-node-test",
             "type": "cppdbg",
@@ -51,7 +52,7 @@
             "program": "${workspaceFolder}/build/compute_server/compute_server",
             // lazy 后面那个是线程数量
             // ts_sep
-            "args": ["smallbank", "ts_sep", "20", "20", "0", "0.5" , "0"],
+            "args": ["smallbank", "ts_sep", "20", "28", "0", "0.5" , "0"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
@@ -71,7 +72,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",
             // ts_sep
-            "args": ["smallbank", "ts_sep", "20", "20", "0", "0.5" , "1"],
+            "args": ["smallbank", "ts_sep", "20", "28", "0", "0.5" , "1"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
@@ -90,7 +91,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",
-            "args": ["smallbank", "ts_sep", "20", "20", "0", "0.5" , "2"],
+            "args": ["smallbank", "ts_sep", "20", "28", "0", "0.5" , "2"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
@@ -109,7 +110,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",
-            "args": ["smallbank", "lazy", "10", "1", "0", "0.5" , "3"],
+            "args": ["smallbank", "ts_sep", "20", "28", "0", "0.5" , "3"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
@@ -146,6 +147,25 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/coro_test",
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build/",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "(gdb) test-scheduler",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/core/test/test_scheduler",
+            "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/",
             "environment": [],

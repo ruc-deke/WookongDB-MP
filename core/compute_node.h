@@ -5,10 +5,12 @@
 #include <unistd.h>
 #include <list>
 #include <queue>
+#include <set>
 #include <utility>
 #include <condition_variable>
 #include <mutex>
 #include <brpc/channel.h>
+#include "fiber/scheduler.h"
 #include "unordered_map"
 #include "atomic"
 #include "chrono"
@@ -92,6 +94,7 @@ public:
             auto json_config = JsonConfig::load_file(config_filepath);
             auto pool_size_node = json_config.get("table_buffer_pool_size");
             auto index_pool_size = json_config.get("index_buffer_pool_size");
+            auto ts_time_node = json_config.get("ts_time");
             if (pool_size_node.exists() && pool_size_node.is_int64()) {
                 table_pool_size_cfg = (size_t)pool_size_node.get_int64();
                 has_table_pool_size_cfg = true;
@@ -99,8 +102,19 @@ public:
             if (index_pool_size.exists() && index_pool_size.is_int64()){
                 index_pool_size_cfg = (size_t)index_pool_size.get_int64();
             }
+            if (ts_time_node.exists() && ts_time_node.is_int64()){
+                ts_time = (int)ts_time_node.get_int64();
+            }
             std::cout << "Table BufferPool Size Per Table : " << table_pool_size_cfg << "\n";
             std::cout << "Index BufferPool Size Per Table : " << index_pool_size_cfg << "\n";
+            std::cout << "TS Time Slice : " << ts_time/1000 << "ms" << "\n";
+        }
+
+        if (SYSTEM_MODE == 12){
+            std::stringstream ss;
+            ss << "Node" << node_id << " Scheduler";
+            scheduler = new Scheduler(5 , true , ss.str());
+            scheduler->start();
         }
 
         if(WORKLOAD_MODE == 0) {
@@ -397,6 +411,41 @@ public:
         return node_id;
     }
     
+    void set_page_dirty(table_id_t table_id , page_id_t page_id , bool flag){
+        std::lock_guard<std::mutex>lk(dirty_mtx);
+        if (flag){
+            dirty_pages.insert(std::make_pair(table_id , page_id));
+        }else {
+            if (dirty_pages.find(std::make_pair(table_id , page_id)) == dirty_pages.end()){
+                return ;
+            }else {
+                dirty_pages.erase(std::make_pair(table_id , page_id));
+            }
+        }
+    }
+
+    TsPhase getPhase() {
+        std::lock_guard<std::mutex>lok(ts_switch_mutex);
+        return ts_phase;
+    }
+    TsPhase getPhaseNoBlock(){
+        return ts_phase;
+    }
+
+    void setPhase(TsPhase val) {
+        std::lock_guard<std::mutex>lk(ts_switch_mutex);
+        ts_phase = val;
+    }
+
+    void addPhase(){
+        std::lock_guard<std::mutex>lk(ts_switch_mutex);
+        ts_cnt = (ts_cnt + 1) % ComputeNodeCount;
+    }
+    int get_ts_cnt() {
+        std::lock_guard<std::mutex>lk(ts_switch_mutex);
+        return ts_cnt;
+    }
+    
 private:
     node_id_t node_id;
 
@@ -428,6 +477,8 @@ private:
 
     Phase phase = Phase::BEGIN;
     bool is_running = true;
+
+    Scheduler* scheduler;
 
 public:
     bool* threads_switch; //每个线程的阶段切换状态，数组
@@ -464,12 +515,12 @@ public:
     int ts_cnt = 0;                 // 当前节点处于哪个时间片中
     std::mutex ts_switch_mutex;
     std::condition_variable ts_switch_cond;
-    int ts_time = 20000;         // 单个时间片大小 100000us = 100ms
-    std::vector<bool> ts_threads_switch;
-    std::vector<bool> ts_threads_finish;
-    bool ts_is_phase_switch_finish;
+    int ts_time;  
     // TS: 统计当前正在进行中的 fetch 数，切片切换时等待其归零以保证安全
     std::atomic<int> ts_inflight_fetch{0};
+
+    std::set<std::pair<table_id_t , page_id_t>> dirty_pages;
+    std::mutex dirty_mtx;
 
     // for delay release
     bool check_delay_release_finish = false;

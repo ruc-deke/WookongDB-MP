@@ -1,26 +1,27 @@
 {
   "local_compute_node": {
-    "machine_num": 3,
-"machine_id": 2,
+    "machine_num": 4,
+"machine_id": 3,
 "thread_num_per_machine": 20,
-"coroutine_num": 20,
+"coroutine_num": 28,
 "txn_system": 12,
     "batch_size": 400
   },
   "table_buffer_pool_size": 2000,  // 每张表分配的缓冲池大小
-  "index_buffer_pool_size": 1000,   // 每个索引分配的缓冲池大小
+  "index_buffer_pool_size": 5000,   // 每个索引分配的缓冲池大小
+  "ts_time": 32000,  // 1000 = 1ms
   "remote_compute_nodes": {
     "remote_compute_node_ips": [
       "127.0.0.1",
       "127.0.0.1",
+      "127.0.0.1",
       "127.0.0.1"
-      // "127.0.0.1"
     ],
     "remote_compute_node_port": [
       42340,
       42341,
-      42342
-      // 42343
+      42342,
+      42343
     ]
   },
   "remote_server_nodes": {

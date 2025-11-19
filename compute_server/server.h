@@ -3,6 +3,7 @@
 #include <butil/logging.h> 
 #include <brpc/server.h>
 #include <gflags/gflags.h>
+#include <mutex>
 #include <random>
 #include <chrono>
 #include <pthread.h>
@@ -346,9 +347,22 @@ public:
     inline bool is_ts_par_page(table_id_t table_id , page_id_t page_id){
         auto max_pages_this_table = node_->meta_manager_->GetMaxPageNumPerTable(table_id);
         auto partition_size = (max_pages_this_table) / ComputeNodeCount;
+        
         page_id_t page_begin = node_->ts_cnt * partition_size + 1;
-        page_id_t page_end = (node_->ts_cnt + 1) * partition_size + 1;
+        page_id_t page_end = (node_->ts_cnt + 1) * partition_size;
         return page_id >= page_begin && page_id <= page_end;
+    }
+    void tryLockTs(table_id_t table_id , page_id_t page_id , coro_yield_t& yield, CoroutineScheduler* coro_sched, coro_id_t coro_id){
+        node_->ts_switch_mutex.lock();
+        while (!(is_ts_par_page(table_id , page_id) && node_->getPhaseNoBlock() == TsPhase::RUNNING)){
+            node_->ts_switch_mutex.unlock();
+            coro_sched->Yield(yield , coro_id);
+            node_->ts_switch_mutex.lock();
+        }
+        node_->set_page_dirty(table_id , page_id , true);
+        // LOG(INFO) << "Fetching , table_id = " << table_id << " page_id = " << page_id << " tryLocks Success" << " ts Fetch Cnt = " << node_->ts_inflight_fetch;
+        node_->ts_inflight_fetch.fetch_add(1);
+        node_->ts_switch_mutex.unlock();
     }
     // ******************* ts fetch end ***********************
 
@@ -555,8 +569,11 @@ public:
                 continue;
             }
 
+            rpc_flush_page_to_storage(table_id , replaced_page_id);
             Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(table_id , page_id , frame_id , true , replaced_page_id , data);
+            // 页面已经被淘汰了，所有权自然不在我这里了
             local_lock->SetDirty(false);
+            node_->set_page_dirty(table_id , page_id , false);
             node_->evict_page_cnt++;
             local_lock->EndEvict();
             return page;
