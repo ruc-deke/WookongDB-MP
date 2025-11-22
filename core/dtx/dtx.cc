@@ -75,7 +75,7 @@ char* DTX::FetchSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_i
         page = compute_server->rpc_fetch_s_page(table_id, page_id);
     } 
     else if(SYSTEM_MODE == 1){
-        page = compute_server->rpc_lazy_fetch_s_page(table_id,page_id);
+        page = compute_server->rpc_lazy_fetch_s_page(table_id,page_id , true);
     }
     else if(SYSTEM_MODE == 2){
         assert(false);
@@ -85,7 +85,7 @@ char* DTX::FetchSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_i
         assert(false);
         page = compute_server->single_fetch_s_page(table_id,page_id);
     } else if (SYSTEM_MODE == 12){
-        page = compute_server->rpc_ts_fetch_s_page(table_id , page_id, yield, coro_sched, coro_id);
+        page = compute_server->rpc_ts_fetch_s_page(table_id , page_id);
     } else{
         assert(false);
     }
@@ -98,7 +98,7 @@ char* DTX::FetchXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_i
         page = compute_server->rpc_fetch_x_page(table_id,page_id);
     }
     else if(SYSTEM_MODE == 1){
-        page = compute_server->rpc_lazy_fetch_x_page(table_id,page_id);
+        page = compute_server->rpc_lazy_fetch_x_page(table_id,page_id , true);
     }
     else if(SYSTEM_MODE == 2){
         page = compute_server->local_fetch_x_page(table_id,page_id);
@@ -106,7 +106,7 @@ char* DTX::FetchXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_i
     else if(SYSTEM_MODE == 3){
         page = compute_server->single_fetch_x_page(table_id,page_id);
     }else if (SYSTEM_MODE == 12){
-        page = compute_server->rpc_ts_fetch_x_page(table_id , page_id, yield, coro_sched, coro_id);
+        page = compute_server->rpc_ts_fetch_x_page(table_id , page_id);
     }
     else assert(false);
     return page->get_data();

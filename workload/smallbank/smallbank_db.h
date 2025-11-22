@@ -299,7 +299,6 @@ class SmallBank {
    */
     inline void get_uniform_hot_account(uint64_t* seed, uint64_t* acct_id,const DTX* dtx, bool is_partitioned, node_id_t gen_node_id, table_id_t table_id = 0) const {
         if(is_partitioned){
-            // SYSTEM_MODE == 12: 使用时间片分区，用 ts_cnt 代替固定的 node_id
             int node_id = (SYSTEM_MODE == 12) ? dtx->compute_server->get_node()->get_ts_cnt() : gen_node_id;
             if(FastRand(seed) % 100 < TX_HOT){ // 如果是热点事务
                 int hot_range = hot_accounts_vec[node_id].size();
@@ -308,7 +307,6 @@ class SmallBank {
                 *acct_id = FastRand(seed) % (num_accounts_global / ComputeNodeCount) + node_id * (num_accounts_global / ComputeNodeCount);
             }
         }else{
-            // SYSTEM_MODE == 12: 使用时间片分区，用 ts_cnt 代替固定的 node_id
             int node_id = (SYSTEM_MODE == 12) ? dtx->compute_server->get_node()->get_ts_cnt() : gen_node_id;
             if(FastRand(seed) % 100 < TX_HOT){ 
                 int random = FastRand(seed) % (ComputeNodeCount - 1);

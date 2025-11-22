@@ -110,13 +110,6 @@ public:
             std::cout << "TS Time Slice : " << ts_time/1000 << "ms" << "\n";
         }
 
-        if (SYSTEM_MODE == 12){
-            std::stringstream ss;
-            ss << "Node" << node_id << " Scheduler";
-            scheduler = new Scheduler(5 , true , ss.str());
-            scheduler->start();
-        }
-
         if(WORKLOAD_MODE == 0) {
             if (SYSTEM_MODE == 0) {
                 eager_local_page_lock_tables.reserve(2);
@@ -261,6 +254,25 @@ public:
                 local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id - 11]);
             }
         }
+
+        if (SYSTEM_MODE == 12){
+            int thread_num = 5;
+            {
+                std::string config_filepath = "../../config/compute_node_config.json";
+                auto json_config = JsonConfig::load_file(config_filepath);
+                auto client_conf = json_config.get("local_compute_node");
+                if(client_conf.exists()) {
+                     thread_num = (int)client_conf.get("thread_num_per_machine").get_int64();
+                }
+            }
+            std::stringstream ss;
+            ss << "node" << node_id << " scheduler";
+            scheduler = new Scheduler(thread_num , false , ss.str());
+            scheduler->enableTimeSliceScheduling(ComputeNodeCount);
+            scheduler->start();
+        }
+
+
         // 不知道干啥的，这里先给他设置 10000 吧
         local_buffer_pool = new BufferPool(ComputeNodeBufferPageSize , 10000);
         fetch_remote_cnt = 0;
@@ -430,6 +442,16 @@ public:
     }
     TsPhase getPhaseNoBlock(){
         return ts_phase;
+    }
+
+    Scheduler* getScheduler() {
+        return scheduler;
+    }
+
+    std::vector<int> getSchedulerThreadIds() {
+        if (scheduler)
+            return scheduler->getThreadIds();
+        return std::vector<int>();
     }
 
     void setPhase(TsPhase val) {

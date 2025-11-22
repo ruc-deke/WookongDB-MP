@@ -464,7 +464,6 @@ void BLinkIndexHandle::insert_into_parent(BLinkNodeHandle *old_node , const item
     assert(false);
 }
 
-// 三个核心函数：search / insert（delete 暂不实现）
 bool BLinkIndexHandle::search(const itemkey_t *key , Rid &result){
     BLinkNodeHandle *leaf = find_leaf_for_search(key);
     Rid *rid;

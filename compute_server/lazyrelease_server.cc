@@ -5,14 +5,16 @@
 
 std::atomic<int> cnt{0};
 
-Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_id) {
+Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_id, bool need_to_record) {
     assert(page_id < ComputeNodeBufferPageSize);
-    // if (cnt++ % 1000000 == 0){
-    //     std::cout << "lazy fetch cnt : " << cnt << "\n";
-    // }
+    if (need_to_record && cnt++ % 10000 == 0){
+        std::cout << "lazy fetch cnt : " << cnt << "\n";
+    }
     
     // LOG(INFO) << "fetching S Page " << "table_id = " << table_id << " page_id = " << page_id;
-    this->node_->fetch_allpage_cnt++;
+    if (need_to_record){
+        this->node_->fetch_allpage_cnt++;
+    }
     // 这里不能先拿，因为现在在这个位置的不一定是我要的那个页面
     Page *page = nullptr;
     // 先在本地进行加锁，这一步同时确保对于单个页面，主节点只有一个页面会在竞争这个页面所有权
@@ -20,11 +22,15 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
     // 如果本地加锁成功，说明页面所有权在我身上，页面也一定在缓冲区里，直接去拿即可
     if (!lock_remote){
         // 直接去本地拿
-        node_->fetch_from_local_cnt++;
+        if (need_to_record){
+            node_->fetch_from_local_cnt++;
+        }
         page = node_->local_buffer_pools[table_id]->fetch_page(page_id);
     }else {
         // 在远程加锁
-        node_->lock_remote_cnt++;
+        if (need_to_record){
+            node_->lock_remote_cnt++;
+        }
         brpc::Controller cntl;
         page_table_service::PSLockRequest request;
         page_table_service::PSLockResponse* response = new page_table_service::PSLockResponse();
@@ -66,10 +72,12 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
             // 如果需要去存储里面拿
             if (need_storage){
                 // std::cout << "Fetch Page From Storage\n";
-                std::string data = rpc_fetch_page_from_storage(table_id , page_id);
+                std::string data = rpc_fetch_page_from_storage(table_id , page_id , need_to_record);
                 page = put_page_into_local_buffer(table_id , page_id , data.c_str());
             } else if(valid_node != -1){    
-                node_->fetch_from_remote_cnt++;
+                if (need_to_record){
+                    node_->fetch_from_remote_cnt++;
+                }
                 node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->TryGetPushData(table_id);
                 page = node_->fetch_page(table_id , page_id);
                 // valid_node = k (k != -1) 代表了需要去别的节点拉取数据
@@ -91,7 +99,9 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
                 PushPageToOther(table_id , page_id , push_list.back());
                 push_list.pop_back();
             }
-            node_->fetch_from_remote_cnt++;
+            if (need_to_record){
+                node_->fetch_from_remote_cnt++;
+            }
             page = node_->fetch_page(table_id , page_id);
             
 
@@ -109,14 +119,16 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
     return page;
 }
 
-Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_id) {
+Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_id, bool need_to_record) {
     assert(page_id < ComputeNodeBufferPageSize);
-    // if (cnt++ % 1000000 == 0){
-    //     std::cout << "lazy fetch cnt : " << cnt << "\n";
-    // }
+    if (need_to_record && cnt++ % 10000 == 0){
+        std::cout << "lazy fetch cnt : " << cnt << "\n";
+    }
     
     // LOG(INFO) << "fetching X Page " << "table_id = " << table_id << " page_id = " << page_id;
-    this->node_->fetch_allpage_cnt++;
+    if (need_to_record){
+        this->node_->fetch_allpage_cnt++;
+    }
 
     Page *page = nullptr;
     // 先在本地进行加锁
@@ -125,10 +137,14 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
     
     if (!lock_remote){
         // LOG(INFO) << "fetch page from local buffer where table_id = " << table_id << " page_id = " << page_id << " node_id = " << node_->getNodeID();
-        node_->fetch_from_local_cnt++;
+        if (need_to_record){
+            node_->fetch_from_local_cnt++;
+        }
         page = node_->fetch_page(table_id , page_id);
     }else if(lock_remote){
-        node_->lock_remote_cnt++;
+        if (need_to_record){
+            node_->lock_remote_cnt++;
+        }
         brpc::Controller cntl;
         page_table_service::PXLockRequest request;
         page_table_service::PXLockResponse* response = new page_table_service::PXLockResponse();
@@ -173,12 +189,14 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
             node_id_t valid_node = response->newest_node();
             // 如果valid是false, 则需要去远程取这个数据页
             if (need_fetch_from_storage){
-                std::string data = rpc_fetch_page_from_storage(table_id , page_id);
+                std::string data = rpc_fetch_page_from_storage(table_id , page_id , need_to_record);
                 page = put_page_into_local_buffer(table_id , page_id , data.c_str());
             } else if(valid_node != -1){
                 // LOG(INFO) << "Immediate Get Ownership , Waiting For Push , table_id = " << table_id << " page_id = " << page_id;
                 // 等待持有锁的节点把数据给推送过来
-                node_->fetch_from_remote_cnt++;
+                if (need_to_record){
+                    node_->fetch_from_remote_cnt++;
+                }
                 node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->TryGetPushData(table_id);
                 page = node_->fetch_page(table_id , page_id);
 
@@ -188,7 +206,9 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
             }else if (valid_node == -1) {
                 // 有一种情况可能走到这里：之前已经有 S 锁，然后想升级为 X 锁，远程直接同意了
                 // 这里需要注意，如果本地的 S 锁还没在远程释放的话，即使向远程申请 X 锁，也不会立刻同意，需要在 UnLock 里处理这个逻辑
-                node_->fetch_from_local_cnt++;
+                if (need_to_record){
+                    node_->fetch_from_local_cnt++;
+                }
                 page = node_->fetch_page(table_id , page_id);
             }else {
                 assert(false);
@@ -207,7 +227,9 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
                 PushPageToOther(table_id , page_id , push_list.back());
                 push_list.pop_back();
             }
-            node_->fetch_from_remote_cnt++;
+            if (need_to_record){
+                node_->fetch_from_remote_cnt++;
+            }
 
             // 定位到问题了，在TryRemoteLockSuccess 的时候，会执行到 Pending ，然后把页面给删了
             page = node_->fetch_page(table_id , page_id);

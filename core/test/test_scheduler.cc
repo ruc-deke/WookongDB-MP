@@ -50,7 +50,7 @@ void test_fiber(int fiber_id) {
 
 int main(int argc, char** argv) {
     std::cout << "scheduler test begin\n";
-    Scheduler sc(20, true, "test");
+    Scheduler sc(20, false, "test");
     sc.start();
 
     for (int i = 0; i < 100; ++i) {

@@ -8,7 +8,10 @@
 #include <iostream>
 #include <mutex>
 #include <thread>
+#include <unistd.h>
+#include <vector>
 
+#include "config.h"
 #include "handler.h"
 #include "compute_server/server.h"
 #include "connection/meta_manager.h"
@@ -31,6 +34,7 @@ std::set<double> fetch_from_remote_vec;
 std::set<double> fetch_from_storage_vec;
 std::set<double> fetch_from_local_vec;
 std::set<double> evict_page_vec;
+std::set<double> total_outputs;
 std::vector<double> lock_durations;
 std::vector<uint64_t> total_try_times;
 std::vector<uint64_t> total_commit_times;
@@ -175,6 +179,7 @@ void Handler::GenThreads(std::string bench_name) {
   // std::cout << "Got Here1\n";
 
   // LOG(INFO) << "Spawn threads to execute...";
+  std::atomic<int> init_finish_cnt(0);
   t_id_t i = 0;
   for (; i < thread_num_per_machine; i++) { 
     param_arr[i].thread_global_id = (machine_id * thread_num_per_machine) + i;
@@ -188,26 +193,84 @@ void Handler::GenThreads(std::string bench_name) {
     param_arr[i].compute_server = compute_server;
     param_arr[i].thread_num_per_machine = thread_num_per_machine;
     param_arr[i].total_thread_num = thread_num_per_machine * machine_num;
-    thread_arr[i] = std::thread(run_thread,
-                                &param_arr[i],
-                                smallbank_client,
-                                tpcc_client);
-
-    /* Pin thread i to hardware thread i */
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(i, &cpuset);
-    int rc = pthread_setaffinity_np(thread_arr[i].native_handle(), sizeof(cpu_set_t), &cpuset);
-    if (rc != 0) {
-      LOG(WARNING) << "Error calling pthread_setaffinity_np: " << rc;
+    if (SYSTEM_MODE == 12){
+      std::vector<int> thread_ids = compute_node->getSchedulerThreadIds();
+      if (i < thread_ids.size()) {
+          // 先初始化一下调度器里面的每一个线程
+          auto task = [&, i](){
+            initThread(&param_arr[i] , smallbank_client , tpcc_client);
+            init_finish_cnt++;
+          };
+          compute_node->getScheduler()->schedule(task , thread_ids[i]);
+          // std::cout << "Thread ID " << i << " = " << thread_ids[i] << "\n";
+      } else {
+          assert(false);
+      }
+    }else{
+      thread_arr[i] = std::thread(run_thread,
+                                  &param_arr[i],
+                                  smallbank_client,
+                                  tpcc_client);
+      /* Pin thread i to hardware thread i */
+      cpu_set_t cpuset;
+      CPU_ZERO(&cpuset);
+      CPU_SET(i, &cpuset);
+      int rc = pthread_setaffinity_np(thread_arr[i].native_handle(), sizeof(cpu_set_t), &cpuset);
+      if (rc != 0) {
+        LOG(WARNING) << "Error calling pthread_setaffinity_np: " << rc;
+      }
     }
   }
   
+  if (SYSTEM_MODE != 12){
+    for (t_id_t i = 0; i < thread_num_per_machine; i++) {
+      if (thread_arr[i].joinable()) {
+        thread_arr[i].join();
+        std::cout << "thread " << i << " joined" << std::endl;
+      }
+    }
+  } else {
+    // 等待协程调度器里面的线程池中的每个线程初始化
+    while (init_finish_cnt < thread_num_per_machine ){
+      usleep(1000);
+    }
+    std::vector<int> thread_ids = compute_node->getSchedulerThreadIds();
+    std::atomic<int> finished_cnt{0};
+    std::cout << "coro num = " << coro_num << "\n";
+    for (int i = 0 ; i < coro_num ; i++){
+      // RunWorkLoad(compute_server, bench_name, thread_ids[i]);
+      RunWorkLoad(compute_server, bench_name, finished_cnt , -1);
+      // if (i < thread_num_per_machine){
+      //   RunWorkLoad(compute_server, bench_name , finished_cnt , thread_ids[i]);
+      // }else {
+      //   RunWorkLoad(compute_server, bench_name , finished_cnt , -1);
+      // }
+    }
 
-  for (t_id_t i = 0; i < thread_num_per_machine; i++) {
-    if (thread_arr[i].joinable()) {
-      thread_arr[i].join();
-      std::cout << "thread " << i << " joined" << std::endl;
+    while (true){
+      usleep(10000);
+      if (finished_cnt == coro_num){
+        // compute_server->get_node()->getScheduler()->stop();
+        break;
+      }
+    }
+
+    // 最后，统计一下信息：
+    for (int i = 0 ; i < thread_num_per_machine ; i++){
+        // 先初始化一下调度器里面的每一个线程
+        auto task = [&](){
+          CaculateInfo();
+          init_finish_cnt--;
+        };
+        compute_node->getScheduler()->schedule(task , thread_ids[i]);
+        // std::cout << "Thread ID " << i << " = " << thread_ids[i] << "\n";
+    }
+
+    while(true){
+      usleep(10000);
+      if (init_finish_cnt == 0){
+        break;
+      }
     }
   }
   // LOG(INFO) << "All workers DONE, Waiting for all compute nodes to finish...";

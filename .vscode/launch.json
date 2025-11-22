@@ -52,7 +52,7 @@
             "program": "${workspaceFolder}/build/compute_server/compute_server",
             // lazy 后面那个是线程数量
             // ts_sep
-            "args": ["smallbank", "ts_sep", "20", "28", "0", "0.5" , "0"],
+            "args": ["smallbank", "lazy", "10", "2000", "0", "0.5" , "0"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
@@ -72,7 +72,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",
             // ts_sep
-            "args": ["smallbank", "ts_sep", "20", "28", "0", "0.5" , "1"],
+            "args": ["smallbank", "lazy", "10", "2000", "0", "0.5" , "1"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
@@ -91,7 +91,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",
-            "args": ["smallbank", "ts_sep", "20", "28", "0", "0.5" , "2"],
+            "args": ["smallbank", "lazy", "10", "2000", "0", "0.5" , "2"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
@@ -110,7 +110,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",
-            "args": ["smallbank", "ts_sep", "20", "28", "0", "0.5" , "3"],
+            "args": ["smallbank", "lazy", "20", "700", "0", "1" , "3"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],

@@ -55,16 +55,38 @@ public:
         }
     }
 
+    int getActiveThreadCount(){
+        return m_activeThreadCount;
+    }
+
     void switchTo(int thread = -1);
     std::ostream& dump(std::ostream& os);
 
     void enableTimeSliceScheduling(size_t slice_count);
     void scheduleToSlice(Fiber::ptr fiber, size_t slice_id, int thread = -1);
     void scheduleToSlice(std::function<void()> cb, size_t slice_id, int thread = -1);
-    void activateSlice(size_t slice_id);
+    int activateSlice(size_t slice_id);
+    void invalidSlice(size_t slice_id);
     void YieldToSlice(size_t slice_id);
     size_t getActiveSlice() const;
     size_t getSliceCount() const;
+    std::vector<int> getThreadIds() { return m_threadIds; }
+
+    void setTaskGenerator(std::function<void(int)> cb) {
+        m_taskGenerator = cb;
+    }
+
+    int getTaskQueueSize(int idx){
+        return m_sliceQueues[idx].size();
+    }
+
+    void addFiberCnt(){
+        m_fiberCnt++;
+        // std::cout << "Add A Fiber , Now Fiber Cnt = " << m_fiberCnt << "\n";
+    }
+    int getFiberCnt() const {
+        return m_fiberCnt.load();
+    }
 
 public:
     const std::string& getName() const { 
@@ -140,7 +162,7 @@ private:
 
 protected:
     void enqueueSliceTask(FiberAndThread&& ft, size_t slice_id);
-    bool fetchFiberFromActiveSlice(FiberAndThread& out);
+    bool fetchFiberFromActiveSlice(FiberAndThread& out , pid_t thread_id);
     bool sliceQueuesEmpty() const;
 
     /// 协程下的线程id数组
@@ -162,6 +184,8 @@ protected:
     bool m_sliceSchedulerEnabled = false;
     std::vector<std::deque<FiberAndThread>> m_sliceQueues;
     mutable std::mutex m_sliceMutex;
-    std::condition_variable m_sliceCv;
     std::atomic<size_t> m_activeSlice{0};
+    std::atomic<int> m_fiberCnt{0};
+    
+    std::function<void(int)> m_taskGenerator;
 };

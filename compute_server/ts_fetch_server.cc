@@ -1,33 +1,38 @@
 #include "compute_node.h"
 #include "config.h"
 #include "server.h"
+#include "worker/worker.h"
 #include <chrono>
 #include <string>
 #include <sys/prctl.h>
 #include <thread>
+#include <atomic>
 
 static std::atomic<int> cnt;
 
-Page *ComputeServer::rpc_ts_fetch_s_page(table_id_t table_id , page_id_t page_id, coro_yield_t& yield, CoroutineScheduler* coro_sched, coro_id_t coro_id){
-    // if (++cnt % 10000 == 0){
-    //     std::cout << cnt << "\n";
-    // }
+// External declaration for bench_name
+extern std::string bench_name;
+
+Page *ComputeServer::rpc_ts_fetch_s_page(table_id_t table_id , page_id_t page_id){
+    if (++cnt % 10000 == 0){
+       std::cout << cnt - 1 << "\n";
+    }
     assert(page_id < ComputeNodeBufferPageSize);
     get_node()->fetch_allpage_cnt++;
     Page *page = nullptr;
 
     // LOG(INFO) << "Fetching S , table_id = " << table_id << " page_id = " << page_id << " Now Partition " << node_->ts_cnt * get_partitioned_size(table_id) << " To " << (node_->ts_cnt + 1) * get_partitioned_size(table_id);
-    tryLockTs(table_id , page_id , yield , coro_sched , coro_id);
-    
-    assert(node_->ts_inflight_fetch >= 1);
+    tryLockTs(table_id , page_id);
 
+    assert(node_->ts_inflight_fetch >= 1);
+    
     node_id_t valid_node = node_->local_page_lock_tables[table_id]->GetLock(page_id)->LockShared();
     if (valid_node != -1){               
         /*
             对于时间片页面所有权转移的过程中，如果去远程拿，远程没有，那一定是被远程淘汰了，所以直接去存储拿即可
             因为在单个时间片内，一定只有我会去拿这个页面
         */
-        std::string str = UpdatePageFromRemoteCompute(table_id , page_id , valid_node);
+        std::string str = UpdatePageFromRemoteCompute(table_id , page_id , valid_node , true);
         page = put_page_into_local_buffer_without_remote(table_id , page_id , str.c_str());
         node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
     }else {
@@ -37,7 +42,7 @@ Page *ComputeServer::rpc_ts_fetch_s_page(table_id_t table_id , page_id_t page_id
         // 3. 之前读了这个页面，不会设置 dirty 标志，信息没同步到远程，但是页面其实就在我的缓冲区里
         page = node_->try_fetch_page(table_id , page_id);   
         if (page == nullptr){
-            std::string data = rpc_fetch_page_from_storage(table_id , page_id);
+            std::string data = rpc_fetch_page_from_storage(table_id , page_id , true);
             assert(data.size() == PAGE_SIZE);
             page = put_page_into_local_buffer_without_remote(table_id , page_id , data.c_str());
         } else {
@@ -57,28 +62,28 @@ Page *ComputeServer::rpc_ts_fetch_s_page(table_id_t table_id , page_id_t page_id
     return page;
 }
 
-Page *ComputeServer::rpc_ts_fetch_x_page(table_id_t table_id , page_id_t page_id, coro_yield_t& yield, CoroutineScheduler* coro_sched, coro_id_t coro_id){
-    // if (++cnt % 10000 == 0){
-    //     std::cout << cnt << "\n";
-    // }
+Page *ComputeServer::rpc_ts_fetch_x_page(table_id_t table_id , page_id_t page_id){
+    if (++cnt % 10000 == 0){
+       std::cout << cnt - 1 << "\n";
+    }
     assert(page_id < ComputeNodeBufferPageSize);
     get_node()->fetch_allpage_cnt++;
     Page *page = nullptr;
     
     // LOG(INFO) << "Fetching X , table_id = " << table_id << " page_id = " << page_id;
-    tryLockTs(table_id , page_id , yield , coro_sched , coro_id);
+    tryLockTs(table_id , page_id);
 
     node_id_t valid_node =node_->local_page_lock_tables[table_id]->GetLock(page_id)->LockExclusive();
     
     assert(node_->ts_inflight_fetch >= 1);
     if (valid_node != -1){
-        std::string str = UpdatePageFromRemoteCompute(table_id , page_id , valid_node);
+        std::string str = UpdatePageFromRemoteCompute(table_id , page_id , valid_node , true);
         page = put_page_into_local_buffer_without_remote(table_id , page_id , str.c_str());
         node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
     }else {
         page = node_->try_fetch_page(table_id , page_id);
         if (page == nullptr){
-            std::string data = rpc_fetch_page_from_storage(table_id , page_id);
+            std::string data = rpc_fetch_page_from_storage(table_id , page_id , true);
             assert(data.size() == PAGE_SIZE);
             page = put_page_into_local_buffer_without_remote(table_id , page_id , data.c_str());
         } else {
@@ -174,7 +179,7 @@ void ComputeServer::ts_switch_phase(){
         assert(node_->ts_cnt < ComputeNodeCount);
 
         // 时间片性能监控：记录开始时间
-        auto ts_start_time = std::chrono::high_resolution_clock::now();
+        // auto ts_start_time = std::chrono::high_resolution_clock::now();
         
         // 2.1 给整个分区加上锁
         brpc::Controller cntl;
@@ -192,13 +197,26 @@ void ComputeServer::ts_switch_phase(){
             assert(false);
         }
 
+        // auto par_x_lock_time = std::chrono::high_resolution_clock::now();
+
         // 2.2 向 RemoteServer 发送请求，得到我现在这个分区的全部页面的最新有效性信息都在哪里？
         if (ComputeNodeCount != 1 && SYSTEM_MODE == 12){
             // 获取到我这个分区内的全部页面的所在位置
             rpc_ts_switch_get_page_locate();
         }
+
+        auto ts_get_page_locate = std::chrono::high_resolution_clock::now();
         
         node_->setPhase(TsPhase::RUNNING);
+        LOG(INFO) << "Before Schedule , Active Thread Count = " << node_->getScheduler()->getActiveThreadCount();
+        int act_size = node_->getScheduler()->activateSlice(node_->ts_cnt);
+        LOG(INFO) << "Active Fibers , Active Size = " << act_size << " Now Active Thread = " << node_->getScheduler()->getActiveThreadCount();
+        auto ts_schedule_time = std::chrono::high_resolution_clock::now();
+        
+        // 计算并打印从 get_page_locate 到 activateSlice 的时间（毫秒）
+        auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            ts_schedule_time - ts_get_page_locate).count();
+        
         // LOG(INFO) << "PhaseSwitch To Running";
         // std::cout << "TS Phase : " << node_->ts_cnt << " RUNNING" << "\n";
 
@@ -213,32 +231,13 @@ void ComputeServer::ts_switch_phase(){
                 });
             }
         }
-
-        // 问题就是，怎么界定线程是安全的，
-        // 通知工作线程尽快到达安全点
-        // node_->ts_switch_cond.notify_all();
-        // 等待所有线程到达安全点或已结束，避免 busy-spin
-        // {
-        //     std::unique_lock<std::mutex> lk(node_->ts_switch_mutex);
-        //     node_->ts_switch_cond.wait(lk, [&](){
-        //         for (int i = 0 ; i < thread_num_per_node ; i++){
-        //             if (node_->ts_threads_finish[i]) continue;                 // 已结束不需等待
-        //             if (!node_->ts_threads_switch[i]) return false;            // 还未到安全点
-        //         }
-        //         return true;
-        //     });
-        // }
-        // 清理本轮的 switch 标记
-        // for (int i = 0 ; i < thread_num_per_node ; i++){
-        //     node_->ts_threads_switch[i] = false;
-        // }
+        LOG(INFO) << "After Running , Still In Queue Size = " << node_->getScheduler()->getTaskQueueSize(node_->ts_cnt) 
+            << " Active Thread Count = " << node_->getScheduler()->getActiveThreadCount();
 
         // 等到全部的 fetch 页面完成
-        // 这里要做两件事情：1. 等待之前没有 Fetch 完成的页面，2. 阻止主节点再去 Fetch 页面
-        
+        // 这里要做两件事情：1. 等待之前没有 Fetch 完成的页面，2. 阻止主节点再去 Fetch 页面    
         // 记录 RUNNING 阶段结束时间，计算 RUNNING 阶段耗时
-        auto running_end_time = std::chrono::high_resolution_clock::now();
-        auto running_duration = std::chrono::duration_cast<std::chrono::microseconds>(running_end_time - ts_start_time);
+        // auto running_end_time = std::chrono::high_resolution_clock::now();
         
         node_->setPhase(TsPhase::SWITCHING);       // 阻止再去 Fetch
         // LOG(INFO) << "Phase Switch To SWITCHING Now Phase = ";
@@ -250,7 +249,7 @@ void ComputeServer::ts_switch_phase(){
             rpc_ts_switch_invalid_pages();
             // LOG(INFO) << "INVALID_PAGES OVER";
         }
-
+        // auto invalid_pages_time = std::chrono::high_resolution_clock::now();
         // 解锁
         partition_table_service::TsParXUnlockRequest ts_par_unlock_req;
         partition_table_service::TsParXUnlockResponse ts_par_unlock_resp;
@@ -265,6 +264,8 @@ void ComputeServer::ts_switch_phase(){
             assert(false);
         }
 
+        // auto unlock_par_time = std::chrono::high_resolution_clock::now();
+
         {
             // 等待没有 Fetch 完成的页面
             std::unique_lock<std::mutex> lk(node_->ts_switch_mutex);
@@ -273,30 +274,53 @@ void ComputeServer::ts_switch_phase(){
                 return node_->ts_inflight_fetch.load() == 0;
             });
             // LOG(INFO) << "WAITING FOR fetch Over Over";
+            LOG(INFO) << "Node Left Fiber Cnt = " << node_->getScheduler()->getTaskQueueSize(node_->ts_cnt) << "\n";
+            
+            // 如果任务队列为空，运行一次 RunWorkLoad
+            // if (node_->getScheduler()->getTaskQueueSize(node_->ts_cnt) == 0) {
+            //     std::atomic<int> finished_cnt{0};
+            //     // 根据 WORKLOAD_MODE 确定 bench_name，如果 bench_name 未设置则使用 WORKLOAD_MODE
+            //     std::string current_bench_name = (!bench_name.empty()) ? 
+            //         bench_name : (WORKLOAD_MODE == 0 ? "smallbank" : "tpcc");
+            //     RunWorkLoad(this, current_bench_name, finished_cnt, -1);
+            // }
+            
             node_->ts_cnt = (node_->ts_cnt + 1) % ComputeNodeCount;
         }
         
+        // auto wait_fetch_over_time = std::chrono::high_resolution_clock::now();
 
-         // 时间片性能监控：记录结束时间并计算实际执行时间
-         auto ts_end_time = std::chrono::high_resolution_clock::now();
-         auto ts_actual_duration = std::chrono::duration_cast<std::chrono::microseconds>(ts_end_time - ts_start_time);
-         double ts_actual_ms = ts_actual_duration.count() / 1000.0;
-         double ts_expected_ms = node_->ts_time / 1000.0;
-         double ts_diff_ms = ts_actual_ms - ts_expected_ms;
-         auto switching_duration = std::chrono::duration_cast<std::chrono::microseconds>(ts_end_time - running_end_time);
-         
-         // 计算各阶段耗时（毫秒）
-         double running_ms = running_duration.count() / 1000.0;
-         double switching_ms = switching_duration.count() / 1000.0;
-         
-         LOG(INFO) << "[TS Performance] Node " << node_->get_node_id() 
-                   << " Partition " << node_->ts_cnt 
-                   << " | Expected: " << ts_expected_ms << "ms"
-                   << " | Actual: " << ts_actual_ms << "ms"
-                   << " | Diff: " << (ts_diff_ms >= 0 ? "+" : "") << ts_diff_ms << "ms"
-                   << " | Accuracy: " << (100.0 * ts_actual_ms / ts_expected_ms) << "%"
-                   << " | RUNNING: " << running_ms << "ms (" << (100.0 * running_ms / ts_actual_ms) << "%)"
-                   << " | SWITCHING: " << switching_ms << "ms (" << (100.0 * switching_ms / ts_actual_ms) << "%)";
+        // 时间片阶段耗时统计
+        // const auto duration_us = [](const auto& end, const auto& start) -> double {
+        //     return static_cast<double>(
+        //         std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
+        // };
+
+        // const double par_lock_us = duration_us(par_x_lock_time, ts_start_time);
+        // const double page_locate_us = duration_us(ts_get_page_locate, par_x_lock_time);
+        // const double running_us = duration_us(running_end_time, ts_get_page_locate);
+        // const double invalid_sync_us = duration_us(invalid_pages_time, running_end_time);
+        // const double unlock_us = duration_us(unlock_par_time, invalid_pages_time);
+        // const double wait_fetch_us = duration_us(wait_fetch_over_time, unlock_par_time);
+        // double total_us = duration_us(wait_fetch_over_time, ts_start_time);
+        // if (total_us <= 0) {
+        //     total_us = 1.0;  // 避免除零
+        // }
+
+        // const auto log_stage = [&](const char* label, double stage_us) {
+        //     const double ratio = (stage_us / total_us) * 100.0;
+        //     LOG(INFO) << "[TS Monitor] " << label << ": "
+        //               << stage_us / 1000.0 << " ms (" << ratio << "%)";
+        // };
+
+        // log_stage("Partition XLock", par_lock_us);
+        // log_stage("Page Locate", page_locate_us);
+        // log_stage("Running", running_us);
+        // log_stage("Invalidate Pages", invalid_sync_us);
+        // log_stage("Unlock Partition", unlock_us);
+        // log_stage("Wait Fetch Drain", wait_fetch_us);
+        // LOG(INFO) << "[TS Monitor] Total Cycle: " << total_us / 1000.0 << " ms";
+
 
     }
 }
@@ -309,21 +333,6 @@ void ComputeServer::rpc_ts_switch_invalid_pages(){
     brpc::Controller cntl;
 
     auto table_size = node_->meta_manager_->GetTableNum();
-    int debug_cnt = 0;
-    // for (int table_id = 0 ; table_id < table_size ; table_id++){
-    //     uint64_t single_par_size = get_partitioned_size(table_id);
-    //     int start_page_id = node_->ts_cnt * single_par_size;
-    //     int end_page_id = (node_->ts_cnt + 1) * single_par_size;
-
-    //     for (int i = start_page_id ; i < end_page_id ; i++){
-    //         if (node_->local_page_lock_tables[table_id]->GetLock(i)->GetDirty() == true){
-    //             auto p = request.add_page_id();
-    //             p->set_page_no(i);
-    //             p->set_table_id(table_id);
-    //             debug_cnt++;
-    //         }
-    //     }
-    // }
 
     request.set_node_id(node_->get_node_id());
     
@@ -350,11 +359,11 @@ void ComputeServer::rpc_ts_switch_invalid_pages(){
         assert(false);
     }
 
-    for (int i = 0 ; i < request.page_id_size() ; i++){
-        table_id_t table_id = request.page_id(i).table_id();
-        page_id_t page_id = request.page_id(i).page_no();
-        node_->local_page_lock_tables[table_id]->GetLock(page_id)->SetDirty(false);
-    }
+    // for (int i = 0 ; i < request.page_id_size() ; i++){
+    //     table_id_t table_id = request.page_id(i).table_id();
+    //     page_id_t page_id = request.page_id(i).page_no();
+    //     node_->local_page_lock_tables[table_id]->GetLock(page_id)->SetDirty(false);
+    // }
 
     delete response;
     return ;
@@ -382,36 +391,3 @@ void ComputeServer::rpc_ts_phase_switch_run(int try_operation_cnt){
     switch_thread.join();
     return ;
 }
-
-// void ComputeServer::ts_switch_phase_run_thread(int try_operation_cnt , int thread_id){
-//     std::random_device rd;
-//     std::mt19937 gen(rd());
-//     std::uniform_real_distribution<> dis(0.0, 1.0);
-//     int operation_cnt = 0;
-//     while (node_->ts_phase == TsPhase::BEGIN);
-//     while (true){
-//         if (operation_cnt > try_operation_cnt){
-//             break;
-//         }
-//         // 如果到了切换时间片的阶段了，那就等到时间片切换完成
-//         if (node_->ts_phase == TsPhase::SWITCHING){
-//             node_->ts_threads_switch[thread_id] = true;
-//             while (node_->ts_phase == TsPhase::SWITCHING){
-//                 std::this_thread::sleep_for(std::chrono::microseconds(5));
-//             }
-//         }
-
-//         Page_request_info page_id;
-//         bool fill_page = false;
-        
-//         if (!node_->partitioned_page_queue.empty()){
-//             fill_page = true;
-//             page_id = node_->partitioned_page_queue.front();
-//             node_->partitioned_page_queue.pop();
-//         }else{
-//             TODO：生成一个页面
-
-//         }
-
-//     }
-// }

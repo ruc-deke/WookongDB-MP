@@ -347,7 +347,7 @@ void ComputeServer::PushPageToOther(table_id_t table_id , page_id_t page_id , no
         brpc::NewCallback(PushPageRPCDone, push_response, push_cntl, table_id, page_id, this));
 }
 
-std::string ComputeServer::UpdatePageFromRemoteCompute(table_id_t table_id, page_id_t page_id, node_id_t node_id){
+std::string ComputeServer:: UpdatePageFromRemoteCompute(table_id_t table_id, page_id_t page_id, node_id_t node_id , bool need_to_record){
     // LOG(INFO) << "need to update page from node " << node_id << " table id = " << table_id << " page_id = " << page_id ;
     // std::cout << "Fetch From Remote\n";
     // 从远程取数据页
@@ -355,7 +355,9 @@ std::string ComputeServer::UpdatePageFromRemoteCompute(table_id_t table_id, page
     struct timespec start_time, end_time;
     clock_gettime(CLOCK_REALTIME, &start_time);
     brpc::Controller cntl;
-    node_->fetch_remote_cnt++;
+    if (need_to_record){
+        node_->fetch_remote_cnt++;
+    }
 
     // 使用远程compute node进行更新
     compute_node_service::ComputeNodeService_Stub compute_node_stub(&nodes_channel[node_id]);
@@ -373,7 +375,7 @@ std::string ComputeServer::UpdatePageFromRemoteCompute(table_id_t table_id, page
     // 如果对方提前把数据页给丢掉了，那你就自己去存储拿
     if (response->need_to_storage()){
         // LOG(INFO) << "Remote No Page , Fetch From Storage , table_id = " << table_id << " page_id = " << page_id << " Remote node_id = " << node_id;
-        ret = rpc_fetch_page_from_storage(table_id , page_id);
+        ret = rpc_fetch_page_from_storage(table_id , page_id , need_to_record);
         // memcpy(page->get_data() , data.c_str() , PAGE_SIZE);
     }else {
         // LOG(INFO) << "Fetch From Remote , table_id = " << table_id << " page_id = " << page_id << " Remote node_id = " << node_id;
@@ -443,7 +445,7 @@ void ComputeServer::InitTableNameMeta(){
 }
 
 
-std::string ComputeServer::rpc_fetch_page_from_storage(table_id_t table_id, page_id_t page_id){    
+std::string ComputeServer::rpc_fetch_page_from_storage(table_id_t table_id, page_id_t page_id , bool need_record){    
     storage_service::StorageService_Stub storage_stub(get_storage_channel());
     storage_service::GetPageRequest request;
     storage_service::GetPageResponse response;
@@ -458,7 +460,9 @@ std::string ComputeServer::rpc_fetch_page_from_storage(table_id_t table_id, page
         LOG(ERROR) << "Fail to fetch page " << page_id << " from remote storage server";
     }
     assert(response.data().size() == PAGE_SIZE);
-    node_->fetch_from_storage_cnt++;
+    if (need_record){
+        node_->fetch_from_storage_cnt++;
+    }
     return response.data(); // hcy todo: string-> char*
     // memcpy(node_->getBufferPoolByIndex(table_id)->GetPage(page_id)->get_data() , response.data().c_str() , PAGE_SIZE);
     // return node_->getBufferPoolByIndex(table_id)->GetPage(page_id);

@@ -320,15 +320,15 @@ public:
     // ****************** eager release end *********************
 
     // ****************** for lazy release *********************
-    Page* rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_id);
-    Page* rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_id);
+    Page* rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_id, bool need_to_record = false);
+    Page* rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_id, bool need_to_record = false);
     void rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_id);
     void rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_id);
     // ****************** lazy release end ********************
 
     // ******************* for ts fetch ***********************
-    Page *rpc_ts_fetch_s_page(table_id_t table_id , page_id_t page_id, coro_yield_t& yield, CoroutineScheduler* coro_sched, coro_id_t coro_id);
-    Page *rpc_ts_fetch_x_page(table_id_t table_id , page_id_t page_id, coro_yield_t& yield, CoroutineScheduler* coro_sched, coro_id_t coro_id);
+    Page *rpc_ts_fetch_s_page(table_id_t table_id , page_id_t page_id);
+    Page *rpc_ts_fetch_x_page(table_id_t table_id , page_id_t page_id);
     void rpc_ts_release_s_page(table_id_t table_id , page_id_t page_id);
     void rpc_ts_release_x_page(table_id_t table_id , page_id_t page_id);
    
@@ -352,12 +352,55 @@ public:
         page_id_t page_end = (node_->ts_cnt + 1) * partition_size;
         return page_id >= page_begin && page_id <= page_end;
     }
-    void tryLockTs(table_id_t table_id , page_id_t page_id , coro_yield_t& yield, CoroutineScheduler* coro_sched, coro_id_t coro_id){
+    int get_ts_belong_par(table_id_t table_id , page_id_t page_id){
+        auto max_pages_this_table = node_->meta_manager_->GetMaxPageNumPerTable(table_id);
+        auto partition_size = (max_pages_this_table) / ComputeNodeCount;
+        return (page_id - 1) / partition_size;
+    }
+
+    void tryLockTs(table_id_t table_id , page_id_t page_id){
         node_->ts_switch_mutex.lock();
         while (!(is_ts_par_page(table_id , page_id) && node_->getPhaseNoBlock() == TsPhase::RUNNING)){
+            int target = get_ts_belong_par(table_id , page_id);
             node_->ts_switch_mutex.unlock();
-            coro_sched->Yield(yield , coro_id);
+            // 如果不在当前时间片内，那就把这个协程挂起，换一个协程来
+            node_->getScheduler()->YieldToSlice(target);
             node_->ts_switch_mutex.lock();
+        }
+        node_->set_page_dirty(table_id , page_id , true);
+        // LOG(INFO) << "Fetching , table_id = " << table_id << " page_id = " << page_id << " tryLocks Success" << " ts Fetch Cnt = " << node_->ts_inflight_fetch;
+        node_->ts_inflight_fetch.fetch_add(1);
+        node_->ts_switch_mutex.unlock();
+    }
+
+    void tryLockTs2(table_id_t table_id , page_id_t page_id){
+        node_->ts_switch_mutex.lock();
+        bool cond1 = is_ts_par_page(table_id , page_id);
+        bool cond2 = (node_->getPhaseNoBlock() == TsPhase::RUNNING);
+        // static std::atomic<int>cnt1{0};
+        // static std::atomic<int>cnt2{0};
+        // static std::atomic<int>cnt3{0};
+        while (!(cond1 && cond2)){
+            int target = get_ts_belong_par(table_id , page_id);
+            node_->ts_switch_mutex.unlock();
+            // 如果不在当前时间片内，那就把这个协程挂起，换一个协程来
+            node_->getScheduler()->YieldToSlice(target);
+            // if (!cond1 && !cond2){
+            //     cnt1++;         // 既不在分区，也不在 RUNNING
+            // }else if (cond1 && !cond2){
+            //     cnt2++;         // 在分区，但是不在 RUNNING
+            // }else if (!cond1 && cond2){
+            //     cnt3++;         // 不在当前分区，但是在 RUNNING 
+            // }else {
+            //     assert(false);
+            // }
+            // if (cnt2 % 10 == 0){
+            //     LOG(INFO) << "Caculate : " << cnt1 << " " << cnt2 << " " << cnt3 << "\n";
+            // }
+
+            node_->ts_switch_mutex.lock();
+            cond1 = is_ts_par_page(table_id , page_id);
+            cond2 = (node_->getPhaseNoBlock() == TsPhase::RUNNING);
         }
         node_->set_page_dirty(table_id , page_id , true);
         // LOG(INFO) << "Fetching , table_id = " << table_id << " page_id = " << page_id << " tryLocks Success" << " ts Fetch Cnt = " << node_->ts_inflight_fetch;
@@ -664,7 +707,7 @@ public:
 
     std::vector<std::string> table_name_meta;
     void InitTableNameMeta();
-    std::string rpc_fetch_page_from_storage(table_id_t table_id, page_id_t page_id);
+    std::string rpc_fetch_page_from_storage(table_id_t table_id, page_id_t page_id , bool need_to_record);
 
     inline bool is_partitioned_page(page_id_t page_id){
         return page_id >= node_->getNodeID() * PartitionDataSize && page_id < (node_->getNodeID() + 1) * PartitionDataSize;
@@ -692,7 +735,7 @@ public:
     page_id_t last_generated_page_id = 0;
 
     // 从远程取数据页
-    std::string UpdatePageFromRemoteCompute(table_id_t table_id, page_id_t page_id, node_id_t node_id);
+    std::string UpdatePageFromRemoteCompute(table_id_t table_id, page_id_t page_id, node_id_t node_id , bool need_to_record);
 
     // 获取与其他计算节点通信的channel
     inline brpc::Channel* get_pagetable_channel(){ return &node_->page_table_channel; }

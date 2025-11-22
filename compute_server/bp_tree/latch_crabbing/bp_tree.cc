@@ -603,11 +603,11 @@ void BPTreeIndexHandle::destroy_node(page_id_t page_id){
 }
 
 void BPTreeIndexHandle::s_get_file_hdr(){
-    Page *page = server->rpc_lazy_fetch_s_page(table_id , BP_HEAD_PAGE_ID);
+    Page *page = server->rpc_lazy_fetch_s_page(table_id , BP_HEAD_PAGE_ID , false);
     file_hdr->deserialize(page->get_data());
 }
 Page* BPTreeIndexHandle::x_get_file_hdr(){
-    Page *page = server->rpc_lazy_fetch_x_page(table_id , BP_HEAD_PAGE_ID);
+    Page *page = server->rpc_lazy_fetch_x_page(table_id , BP_HEAD_PAGE_ID , false);
     file_hdr->deserialize(page->get_data());
     return page;
 }
@@ -622,10 +622,10 @@ void BPTreeIndexHandle::x_release_file_hdr(Page *page){
 BPTreeNodeHandle *BPTreeIndexHandle::fetch_node(page_id_t page_id , BPOperation opera){
     BPTreeNodeHandle *ret = nullptr;
     if (opera == BPOperation::SEARCH_OPERA){
-        Page *page = server->rpc_lazy_fetch_s_page(table_id , page_id);
+        Page *page = server->rpc_lazy_fetch_s_page(table_id , page_id , false);
         ret = new BPTreeNodeHandle(page);
     }else{
-        Page *page = server->rpc_lazy_fetch_x_page(table_id , page_id);
+        Page *page = server->rpc_lazy_fetch_x_page(table_id , page_id , false);
         ret = new BPTreeNodeHandle(page);
     }
     return ret;
