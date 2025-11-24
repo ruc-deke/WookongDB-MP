@@ -120,6 +120,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
 }
 
 Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_id, bool need_to_record) {
+    // auto ts_start_time = std::chrono::high_resolution_clock::now();
     assert(page_id < ComputeNodeBufferPageSize);
     if (need_to_record && cnt++ % 10000 == 0){
         std::cout << "lazy fetch cnt : " << cnt << "\n";
@@ -246,6 +247,13 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
     assert(page);
 
     // LOG(INFO) << "fetch X Page over " << "table_id = " << table_id << " page_id = " << page_id << " node_id = " << node_->getNodeID();
+    // auto ts_end_time = std::chrono::high_resolution_clock::now();
+    // auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(ts_end_time - ts_start_time).count();
+    // if (need_to_record){
+    //     int seconds = duration_us / 1000000;
+    //     int milliseconds = (duration_us % 1000000) / 1000;
+    //     LOG(INFO) << "[TS Monitor] " << seconds << "s " << milliseconds << "ms";
+    // }
 
     return page;
 }

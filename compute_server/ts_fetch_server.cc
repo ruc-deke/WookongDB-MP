@@ -52,10 +52,10 @@ Page *ComputeServer::rpc_ts_fetch_s_page(table_id_t table_id , page_id_t page_id
     }
     // 完成一次 fetch，减少 in-flight 计数并在归零时唤醒切片线程
     int prev_inflight = node_->ts_inflight_fetch.fetch_sub(1);
-    if (prev_inflight == 1 && node_->getPhaseNoBlock() == TsPhase::SWITCHING) {
-        std::unique_lock<std::mutex> lk(node_->ts_switch_mutex);
-        node_->ts_switch_cond.notify_one();
-    }
+    // if (prev_inflight == 1 && node_->getPhaseNoBlock() == TsPhase::SWITCHING) {
+    //     std::unique_lock<std::mutex> lk(node_->ts_switch_mutex);
+    //     node_->ts_switch_cond.notify_one();
+    // }
 
     // LOG(INFO) << "Fetching S Over , table_id = " << table_id << " page_id = " << page_id;
     assert(page);
@@ -93,10 +93,10 @@ Page *ComputeServer::rpc_ts_fetch_x_page(table_id_t table_id , page_id_t page_id
     }
 
     int prev_inflight = node_->ts_inflight_fetch.fetch_sub(1);
-    if (prev_inflight == 1 && node_->getPhaseNoBlock() == TsPhase::SWITCHING) {
-        std::unique_lock<std::mutex> lk(node_->ts_switch_mutex);
-        node_->ts_switch_cond.notify_one();
-    }
+    // if (prev_inflight == 1 && node_->getPhaseNoBlock() == TsPhase::SWITCHING) {
+    //     std::unique_lock<std::mutex> lk(node_->ts_switch_mutex);
+    //     node_->ts_switch_cond.notify_one();
+    // }
 
     // LOG(INFO) << "Fetching X Over , table_id = " << table_id << " page_id = " << page_id;
     assert(page);
@@ -179,7 +179,7 @@ void ComputeServer::ts_switch_phase(){
         assert(node_->ts_cnt < ComputeNodeCount);
 
         // 时间片性能监控：记录开始时间
-        // auto ts_start_time = std::chrono::high_resolution_clock::now();
+        auto ts_start_time = std::chrono::high_resolution_clock::now();
         
         // 2.1 给整个分区加上锁
         brpc::Controller cntl;
@@ -204,32 +204,27 @@ void ComputeServer::ts_switch_phase(){
             // 获取到我这个分区内的全部页面的所在位置
             rpc_ts_switch_get_page_locate();
         }
-
-        auto ts_get_page_locate = std::chrono::high_resolution_clock::now();
         
         node_->setPhase(TsPhase::RUNNING);
         LOG(INFO) << "Before Schedule , Active Thread Count = " << node_->getScheduler()->getActiveThreadCount();
         int act_size = node_->getScheduler()->activateSlice(node_->ts_cnt);
-        LOG(INFO) << "Active Fibers , Active Size = " << act_size << " Now Active Thread = " << node_->getScheduler()->getActiveThreadCount();
-        auto ts_schedule_time = std::chrono::high_resolution_clock::now();
-        
-        // 计算并打印从 get_page_locate 到 activateSlice 的时间（毫秒）
-        auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            ts_schedule_time - ts_get_page_locate).count();
+        LOG(INFO) << "Active Fibers , Active Size = " << act_size << " Now m_fibers Size = " << node_->getScheduler()->getFibersSize();
+        // node_->getScheduler()->valid_fetch_from_slice();
         
         // LOG(INFO) << "PhaseSwitch To Running";
         // std::cout << "TS Phase : " << node_->ts_cnt << " RUNNING" << "\n";
 
         // 等待时间片到
         {
-            auto run_ts_time = std::chrono::microseconds(node_->ts_time);
-            if (node_->is_running){
-                std::unique_lock<std::mutex> lk(node_->ts_switch_mutex);
-                // 除非是节点终止了，否则就等到时间片结束
-                node_->ts_switch_cond.wait_for(lk , run_ts_time , [&](){
-                    return !node_->is_running;
-                });
-            }
+            // auto run_ts_time = std::chrono::microseconds(node_->ts_time);
+            // if (node_->is_running){
+            //     std::unique_lock<std::mutex> lk(node_->ts_switch_mutex);
+            //     // 除非是节点终止了，否则就等到时间片结束
+            //     node_->ts_switch_cond.wait_for(lk , run_ts_time , [&](){
+            //         return !node_->is_running;
+            //     });
+            // }
+            usleep(node_->ts_time);
         }
         LOG(INFO) << "After Running , Still In Queue Size = " << node_->getScheduler()->getTaskQueueSize(node_->ts_cnt) 
             << " Active Thread Count = " << node_->getScheduler()->getActiveThreadCount();
@@ -239,6 +234,7 @@ void ComputeServer::ts_switch_phase(){
         // 记录 RUNNING 阶段结束时间，计算 RUNNING 阶段耗时
         // auto running_end_time = std::chrono::high_resolution_clock::now();
         
+        node_->getScheduler()->invalid_fetch_from_slice();
         node_->setPhase(TsPhase::SWITCHING);       // 阻止再去 Fetch
         // LOG(INFO) << "Phase Switch To SWITCHING Now Phase = ";
         // 改进了一下，等待没有 Fetch 完成的放在后面，反正没影响
@@ -268,13 +264,24 @@ void ComputeServer::ts_switch_phase(){
 
         {
             // 等待没有 Fetch 完成的页面
-            std::unique_lock<std::mutex> lk(node_->ts_switch_mutex);
-            // LOG(INFO) << "WAITING FOR fetch Over";
-            node_->ts_switch_cond.wait(lk, [&](){
-                return node_->ts_inflight_fetch.load() == 0;
-            });
+            // std::unique_lock<std::mutex> lk(node_->ts_switch_mutex);
+            // // LOG(INFO) << "WAITING FOR fetch Over";
+            // node_->ts_switch_cond.wait(lk, [&](){
+            //     return node_->ts_inflight_fetch.load() == 0;
+            // });
+            bool need_loop = true;
+            int tmp_cnt = 0;
+            while (need_loop){
+                if (node_->ts_inflight_fetch.load() == 0){
+                    tmp_cnt++;
+                    need_loop = false;
+                }
+                if (!need_loop){
+                    LOG(INFO) << "TRY WAIT CNT = " << tmp_cnt;
+                }
+            }
             // LOG(INFO) << "WAITING FOR fetch Over Over";
-            LOG(INFO) << "Node Left Fiber Cnt = " << node_->getScheduler()->getTaskQueueSize(node_->ts_cnt) << "\n";
+            LOG(INFO) << "Node Left Fiber Cnt = " << node_->getScheduler()->getTaskQueueSize(node_->ts_cnt);
             
             // 如果任务队列为空，运行一次 RunWorkLoad
             // if (node_->getScheduler()->getTaskQueueSize(node_->ts_cnt) == 0) {
@@ -289,6 +296,10 @@ void ComputeServer::ts_switch_phase(){
         }
         
         // auto wait_fetch_over_time = std::chrono::high_resolution_clock::now();
+        auto ts_end_time = std::chrono::high_resolution_clock::now();
+        auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(ts_end_time - ts_start_time).count();
+
+        LOG(INFO) << "Real Time = " << duration_us/1000 << "ms\n";
 
         // 时间片阶段耗时统计
         // const auto duration_us = [](const auto& end, const auto& start) -> double {

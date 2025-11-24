@@ -104,7 +104,7 @@ class PartitionTableImpl : public PartitionTableService {
         
         page_lock_table_list_->at(0)->GetPartitionLock(partition_id)->LockExclusive(node_id);
         // TODO：这里其实可以考虑一下发送给节点时间片的时间(动态时间片)，这里先这样吧
-
+        
         return ;
     }
 

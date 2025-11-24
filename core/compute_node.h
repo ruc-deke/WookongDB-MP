@@ -11,6 +11,7 @@
 #include <mutex>
 #include <brpc/channel.h>
 #include "fiber/scheduler.h"
+#include "fiber/thread.h"
 #include "unordered_map"
 #include "atomic"
 #include "chrono"
@@ -338,9 +339,12 @@ public:
         return local_buffer_pools[table_id]->try_fetch_page(page_id);
     }
 
-    // Pull 数据的时候，可能已经被换出或者淘汰了，这个时候就让对面自己去存储拿
-    std::string fetch_page_special(table_id_t table_id , page_id_t page_id){
-        return local_buffer_pools[table_id]->fetch_page_special(page_id);
+    void unpin_page(table_id_t table_id , page_id_t page_id , bool use_pincount){
+        if (!use_pincount){
+            local_buffer_pools[table_id]->unpin_page(page_id);
+        }else {
+            local_buffer_pools[table_id]->unpin_page_with_pincount(page_id);
+        }
     }
 
     const std::atomic<int> &getFetchRemoteCnt() const {
@@ -437,7 +441,7 @@ public:
     }
 
     TsPhase getPhase() {
-        std::lock_guard<std::mutex>lok(ts_switch_mutex);
+        RWMutex::ReadLock lock(rw_mutex);
         return ts_phase;
     }
     TsPhase getPhaseNoBlock(){
@@ -455,16 +459,16 @@ public:
     }
 
     void setPhase(TsPhase val) {
-        std::lock_guard<std::mutex>lk(ts_switch_mutex);
+        RWMutex::WriteLock lock(rw_mutex);
         ts_phase = val;
     }
 
     void addPhase(){
-        std::lock_guard<std::mutex>lk(ts_switch_mutex);
+        RWMutex::WriteLock lock(rw_mutex);
         ts_cnt = (ts_cnt + 1) % ComputeNodeCount;
     }
     int get_ts_cnt() {
-        std::lock_guard<std::mutex>lk(ts_switch_mutex);
+        RWMutex::ReadLock lock(rw_mutex);
         return ts_cnt;
     }
     
@@ -535,7 +539,7 @@ public:
     // 时间戳阶段转化用的
     std::atomic<TsPhase> ts_phase{TsPhase::BEGIN};
     int ts_cnt = 0;                 // 当前节点处于哪个时间片中
-    std::mutex ts_switch_mutex;
+    RWMutex rw_mutex;
     std::condition_variable ts_switch_cond;
     int ts_time;  
     // TS: 统计当前正在进行中的 fetch 数，切片切换时等待其归零以保证安全

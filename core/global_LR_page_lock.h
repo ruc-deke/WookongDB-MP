@@ -12,6 +12,7 @@
 #include <brpc/channel.h>
 #include <queue>
 #include <bthread/butex.h>
+#include <unistd.h>
 
 struct LRRequest{
     node_id_t node_id;  // 请求的节点id
@@ -325,6 +326,8 @@ public:
         std::vector<brpc::CallId> cids;
         assert(!hold_lock_nodes.empty());
 
+        usleep(NetworkLatency);
+
         // 此时 hold_lock_nodes 都是下一轮能够获取到锁的页面
         for(auto node_id : hold_lock_nodes){
             // 构造request
@@ -360,6 +363,7 @@ public:
 
             // LOG(INFO) << "Send LockSuccess , table_id = " << table_id << " page_id = " << page_id << " node_id = " << node_id << " IsValid : " << request.is_newest();
 
+            
             // 发送请求
             brpc::Channel* channel = compute_channels[node_id];
             compute_node_service::ComputeNodeService_Stub computenode_stub(channel);

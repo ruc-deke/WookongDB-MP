@@ -232,6 +232,35 @@ void Scheduler::YieldToSlice(size_t slice_id) {
     Fiber::YieldToHold();
 }
 
+void Scheduler::YieldAllToSlice(size_t slice_id){
+    if(!m_sliceSchedulerEnabled || m_sliceQueues.empty()) {
+        assert(false);
+        return;
+    }
+    
+    MutexType::Lock lock(m_mutex);
+    auto it = m_fibers.begin();
+    while (it != m_fibers.end()) {
+        bool need_to_hang = false;
+        
+        // 仅当存储的是协程，且不在运行状态的时候，才调度它
+        if (it->fiber){
+            Fiber::State state = it->fiber->getState();
+            if (state != Fiber::EXEC && state != Fiber::TERM && state != Fiber::EXCEPT) {
+                need_to_hang = true;
+            }
+        } 
+
+        if (need_to_hang){
+            FiberAndThread ft = std::move(*it);
+            it = m_fibers.erase(it);
+            enqueueSliceTask(std::move(ft), slice_id);
+        } else {
+            ++it;
+        }
+    }
+}
+
 size_t Scheduler::getActiveSlice() const {
     return m_activeSlice.load(std::memory_order_relaxed);
 }
@@ -246,15 +275,16 @@ size_t Scheduler::getSliceCount() const {
 
 void Scheduler::enqueueSliceTask(FiberAndThread&& ft, size_t slice_id) {
     assert(!m_sliceQueues.empty());
-    static int cnt = 0;
     size_t normalized = slice_id % m_sliceQueues.size();
     {
         std::lock_guard<std::mutex> lk(m_sliceMutex);
         m_sliceQueues[normalized].push_back(std::move(ft));
     }
-    if (cnt++ % 10000 == 0){
-        std::cout << "Yield Cnt = " << cnt << "\n";
-    }
+    // int yield_cnt = m_yieldCnt.fetch_add(1);
+    // if (yield_cnt % 10000 == 0){
+    //     std::cout << "Yield Cnt = " << yield_cnt << "\n";
+    // }
+
     // std::cout << "Add Task To Slice " << slice_id << "\n";
 }
 
@@ -318,7 +348,6 @@ void Scheduler::run(){
         ft.reset();
         bool tickle_me = false;
         bool is_active = false;
-        bool from_list = true;
 
         // std::cout << m_activeThreadCount << "\n";
         // 1. 尝试从普通队列获取任务
@@ -350,13 +379,13 @@ void Scheduler::run(){
 
         // 2. 如果普通队列没有任务，尝试从当前时间片内获取任务
         // 不要从时间片里面拿！！！
-        // if (!is_active && m_sliceSchedulerEnabled) {
+        // if (!is_active && m_sliceSchedulerEnabled && getValidQueue()) {
         //     if (fetchFiberFromActiveSlice(ft, getThreadID())) {
+ 
         //         // thread == -1 means it can run on any thread
-        //         assert(ft.thread == -1 || ft.thread == getThreadID());
+        //         // assert(ft.thread == -1 || ft.thread == getThreadID());
         //         ++m_activeThreadCount;
         //         is_active = true;
-        //         from_list = false;
         //     } else {
         //         // TODO：这里可以生成一个新的 RunSmallBank 协程，不然 CPU 会空转
         //         // if (m_taskGenerator) {
@@ -376,6 +405,7 @@ void Scheduler::run(){
             ft.fiber->swapIn();
             --m_activeThreadCount;
             if (ft.fiber->getState() == Fiber::State::READY){
+                std::cout << "BAGAYALU\n\n";
                 schedule(ft.fiber);
             } else if(ft.fiber->getState() != Fiber::TERM
                 && ft.fiber->getState() != Fiber::EXCEPT) {
@@ -392,6 +422,7 @@ void Scheduler::run(){
             cb_fiber->swapIn();
             --m_activeThreadCount;
             if(cb_fiber->getState() == Fiber::READY) {
+                std::cout << "BAGA\n";
                 schedule(cb_fiber);
                 cb_fiber.reset();
             } else if(cb_fiber->getState() == Fiber::EXCEPT

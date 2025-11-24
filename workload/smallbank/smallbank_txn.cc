@@ -369,6 +369,7 @@ bool SmallBankDTX::TxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, cor
 
 /* Calculate the sum of saving and checking kBalance */
 bool SmallBankDTX::TxBalance(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned) {
+  std::cout << "Running Tx Balance\n";
   dtx->TxBegin(tx_id);
     //  // LOG(INFO) << "TxBalance";
   /* Transaction parameters */

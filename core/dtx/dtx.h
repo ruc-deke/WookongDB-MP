@@ -66,7 +66,6 @@ class DTX {
   void ClearReadWriteSet();
 
   bool TxExe(coro_yield_t& yield, bool fail_abort = true);
-  bool TxExe_TS(coro_yield_t &yield , bool fail_abort = true);
 
   bool TxCommit(coro_yield_t& yield);
 

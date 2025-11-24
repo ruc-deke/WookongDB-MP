@@ -322,7 +322,7 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
     clock_gettime(CLOCK_REALTIME, &txn_meta.start_time);
 
     // printf("worker.cc:326, start a new txn\n");
-    tx_type = SmallBankTxType::kTransactSaving;
+    // tx_type = SmallBankTxType::kTransactSaving;
     switch (tx_type) {
       case SmallBankTxType::kAmalgamate: {
           thread_local_try_times[uint64_t(tx_type)]++;

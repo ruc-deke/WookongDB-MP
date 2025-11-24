@@ -162,6 +162,9 @@ class SmallBank {
     // printf("j = %d\n", j);
 
     int remain = 100 - FREQUENCY_BALANCE;
+    // int remain = FREQUENCY_AMALGAMATE + FREQUENCY_DEPOSIT_CHECKING + 
+    //              FREQUENCY_SEND_PAYMENT + FREQUENCY_TRANSACT_SAVINGS + 
+    //              FREQUENCY_WRITE_CHECK;
 
     j = (j + rw * FREQUENCY_AMALGAMATE / remain) > 100 ? 100 : (j + rw * FREQUENCY_AMALGAMATE / remain);
     for (; i < j; i++) workgen_arr[i] = SmallBankTxType::kAmalgamate;

@@ -3,11 +3,13 @@
 
 // 这个文件用于实现远程的页表，通过brpc实现，在无rdma环境下适用
 #pragma once
+#include "config.h"
 #include "global_page_lock_table.h"
 #include "global_valid_table.h"
 #include <butil/logging.h> 
 #include <brpc/server.h>
 #include <gflags/gflags.h>
+#include <unistd.h>
 
 #include "remote_page_table.pb.h"
 
@@ -381,6 +383,8 @@ class PageTableServiceImpl : public PageTableService {
         assert(page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->is_request_queue_empty());
         gl->mutexUnlock();
         response->set_agree(true);
+
+        usleep(NetworkLatency);
 
         return;
     }

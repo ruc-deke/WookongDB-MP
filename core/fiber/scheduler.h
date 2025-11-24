@@ -59,6 +59,11 @@ public:
         return m_activeThreadCount;
     }
 
+    size_t getFibersSize() {
+        MutexType::Lock lk(m_mutex);
+        return m_fibers.size();
+    }
+
     void switchTo(int thread = -1);
     std::ostream& dump(std::ostream& os);
 
@@ -68,6 +73,7 @@ public:
     int activateSlice(size_t slice_id);
     void invalidSlice(size_t slice_id);
     void YieldToSlice(size_t slice_id);
+    void YieldAllToSlice(size_t slice_id);
     size_t getActiveSlice() const;
     size_t getSliceCount() const;
     std::vector<int> getThreadIds() { return m_threadIds; }
@@ -86,6 +92,21 @@ public:
     }
     int getFiberCnt() const {
         return m_fiberCnt.load();
+    }
+
+    void invalid_fetch_from_slice(){
+        std::lock_guard<std::mutex> lk(m_sliceMutex);
+        m_validQueue = false;
+    }
+
+    void valid_fetch_from_slice(){
+        std::lock_guard<std::mutex> lk(m_sliceMutex);
+        m_validQueue = true;
+    }
+
+    bool getValidQueue(){
+        std::lock_guard<std::mutex> lk(m_sliceMutex);
+        return m_validQueue;
     }
 
 public:
@@ -184,8 +205,10 @@ protected:
     bool m_sliceSchedulerEnabled = false;
     std::vector<std::deque<FiberAndThread>> m_sliceQueues;
     mutable std::mutex m_sliceMutex;
+    bool m_validQueue = false;
     std::atomic<size_t> m_activeSlice{0};
     std::atomic<int> m_fiberCnt{0};
+    std::atomic<int> m_yieldCnt{0};
     
     std::function<void(int)> m_taskGenerator;
 };

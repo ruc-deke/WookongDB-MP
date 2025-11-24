@@ -146,7 +146,7 @@ Fiber::ptr Fiber::GetThis() {
 void Fiber::YieldToHold(){
     Fiber::ptr cur = GetThis();
     assert(cur->m_state == EXEC);
-    // cur->m_state = HOLD;
+    // cur->m_state = HOLD; //不需要在这里设置，在 Scheduler::run 里面设置
     cur->swapOut();
 }
 

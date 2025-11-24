@@ -18,6 +18,7 @@
 #include "compute_node/compute_node.pb.h"
 #include "compute_node/twoPC.pb.h"
 #include "compute_node/calvin.pb.h"
+#include "fiber/thread.h"
 #include "local_page_lock.h"
 #include "remote_bufferpool/remote_bufferpool.pb.h"
 #include "remote_page_table/remote_page_table.pb.h"
@@ -358,23 +359,24 @@ public:
         return (page_id - 1) / partition_size;
     }
 
-    void tryLockTs(table_id_t table_id , page_id_t page_id){
-        node_->ts_switch_mutex.lock();
-        while (!(is_ts_par_page(table_id , page_id) && node_->getPhaseNoBlock() == TsPhase::RUNNING)){
-            int target = get_ts_belong_par(table_id , page_id);
-            node_->ts_switch_mutex.unlock();
-            // 如果不在当前时间片内，那就把这个协程挂起，换一个协程来
-            node_->getScheduler()->YieldToSlice(target);
-            node_->ts_switch_mutex.lock();
-        }
-        node_->set_page_dirty(table_id , page_id , true);
-        // LOG(INFO) << "Fetching , table_id = " << table_id << " page_id = " << page_id << " tryLocks Success" << " ts Fetch Cnt = " << node_->ts_inflight_fetch;
-        node_->ts_inflight_fetch.fetch_add(1);
-        node_->ts_switch_mutex.unlock();
-    }
+    // void tryLockTs2(table_id_t table_id , page_id_t page_id){
+    //     node_->ts_switch_mutex.lock();
+    //     while (!(is_ts_par_page(table_id , page_id) && node_->getPhaseNoBlock() == TsPhase::RUNNING)){
+    //         int target = get_ts_belong_par(table_id , page_id);
+    //         node_->ts_switch_mutex.unlock();
+    //         // LOG(INFO) << "Yield To Slice , table_id = " << table_id << " page_id = " << page_id << " Target Slice = " << target << " Now Fiber ID = " << Fiber::GetFiberID();
+    //         // 如果不在当前时间片内，那就把这个协程挂起，换一个协程来
+    //         node_->getScheduler()->YieldToSlice(target);
+    //         node_->ts_switch_mutex.lock();
+    //     }
+    //     node_->set_page_dirty(table_id , page_id , true);
+    //     // LOG(INFO) << "Fetching , table_id = " << table_id << " page_id = " << page_id << " tryLocks Success" << " ts Fetch Cnt = " << node_->ts_inflight_fetch;
+    //     node_->ts_inflight_fetch.fetch_add(1);
+    //     node_->ts_switch_mutex.unlock();
+    // }
 
-    void tryLockTs2(table_id_t table_id , page_id_t page_id){
-        node_->ts_switch_mutex.lock();
+    void tryLockTs(table_id_t table_id , page_id_t page_id){
+        RWMutex::ReadLock r_lock(node_->rw_mutex);
         bool cond1 = is_ts_par_page(table_id , page_id);
         bool cond2 = (node_->getPhaseNoBlock() == TsPhase::RUNNING);
         // static std::atomic<int>cnt1{0};
@@ -382,7 +384,11 @@ public:
         // static std::atomic<int>cnt3{0};
         while (!(cond1 && cond2)){
             int target = get_ts_belong_par(table_id , page_id);
-            node_->ts_switch_mutex.unlock();
+            r_lock.unlock();
+            if (!cond2){
+                node_->getScheduler()->YieldAllToSlice(node_->ts_cnt);
+            }
+            // LOG(INFO) << "Yield To Slice , table_id = " << table_id << " page_id = " << page_id << " Target Slice = " << target << " Now Fiber ID = " << Fiber::GetFiberID();
             // 如果不在当前时间片内，那就把这个协程挂起，换一个协程来
             node_->getScheduler()->YieldToSlice(target);
             // if (!cond1 && !cond2){
@@ -398,14 +404,13 @@ public:
             //     LOG(INFO) << "Caculate : " << cnt1 << " " << cnt2 << " " << cnt3 << "\n";
             // }
 
-            node_->ts_switch_mutex.lock();
+            r_lock.lock();
             cond1 = is_ts_par_page(table_id , page_id);
             cond2 = (node_->getPhaseNoBlock() == TsPhase::RUNNING);
         }
         node_->set_page_dirty(table_id , page_id , true);
         // LOG(INFO) << "Fetching , table_id = " << table_id << " page_id = " << page_id << " tryLocks Success" << " ts Fetch Cnt = " << node_->ts_inflight_fetch;
         node_->ts_inflight_fetch.fetch_add(1);
-        node_->ts_switch_mutex.unlock();
     }
     // ******************* ts fetch end ***********************
 
@@ -590,6 +595,7 @@ public:
         if (checkIfDirectlyUpdate(table_id , page_id , data)){
             return node_->fetch_page(table_id , page_id);
         }
+        
         Page *page = checkIfDirectlyPutInBuffer(table_id , page_id , data);
         if (page != nullptr){
             return page;

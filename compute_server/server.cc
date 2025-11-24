@@ -244,17 +244,16 @@ void ComputeNodeServiceImpl::GetPage(::google::protobuf::RpcController* controll
         table_id_t table_id = request->page_id().table_id();
         // 在这里 fetch_page 的时候，页面可能还在存储里，但是在真正推送页面的时候，可能不在了
         // 这是完全有可能的，因为 Pull 请求是无法预知的，所以在 fetch 的时候直接把页面数据存在一个字符串内
-        std::string data = server->get_node()->fetch_page_special(table_id , page_id);
-        if (data == ""){
+        Page *page = server->get_node()->try_fetch_page(table_id , page_id);
+        if (page == nullptr){
             response->set_need_to_storage(true);
             return;
         }
-        // auto pid = page->get_page_id();
-        // assert(pid.page_no == page_id);
-        // assert(pid.table_id == table_id);
-        assert(data.size() == PAGE_SIZE);
+
         response->set_need_to_storage(false);
-        response->set_page_data(data.c_str(), PAGE_SIZE);
+        response->set_page_data(page->get_data() , PAGE_SIZE);
+
+        server->get_node()->unpin_page(table_id , page_id , true);
 
         // 性能优化：移除模拟延迟，NetworkLatency已经为0
         // usleep(NetworkLatency); // 100us

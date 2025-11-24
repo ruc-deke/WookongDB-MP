@@ -59,7 +59,7 @@ public:
         frame_id_t frame_id = it->second;
         replacer->pin(frame_id);
         Page *page = pages[frame_id];
-
+        
         return page;
     }
 
@@ -74,20 +74,21 @@ public:
         frame_id_t frame_id = it->second;
         replacer->pin(frame_id);
         Page *page = pages[frame_id];
+        page->pin_count_++;
 
         return page;
     }
 
-    std::string fetch_page_special(page_id_t page_id){
+    void unpin_page_with_pincount(page_id_t page_id){
         std::lock_guard<std::mutex> lk(mtx);
         auto it = page_table.find(page_id);
-        if (it == page_table.end()){
-            return "";
-        }
+        assert(it != page_table.end());
+
         frame_id_t frame_id = it->second;
-        replacer->pin(frame_id);
         Page *page = pages[frame_id];
-        return std::string(page->get_data() , PAGE_SIZE);
+        if (--page->pin_count_ == 0){
+            replacer->unpin(frame_id);
+        }
     }
 
     // 直接从缓冲区里面把这个页面删掉，这个是当节点释放页面所有权的时候调用的
