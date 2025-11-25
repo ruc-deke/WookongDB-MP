@@ -50,7 +50,7 @@ add_library(core STATIC
         ${FIBER_SRC}
 )
 
-target_link_libraries(core boost_coroutine boost_context boost_system)
+target_link_libraries(core boost_coroutine boost_context boost_system ${BRPC_LIB})
 
 set(Storage_SRC
         storage/disk_manager.cc

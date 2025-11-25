@@ -2,6 +2,7 @@
 
 #include "thread"
 #include "atomic"
+#include <iomanip>
 
 std::atomic<int> cnt{0};
 
@@ -252,7 +253,10 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
     // if (need_to_record){
     //     int seconds = duration_us / 1000000;
     //     int milliseconds = (duration_us % 1000000) / 1000;
-    //     LOG(INFO) << "[TS Monitor] " << seconds << "s " << milliseconds << "ms";
+    //     if (seconds != 0){
+    //         LOG(INFO) << "[TS Monitor] " << seconds << "." 
+    //               << std::setfill('0') << std::setw(3) << milliseconds << "s";
+    //     }
     // }
 
     return page;

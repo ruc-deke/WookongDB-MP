@@ -42,7 +42,7 @@ class PartitionTableImpl : public PartitionTableService {
                 // // LOG(INFO) << "node: " << node_id << " Lock Shared partition " << par_id << " in remote partition table";
 
                 // 添加模拟延迟
-                // usleep(NetworkLatency); // 100us
+                // if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
                 return;
             }
 
@@ -59,7 +59,7 @@ class PartitionTableImpl : public PartitionTableService {
 
                 // // LOG(INFO) << "node: " << node_id << " Unlock Shared partition " << par_id << " in remote partition table";
                 // 添加模拟延迟
-                // usleep(NetworkLatency); // 100us
+                // if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
                 m.lock();
                 auto epoch_par_tps = request->par_tps();
                 auto epoch_global_tps = request->global_tps();
@@ -119,7 +119,7 @@ class PartitionTableImpl : public PartitionTableService {
         page_lock_table_list_->at(0)->GetPartitionLock(par_id)->UnlockExclusive(node_id);
         
         // 添加模拟延迟
-        // usleep(NetworkLatency); // 100us
+        // if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
         return;
     }
 
@@ -186,7 +186,7 @@ class PartitionTableImpl : public PartitionTableService {
                 response->set_global_time(global_phase_time);
                 response->set_partition_time(partition_phase_time);
                 // 添加模拟延迟
-                // usleep(NetworkLatency); // 100us
+                // if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
                 return;
             }
 
@@ -205,7 +205,7 @@ class PartitionTableImpl : public PartitionTableService {
                 // // LOG(INFO) << "node: " << node_id << " Unlock Exclusive partition " << par_id << " in remote partition table";
                 
                 // 添加模拟延迟
-                // usleep(NetworkLatency); // 100us
+                // if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
                 return;
             }
     

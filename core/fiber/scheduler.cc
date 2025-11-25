@@ -2,6 +2,8 @@
 
 #include "assert.h"
 #include "fiber/thread.h"
+#include <chrono>
+#include <butil/logging.h>
 
 static thread_local Scheduler* t_scheduler = nullptr;
 static thread_local Fiber* t_scheduler_fiber = nullptr;
@@ -60,6 +62,7 @@ void Scheduler::start(){
 }
 
 void Scheduler::stop(){
+    std::cout << "Scheduler Stop\n";
     m_autoStop = true;
     if(m_rootFiber
         && m_threadCount == 0
@@ -402,10 +405,18 @@ void Scheduler::run(){
 
         if (ft.fiber && (ft.fiber->getState() != Fiber::State::TERM
                     && ft.fiber->getState() != Fiber::State::EXCEPT)){
+            
+            // auto start_time = std::chrono::high_resolution_clock::now();
+            // LOG(INFO) << "Ready To Swap , Target Fiber ID = " << ft.fiber->getID();
             ft.fiber->swapIn();
+            // auto end_time = std::chrono::high_resolution_clock::now();
+            // auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+            // auto ms = duration.count() / 1000;
+            // auto us = duration.count() % 1000;
+            // LOG(INFO) << "Cost " << ms << "." << us << "ms";
+
             --m_activeThreadCount;
             if (ft.fiber->getState() == Fiber::State::READY){
-                std::cout << "BAGAYALU\n\n";
                 schedule(ft.fiber);
             } else if(ft.fiber->getState() != Fiber::TERM
                 && ft.fiber->getState() != Fiber::EXCEPT) {

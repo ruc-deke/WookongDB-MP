@@ -26,12 +26,12 @@
 // #define FREQUENCY_TRANSACT_SAVINGS 15
 // #define FREQUENCY_WRITE_CHECK 15
 
-#define FREQUENCY_AMALGAMATE 35
+#define FREQUENCY_AMALGAMATE 20
 #define FREQUENCY_BALANCE 5
-#define FREQUENCY_DEPOSIT_CHECKING 5
-#define FREQUENCY_SEND_PAYMENT 35
-#define FREQUENCY_TRANSACT_SAVINGS 10
-#define FREQUENCY_WRITE_CHECK 10
+#define FREQUENCY_DEPOSIT_CHECKING 15
+#define FREQUENCY_SEND_PAYMENT 20
+#define FREQUENCY_TRANSACT_SAVINGS 20
+#define FREQUENCY_WRITE_CHECK 20
 
 #define TX_HOT 80 /* Percentage of txns that use accounts from hotspot */
 
@@ -152,16 +152,18 @@ class SmallBank {
   ~SmallBank() {}
 
   SmallBankTxType* CreateWorkgenArray(double readonly_txn_rate) {
+    // 设计的思路是，数组大小 100，然后往里面填 SmallBankTxType，事务的占比就是其在数组里面的数量
     SmallBankTxType* workgen_arr = new SmallBankTxType[100];
 
-    // SmallBankTxType为kBalance，是只读事务
+    // 写事务的比例
     int rw = 100 - 100 * readonly_txn_rate;
+
     int i = 0;
     int j = 100 * readonly_txn_rate;
-    for (; i < j; i++) workgen_arr[i] = SmallBankTxType::kBalance;
+    for (; i < j; i++) workgen_arr[i] = SmallBankTxType::kBalance;  // Kbalance 是只读事务
     // printf("j = %d\n", j);
 
-    int remain = 100 - FREQUENCY_BALANCE;
+    int remain = 100 - FREQUENCY_BALANCE;     // 除了 KBalance 以外其它事务的比例
     // int remain = FREQUENCY_AMALGAMATE + FREQUENCY_DEPOSIT_CHECKING + 
     //              FREQUENCY_SEND_PAYMENT + FREQUENCY_TRANSACT_SAVINGS + 
     //              FREQUENCY_WRITE_CHECK;

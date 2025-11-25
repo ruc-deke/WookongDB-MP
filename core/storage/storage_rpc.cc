@@ -93,7 +93,7 @@ namespace storage_service{
         }
 
         // 添加模拟延迟
-        usleep(NetworkLatency); // 100us
+        if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
         return;
     };
 
@@ -108,7 +108,7 @@ namespace storage_service{
         // LOG(INFO) << "Receive Raft log";
 
         // 添加模拟延迟
-        usleep(NetworkLatency); // 100us
+        if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
         return;
     };
 

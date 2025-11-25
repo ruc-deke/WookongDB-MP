@@ -10,6 +10,7 @@
 #include <thread>
 #include <unistd.h>
 #include <vector>
+#include <cstring>
 
 #include "config.h"
 #include "handler.h"

@@ -45,7 +45,7 @@ class PageTableServiceImpl : public PageTableService {
         response->set_allocated_page_id(page_id_pb);
 
         // 添加模拟延迟
-        usleep(NetworkLatency); // 100us
+        if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
         return;
     }
 
@@ -77,7 +77,7 @@ class PageTableServiceImpl : public PageTableService {
             // page_lock_table_->Basic_GetLock(page_id)->UnlockShared();
 
             // 添加模拟延迟
-            usleep(NetworkLatency); // 100us
+            if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
             return;
         }
 
@@ -110,7 +110,7 @@ class PageTableServiceImpl : public PageTableService {
             response->set_allocated_page_id(page_id_pb);
 
             // 添加模拟延迟
-            usleep(NetworkLatency); // 100us
+            if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
             return;
         }
 
@@ -148,7 +148,7 @@ class PageTableServiceImpl : public PageTableService {
            // std::cout <<"table_id: " << table_id << " page_id: " << page_id << " node_id: " << node_id << " has the newest" << std::endl;
 
             // 添加模拟延迟
-            usleep(NetworkLatency); // 100us
+            if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
             return;
         }
 
@@ -201,7 +201,7 @@ class PageTableServiceImpl : public PageTableService {
             }
 
             // 添加模拟延迟
-            usleep(NetworkLatency); // 100us
+            if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
             return;
         }
 
@@ -278,7 +278,7 @@ class PageTableServiceImpl : public PageTableService {
             }
             
             // 添加模拟延迟
-            usleep(NetworkLatency); // 100us
+            if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
             return;
         }
 
@@ -384,7 +384,7 @@ class PageTableServiceImpl : public PageTableService {
         gl->mutexUnlock();
         response->set_agree(true);
 
-        usleep(NetworkLatency);
+        if (NetworkLatency != 0)  usleep(NetworkLatency);
 
         return;
     }
@@ -490,7 +490,7 @@ class PageTableServiceImpl : public PageTableService {
             }
             // valid_info->ReleasePage(node_id);
             // 添加模拟延迟
-            usleep(NetworkLatency); // 100us
+            if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
         }
 
     void LRPAnyUnLock_Localcall(const ::page_table_service::PAnyUnLockRequest* request,
@@ -564,7 +564,7 @@ class PageTableServiceImpl : public PageTableService {
             }
             
             // 添加模拟延迟
-            usleep(NetworkLatency); // 100us
+            if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
         }
 
     private:

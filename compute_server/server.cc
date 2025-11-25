@@ -1,4 +1,6 @@
 #include "server.h"
+#include "config.h"
+#include <unistd.h>
 #include <vector>
 #include <utility>
 
@@ -229,7 +231,7 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
     }
 
     // 添加模拟延迟
-    // usleep(NetworkLatency); // 100us
+    // if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
     return;
 }
 
@@ -256,7 +258,7 @@ void ComputeNodeServiceImpl::GetPage(::google::protobuf::RpcController* controll
         server->get_node()->unpin_page(table_id , page_id , true);
 
         // 性能优化：移除模拟延迟，NetworkLatency已经为0
-        // usleep(NetworkLatency); // 100us
+        // if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
         return;
     }
 
@@ -283,7 +285,7 @@ void ComputeNodeServiceImpl::PushPage(::google::protobuf::RpcController* control
         server->get_node()->NotifyPushPageSuccess(table_id, page_id);
         
         // 添加模拟延迟
-        usleep(NetworkLatency); // 100us
+        if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
         return;
     }
 
@@ -339,6 +341,8 @@ void ComputeServer::PushPageToOther(table_id_t table_id , page_id_t page_id , no
     push_request.set_page_data(page->get_data(), PAGE_SIZE);
     push_request.set_src_node_id(src_node_id);
     push_request.set_dest_node_id(dest_node_id);
+
+    if (NetworkLatency != 0)  usleep(NetworkLatency);
 
     brpc::Controller* push_cntl = new brpc::Controller();
     compute_node_service::ComputeNodeService_Stub compute_node_stub(get_compute_channel() + dest_node_id);

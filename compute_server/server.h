@@ -390,7 +390,9 @@ public:
             }
             // LOG(INFO) << "Yield To Slice , table_id = " << table_id << " page_id = " << page_id << " Target Slice = " << target << " Now Fiber ID = " << Fiber::GetFiberID();
             // 如果不在当前时间片内，那就把这个协程挂起，换一个协程来
+            // LOG(INFO) << "READY TO Yield , now FiberID = " << Fiber::GetFiberID();
             node_->getScheduler()->YieldToSlice(target);
+            // LOG(INFO) << "Yield Back , now FiberID = " << Fiber::GetFiberID();
             // if (!cond1 && !cond2){
             //     cnt1++;         // 既不在分区，也不在 RUNNING
             // }else if (cond1 && !cond2){

@@ -184,6 +184,7 @@ public:
     
         // 在这里释放mutex
         mutex.unlock();
+        if (NetworkLatency != 0)  usleep(NetworkLatency);
     }
 
     void UnlockMutex(){
@@ -326,7 +327,7 @@ public:
         std::vector<brpc::CallId> cids;
         assert(!hold_lock_nodes.empty());
 
-        usleep(NetworkLatency);
+        if (NetworkLatency != 0)  usleep(NetworkLatency);
 
         // 此时 hold_lock_nodes 都是下一轮能够获取到锁的页面
         for(auto node_id : hold_lock_nodes){
@@ -340,7 +341,7 @@ public:
             
             bool found = false;
             std::stringstream ss;
-
+            if (NetworkLatency != 0)  usleep(NetworkLatency);
             if (node_id == src_node_id){
                 for (auto node_id_ : hold_lock_nodes){
                     // 如果是第一轮已经 Push 的节点，跳过，不需要向他 Push 页面
