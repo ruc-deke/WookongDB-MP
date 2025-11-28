@@ -379,9 +379,6 @@ public:
         RWMutex::ReadLock r_lock(node_->rw_mutex);
         bool cond1 = is_ts_par_page(table_id , page_id);
         bool cond2 = (node_->getPhaseNoBlock() == TsPhase::RUNNING);
-        // static std::atomic<int>cnt1{0};
-        // static std::atomic<int>cnt2{0};
-        // static std::atomic<int>cnt3{0};
         while (!(cond1 && cond2)){
             int target = get_ts_belong_par(table_id , page_id);
             r_lock.unlock();
@@ -389,29 +386,14 @@ public:
                 node_->getScheduler()->YieldAllToSlice(node_->ts_cnt);
             }
             // LOG(INFO) << "Yield To Slice , table_id = " << table_id << " page_id = " << page_id << " Target Slice = " << target << " Now Fiber ID = " << Fiber::GetFiberID();
-            // 如果不在当前时间片内，那就把这个协程挂起，换一个协程来
             // LOG(INFO) << "READY TO Yield , now FiberID = " << Fiber::GetFiberID();
             node_->getScheduler()->YieldToSlice(target);
-            // LOG(INFO) << "Yield Back , now FiberID = " << Fiber::GetFiberID();
-            // if (!cond1 && !cond2){
-            //     cnt1++;         // 既不在分区，也不在 RUNNING
-            // }else if (cond1 && !cond2){
-            //     cnt2++;         // 在分区，但是不在 RUNNING
-            // }else if (!cond1 && cond2){
-            //     cnt3++;         // 不在当前分区，但是在 RUNNING 
-            // }else {
-            //     assert(false);
-            // }
-            // if (cnt2 % 10 == 0){
-            //     LOG(INFO) << "Caculate : " << cnt1 << " " << cnt2 << " " << cnt3 << "\n";
-            // }
 
             r_lock.lock();
             cond1 = is_ts_par_page(table_id , page_id);
             cond2 = (node_->getPhaseNoBlock() == TsPhase::RUNNING);
         }
         node_->set_page_dirty(table_id , page_id , true);
-        // LOG(INFO) << "Fetching , table_id = " << table_id << " page_id = " << page_id << " tryLocks Success" << " ts Fetch Cnt = " << node_->ts_inflight_fetch;
         node_->ts_inflight_fetch.fetch_add(1);
     }
     // ******************* ts fetch end ***********************

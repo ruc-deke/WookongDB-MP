@@ -147,10 +147,9 @@ private:
 
 class RWMutex : Noncopyable {
 public:
-    /// 局部读锁
-    typedef ReadScopedLockImpl<RWMutex> ReadLock;
-    /// 局部写锁
-    typedef WriteScopedLockImpl<RWMutex> WriteLock;
+    // 用法：RWMutex::ReadLock lock(m_mutex)
+    typedef ReadScopedLockImpl<RWMutex> ReadLock;   // 读锁
+    typedef WriteScopedLockImpl<RWMutex> WriteLock; // 写锁
 
     RWMutex() {
         pthread_rwlock_init(&m_lock, nullptr);

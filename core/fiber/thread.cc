@@ -7,6 +7,7 @@
 #include <string>
 #include <sys/syscall.h>
 #include <unistd.h>
+#include "iostream"
 
 static thread_local Thread *t_thread = nullptr;
 static thread_local std::string t_thread_name = "UNKNOW";
@@ -61,6 +62,7 @@ Thread::Thread(std::function<void()> cb , const std::string &name)
 
 Thread::~Thread() {
     if(m_thread) {
+        std::cout << "Destroy thread : " << m_name << "\n";
         pthread_detach(m_thread);
     }
 }

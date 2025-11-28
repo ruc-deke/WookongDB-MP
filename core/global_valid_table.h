@@ -172,6 +172,14 @@ public:
         } 
     }
 
+    node_id_t GetValid_NoBlock(node_id_t node_id){
+        if (node_has_newest_page_status[node_id] == true){
+            return -1;
+        }else {
+            return newest_node;
+        } 
+    }
+
     bool IsValid(node_id_t node_id) {
         mutex.lock();
         bool valid = node_has_newest_page_status[node_id];

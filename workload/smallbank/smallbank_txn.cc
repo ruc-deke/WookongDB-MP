@@ -308,7 +308,7 @@ bool SmallBankDTX::ReTxWriteCheck(coro_yield_t& yield) {
 bool SmallBankDTX::TxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned) {
   // 设置开始时间戳
   dtx->TxBegin(tx_id);
-
+  
   /* Transaction parameters */
   uint64_t acct_id_0, acct_id_1;
 #if UniformHot
@@ -369,7 +369,6 @@ bool SmallBankDTX::TxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, cor
 
 /* Calculate the sum of saving and checking kBalance */
 bool SmallBankDTX::TxBalance(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned) {
-  std::cout << "Running Tx Balance\n";
   dtx->TxBegin(tx_id);
     //  // LOG(INFO) << "TxBalance";
   /* Transaction parameters */

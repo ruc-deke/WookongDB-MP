@@ -40,6 +40,22 @@ public:
         }
     }
 
+    template<class FiberOrCb>
+    void scheduleToWaitQueue(FiberOrCb fc, int thread = -1){
+        bool need_tickle = false;
+        {
+            FiberAndThread ft(fc, thread);
+            m_waitQueues.push_back(ft);
+        }
+    }
+
+    void lockSlice(){
+        m_sliceMutex.lock();
+    }
+    void unlockSlice(){
+        m_sliceMutex.unlock();
+    }
+
     template<class InputIterator>
     void schedule(InputIterator begin, InputIterator end) {
         bool need_tickle = false;
@@ -54,6 +70,7 @@ public:
             tickle();
         }
     }
+
 
     int getActiveThreadCount(){
         return m_activeThreadCount;
@@ -71,16 +88,13 @@ public:
     void scheduleToSlice(Fiber::ptr fiber, size_t slice_id, int thread = -1);
     void scheduleToSlice(std::function<void()> cb, size_t slice_id, int thread = -1);
     int activateSlice(size_t slice_id);
+    void stopSlice(size_t slice_id);
     void invalidSlice(size_t slice_id);
     void YieldToSlice(size_t slice_id);
     void YieldAllToSlice(size_t slice_id);
     size_t getActiveSlice() const;
     size_t getSliceCount() const;
     std::vector<int> getThreadIds() { return m_threadIds; }
-
-    void setTaskGenerator(std::function<void(int)> cb) {
-        m_taskGenerator = cb;
-    }
 
     int getTaskQueueSize(int idx){
         return m_sliceQueues[idx].size();
@@ -94,24 +108,16 @@ public:
         return m_fiberCnt.load();
     }
 
-    void invalid_fetch_from_slice(){
-        std::lock_guard<std::mutex> lk(m_sliceMutex);
-        m_validQueue = false;
-    }
-
-    void valid_fetch_from_slice(){
-        std::lock_guard<std::mutex> lk(m_sliceMutex);
-        m_validQueue = true;
-    }
-
-    bool getValidQueue(){
-        std::lock_guard<std::mutex> lk(m_sliceMutex);
-        return m_validQueue;
-    }
-
 public:
     const std::string& getName() const { 
         return m_name;
+    }
+
+    void validFetchFromQueue(){
+        m_validFetch = true;
+    }
+    void invalidFetchFromQueue(){
+        m_validFetch = false;
     }
 
 protected:
@@ -186,29 +192,20 @@ protected:
     bool fetchFiberFromActiveSlice(FiberAndThread& out , pid_t thread_id);
     bool sliceQueuesEmpty() const;
 
-    /// 协程下的线程id数组
     std::vector<int> m_threadIds;
-    /// 线程数量
     size_t m_threadCount = 0;
-    /// 工作线程数量
     std::atomic<size_t> m_activeThreadCount = {0};
-    /// 空闲线程数量
     std::atomic<size_t> m_idleThreadCount = {0};
-    /// 是否正在停止
     bool m_stopping = true;
-    /// 是否自动停止
     bool m_autoStop = false;
-    /// 主线程id(use_caller)
     int m_rootThread = 0;
 
     // 时间片调度数据结构
-    bool m_sliceSchedulerEnabled = false;
-    std::vector<std::deque<FiberAndThread>> m_sliceQueues;
-    mutable std::mutex m_sliceMutex;
-    bool m_validQueue = false;
-    std::atomic<size_t> m_activeSlice{0};
-    std::atomic<int> m_fiberCnt{0};
-    std::atomic<int> m_yieldCnt{0};
-    
-    std::function<void(int)> m_taskGenerator;
+    bool m_sliceSchedulerEnabled = false;                       // 是否启动时间片调度
+    std::vector<std::deque<FiberAndThread>> m_sliceQueues;      // 时间片调度队列
+    std::deque<FiberAndThread> m_waitQueues;                    
+    mutable std::mutex m_sliceMutex;                            // 锁
+    std::atomic<size_t> m_activeSlice{0};                     // 当前所在的时间片
+    std::atomic<bool> m_validFetch;                             // 是否允许直接从时间片队列里面取(绕过 m_fibers)
+    std::atomic<int> m_fiberCnt{0};                           // 调试参数    
 };

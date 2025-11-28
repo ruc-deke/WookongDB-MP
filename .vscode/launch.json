@@ -52,7 +52,7 @@
             "program": "${workspaceFolder}/build/compute_server/compute_server",
             // lazy 后面那个是线程数量
             // ts_sep
-            "args": ["smallbank", "ts_sep", "10", "2000", "0", "0.5" , "0"],
+            "args": ["smallbank", "ts_sep", "10", "2500", "0", "0.5" , "0"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
@@ -72,7 +72,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",
             // ts_sep
-            "args": ["smallbank", "ts_sep", "10", "2000", "0", "0.5" , "1"],
+            "args": ["smallbank", "ts_sep", "10", "2500", "0", "0.5" , "1"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
@@ -91,7 +91,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",
-            "args": ["smallbank", "ts_sep", "10", "2000", "0", "0.5" , "2"],
+            "args": ["smallbank", "ts_sep", "10", "2500", "0", "0.5" , "2"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
@@ -110,7 +110,26 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",
-            "args": ["smallbank", "lazy", "20", "700", "0", "1" , "3"],
+            "args": ["smallbank", "lazy", "10", "10000", "0", "0.5" , "3"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build/compute_server/",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "(gdb)compute-server4",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/compute_server/compute_server",
+            "args": ["smallbank", "lazy", "10", "2000", "0", "0.5" , "4"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],

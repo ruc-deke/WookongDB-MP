@@ -58,6 +58,7 @@ timestamp_t DTX::GetTimestampRemote() {
   timestamp_service::GetTimeStampRequest request;
   timestamp_service::GetTimeStampResponse response;
   brpc::Controller cntl;
+  assert(remote_server_channel);
   stub.GetTimeStamp(&cntl, &request, &response, nullptr);
   if (cntl.Failed()) {
     LOG(ERROR) << "Fail to get timestamp from remote";

@@ -51,6 +51,8 @@ int main(int argc, char* argv[]) {
   std::cout << "Fetch from local cache: " << fetch_local_cnt << " (" << from_local_ratio * 100 << "%)" << std::endl;
   std::cout << std::defaultfloat;
   std::cout << "Evicted pages: " << *evict_page_vec.rbegin() << std::endl;
+  std::cout << "Fetch three cnt: " << static_cast<long long>(*fetch_three_vec.rbegin()) << std::endl;
+  std::cout << "Fetch four cnt: " << static_cast<long long>(*fetch_four_vec.rbegin()) << std::endl;
   double p50_latency = 0;
   for(auto i : medianlat_vec){
       p50_latency += i;
@@ -101,6 +103,8 @@ int main(int argc, char* argv[]) {
     result_file << *fetch_from_storage_vec.rbegin() << std::endl;
     result_file << *fetch_from_local_vec.rbegin() << std::endl;
     result_file << *evict_page_vec.rbegin() << std::endl;
+    result_file << static_cast<long long>(*fetch_three_vec.rbegin()) << std::endl;
+    result_file << static_cast<long long>(*fetch_four_vec.rbegin()) << std::endl;
     result_file << from_remote_ratio << std::endl;
     result_file << from_storage_ratio << std::endl;
     result_file << from_local_ratio << std::endl;

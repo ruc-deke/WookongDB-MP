@@ -1,12 +1,15 @@
 #pragma once
 
 #include "blink_defs.h"
+#include "common.h"
 #include "record/rm_manager.h"
 
 #include "memory"
 #include "assert.h"
 #include "algorithm"
 #include "list"
+#include <unordered_map>
+#include <mutex>
 
 class ComputeServer;
 
@@ -204,8 +207,13 @@ public:
     page_id_t insert_entry(const itemkey_t *key , const Rid &value);
     bool delete_entry(const itemkey_t *key);
 
+    bool checkIfDirectlyGetPage(const itemkey_t *key , Rid &result);
+
 private:
     ComputeServer *server;
     table_id_t table_id;
     BLFileHdr *file_hdr;
+
+    std::unordered_map<itemkey_t , page_id_t> key2leaf;   // 缓存 Rid 到 leaf 的页号，先用这个，如果没命中，再从上往下来一遍
+    std::mutex key2leaf_mtx;
 };

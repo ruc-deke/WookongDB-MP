@@ -228,23 +228,25 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
 
   struct timespec start_time, end_ts_time;
   clock_gettime(CLOCK_REALTIME, &start_time);
-  commit_ts = GetTimestampRemote();
+  commit_ts = GetTimestampRemote(); // 先拿到一个全局的时间戳
   clock_gettime(CLOCK_REALTIME, &end_ts_time);
   // 把这次获取全局时间戳的耗时给记录下来，加入到 tx...
   tx_get_timestamp_time2 += (end_ts_time.tv_sec - start_time.tv_sec) + (double)(end_ts_time.tv_nsec - start_time.tv_nsec) / 1000000000;
 
   // 把事务提交的日志给刷到磁盘下去
-  brpc::CallId* cid;
-  AddLogToTxn();
+  // brpc::CallId* cid;
+  // AddLogToTxn();    // 构造事务日志
   // Send log to storage pool
-  cid = new brpc::CallId();
-  SendLogToStoragePool(tx_id, cid);
-  brpc::Join(*cid);
+  // 先注释掉刷日志的
+  // cid = new brpc::CallId();
+  // SendLogToStoragePool(tx_id, cid); // 异步地把事务日志刷新到存储里
+  // brpc::Join(*cid); // 等待刷新日志完成
   
   struct timespec end_send_log_time;
   clock_gettime(CLOCK_REALTIME, &end_send_log_time);
   tx_write_commit_log_time += (end_send_log_time.tv_sec - end_ts_time.tv_sec) + (double)(end_send_log_time.tv_nsec - end_ts_time.tv_nsec) / 1000000000;
 
+  // 对于写过的每个元组，需要再访问一次页面，把这个元组的锁信息和版本号给更新一下
   for(size_t i=0; i<read_write_set.size(); i++){
     DataSetItem& data_item = read_write_set[i];
     assert(data_item.is_fetched);
@@ -260,13 +262,14 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
     tx_fetch_commit_time += (end_time1.tv_sec - start_time1.tv_sec) + (double)(end_time1.tv_nsec - start_time1.tv_nsec) / 1000000000;
 
     DataItem* orginal_item = nullptr;
+    // 让 original_item 指向 Page 中的 rid 部分的数据
     GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid, orginal_item);
     // 验证在 TxExe 阶段读取到的数据，和我现在读取到的数据是一致的
     assert(orginal_item->key == data_item.item_ptr->key);
 
-    // 提交之后，就把这条记录的 version 和锁给更新一下
+    // 把元组的锁给释放，并标记版本号
     orginal_item->version = commit_ts;
-    orginal_item->lock = UNLOCKED;
+    orginal_item->lock = UNLOCKED;      
     memcpy(orginal_item->value, data_item.item_ptr->value, MAX_ITEM_SIZE);
 
     struct timespec start_time2, end_time2;

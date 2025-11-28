@@ -13,6 +13,7 @@
 #include <brpc/channel.h>
 #include <unistd.h>
 
+#include "compute_server/server.h"
 #include "config.h"
 #include "dtx/dtx.h"
 #include "fiber/fiber.h"
@@ -49,6 +50,8 @@ extern std::set<double> fetch_from_remote_vec;
 extern std::set<double> fetch_from_storage_vec;
 extern std::set<double> fetch_from_local_vec;
 extern std::set<double> evict_page_vec;
+extern std::set<double> fetch_three_vec;
+extern std::set<double> fetch_four_vec;
 extern std::set<double> total_outputs;
 extern double all_time;
 extern double  tx_begin_time,tx_exe_time,tx_commit_time,tx_abort_time,tx_update_time;
@@ -99,6 +102,8 @@ thread_local int* using_which_coro_sched; // 0=>coro_sched_0, 1=>coro_sched
 thread_local struct timespec msr_start, msr_end;
 static std::atomic<bool> has_caculate{false};
 static timespec msr_end_ts;
+static timespec msr_start_global;  // 全局开始时间，用于SYSTEM_MODE == 12
+static std::atomic<bool> msr_start_global_set{false};  // 确保只设置一次
 
 thread_local double* timer;
 thread_local std::atomic<uint64_t> stat_attempted_tx_total{0}; // Issued transaction number
@@ -147,6 +152,14 @@ void CollectStats(DTX* dtx) {
   single_txn += dtx->single_txn;
   distribute_txn += dtx->distribute_txn;
 
+  mux.unlock();
+}
+
+void FinalizeStats(double msr_sec , ComputeServer *compute_server) {
+  // std::cout << "FinalizeStat\n";
+  mux.lock();
+
+  // 统计每个线程自身的一些变量
   double fetch_remote = 0;
   double fetch_all = 0;
   double lock_remote = 0;
@@ -154,30 +167,31 @@ void CollectStats(DTX* dtx) {
   double fetch_from_storage = 0;
   double fetch_from_local = 0;
   double evict_page = 0;
+  double fetch_three = 0;
+  double fetch_four = 0;
   if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 12) {
-    fetch_remote = (double)dtx->compute_server->get_node()->get_fetch_remote_cnt() ;
-    fetch_all = (double)dtx->compute_server->get_node()->get_fetch_allpage_cnt();
-    lock_remote = (double)dtx->compute_server->get_node()->get_lock_remote_cnt();
-    fetch_from_remote = (double)dtx->compute_server->get_node()->get_fetch_from_remote_cnt();
-    fetch_from_storage = (double)dtx->compute_server->get_node()->get_fetch_from_storage_cnt();
-    fetch_from_local = (double)dtx->compute_server->get_node()->get_fetch_from_local_cnt();
-    evict_page = (double)dtx->compute_server->get_node()->get_evict_page_cnt();
+    fetch_remote = compute_server->get_node()->get_fetch_remote_cnt() ;
+    fetch_all = compute_server->get_node()->get_fetch_allpage_cnt();
+    lock_remote = compute_server->get_node()->get_lock_remote_cnt();
+    fetch_from_remote = compute_server->get_node()->get_fetch_from_remote_cnt();
+    fetch_from_storage = compute_server->get_node()->get_fetch_from_storage_cnt();
+    fetch_from_local = compute_server->get_node()->get_fetch_from_local_cnt();
+    evict_page = compute_server->get_node()->get_evict_page_cnt();
+    fetch_three = compute_server->get_node()->get_fetch_three_cnt();
+    fetch_four = compute_server->get_node()->get_fetch_four_cnt();
   }
 
   tid_vec.push_back(thread_gid);
   fetch_remote_vec.emplace(fetch_remote);
+  
   fetch_all_vec.emplace(fetch_all);
   lock_remote_vec.emplace(lock_remote);
   fetch_from_remote_vec.emplace(fetch_from_remote);
   fetch_from_storage_vec.emplace(fetch_from_storage);
   fetch_from_local_vec.emplace(fetch_from_local);
   evict_page_vec.emplace(evict_page);
-
-  mux.unlock();
-}
-
-void FinalizeStats(double msr_sec) {
-  mux.lock();
+  fetch_three_vec.emplace(fetch_three);
+  fetch_four_vec.emplace(fetch_four);
   all_time += msr_sec;
 
   double attemp_tput = (double)stat_attempted_tx_total / msr_sec;
@@ -239,6 +253,8 @@ void RecordTpLat(double msr_sec, DTX* dtx) {
   double fetch_from_storage = 0;
   double fetch_from_local = 0;
   double evict_page = 0;
+  double fetch_three = 0;
+  double fetch_four = 0;
   if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 12) {
     fetch_remote = (double)dtx->compute_server->get_node()->get_fetch_remote_cnt() ;
     fetch_all = (double)dtx->compute_server->get_node()->get_fetch_allpage_cnt();
@@ -247,6 +263,8 @@ void RecordTpLat(double msr_sec, DTX* dtx) {
     fetch_from_storage = (double)dtx->compute_server->get_node()->get_fetch_from_storage_cnt();
     fetch_from_local = (double)dtx->compute_server->get_node()->get_fetch_from_local_cnt();
     evict_page = (double)dtx->compute_server->get_node()->get_evict_page_cnt();
+    fetch_three = (double)dtx->compute_server->get_node()->get_fetch_three_cnt();
+    fetch_four = (double)dtx->compute_server->get_node()->get_fetch_four_cnt();
   }
 
   std::sort(timer, timer + stat_committed_tx_total);
@@ -268,6 +286,8 @@ void RecordTpLat(double msr_sec, DTX* dtx) {
   fetch_from_storage_vec.emplace(fetch_from_storage);
   fetch_from_local_vec.emplace(fetch_from_local);
   evict_page_vec.emplace(evict_page);
+  fetch_three_vec.emplace(fetch_three);
+  fetch_four_vec.emplace(fetch_four);
 
   for (size_t i = 0; i < total_try_times.size(); i++) {
     total_try_times[i] += thread_local_try_times[i];
@@ -299,19 +319,23 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
                      thread_txn_log);
 
   clock_gettime(CLOCK_REALTIME, &msr_start);
+  // 对于SYSTEM_MODE == 12，设置全局开始时间（只设置一次）
+  if (SYSTEM_MODE == 12) {
+    bool expected = false;
+    if (msr_start_global_set.compare_exchange_strong(expected, true)) {
+      clock_gettime(CLOCK_REALTIME, &msr_start_global);
+    }
+  }
   SmallBankDTX* bench_dtx = new SmallBankDTX();
   bench_dtx->dtx = dtx;
   while (true) {
-    // static int cnt = 0;
-    //std::cout << cnt++ << "\n";
-    // LOG(INFO) << "[Thread_gid=" << thread_gid << "][Thread_local_id=" << thread_local_id 
-    //           << "][OS_thread_id=" << std::this_thread::get_id() 
-    //           << "][Coro_id=" << coro_id 
-              // << "][Coro_sched=" << (void*)coro_sched << "] RunSmallBank";
-    bool is_partitioned = FastRand(&seed) % 100 < (LOCAL_TRASACTION_RATE * 100); // local transaction rate
-    // int index = FastRand(&seed) % 100;
-    // auto debug_vec = smallbank_workgen_arr;
-    // assert(smallbank_workgen_arr != nullptr);
+    // 如果本节点做的事务已经做的差不多了
+    if (stat_attempted_tx_total >= ATTEMPTED_NUM || stat_enter_commit_tx_total >= ATTEMPTED_NUM) {
+      break;
+    }
+    // 根据跨分区事务的比例，来决定本事务是否有跨分区访问的页面
+    bool is_partitioned = FastRand(&seed) % 100 < (LOCAL_TRASACTION_RATE * 100); 
+    // 随机生成一个事务类型
     SmallBankTxType tx_type = smallbank_workgen_arr[FastRand(&seed) % 100];
     uint64_t iter = ++tx_id_generator;  // Global atomic transaction id
     stat_attempted_tx_total++;
@@ -321,8 +345,7 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
     Txn_request_info txn_meta;
     clock_gettime(CLOCK_REALTIME, &txn_meta.start_time);
 
-    // printf("worker.cc:326, start a new txn\n");
-    // tx_type = SmallBankTxType::kTransactSaving;
+    tx_type = SmallBankTxType::kTransactSaving;
     switch (tx_type) {
       case SmallBankTxType::kAmalgamate: {
           thread_local_try_times[uint64_t(tx_type)]++;
@@ -364,29 +387,20 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
         printf("Unexpected transaction type %d\n", static_cast<int>(tx_type));
         abort();
     }
-    // std::cout << "End !\n\n";
     /********************************** Stat begin *****************************************/
-    // Stat after one transaction finishes
-    // printf("try %d transaction commit? %s\n", stat_attempted_tx_total, tx_committed?"true":"false");
     if (tx_committed) {
       clock_gettime(CLOCK_REALTIME, &tx_end_time);
       double tx_usec = (tx_end_time.tv_sec - txn_meta.start_time.tv_sec) * 1000000 + (double)(tx_end_time.tv_nsec - txn_meta.start_time.tv_nsec) / 1000;
       timer[stat_committed_tx_total++] = tx_usec;
     }
-    if (stat_attempted_tx_total >= ATTEMPTED_NUM || stat_enter_commit_tx_total >= ATTEMPTED_NUM) {
-      break;
-    }
     /********************************** Stat end *****************************************/
-    // std::cout << "Run SmallBank One Route Over\n";
     if (SYSTEM_MODE != 12){
       coro_sched->Yield(yield, coro_id);
     }
   }
   if (SYSTEM_MODE != 12){
     coro_sched->FinishCorotine(coro_id);
-    // LOG(INFO) << "thread_local_id: " << thread_local_id << " coro_id: " << coro_id << " is stopped";
     while(coro_sched->isAllCoroStopped() == false) {
-        // // LOG(INFO) << coro_id << " *yield ";
         coro_sched->Yield(yield, coro_id);
     }
   }
@@ -394,11 +408,8 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
     if (!has_caculate) {
         has_caculate = true;
         clock_gettime(CLOCK_REALTIME, &msr_end_ts);
-        // double msr_usec = (msr_end.tv_sec - msr_start.tv_sec) * 1000000 + (double) (msr_end.tv_nsec - msr_start.tv_nsec) / 1000;
-        // double msr_sec = (msr_end.tv_sec - msr_start.tv_sec) + (double)(msr_end.tv_nsec - msr_start.tv_nsec) / 1000000000;
-        // FinalizeStats(msr_sec);
     }
-    // A coroutine calculate the total execution time and exits
+    // 对于执行过的每个协程，都把本协程跑过的事务信息统计一下
     CollectStats(dtx);
   }else {
     clock_gettime(CLOCK_REALTIME, &msr_end);
@@ -409,10 +420,11 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
   delete bench_dtx;
 }
 
-void CaculateInfo(){
-  double msr_sec = (msr_end_ts.tv_sec - msr_start.tv_sec) + (double)(msr_end_ts.tv_nsec - msr_start.tv_nsec) / 1000000000;
-  std::cout << msr_sec << "\n";
-  FinalizeStats(msr_sec);
+void CaculateInfo(ComputeServer *server){
+  // 使用全局开始时间，而不是thread_local的开始时间
+  double msr_sec = (msr_end_ts.tv_sec - msr_start_global.tv_sec) + (double)(msr_end_ts.tv_nsec - msr_start_global.tv_nsec) / 1000000000;
+  std::cout << "Cost Time = " << msr_sec << "s\n";
+  FinalizeStats(msr_sec , server);
 }
 
 void RunTPCC(coro_yield_t& yield, coro_id_t coro_id) {
@@ -437,6 +449,13 @@ void RunTPCC(coro_yield_t& yield, coro_id_t coro_id) {
     uint64_t start_attempt_cnt = stat_attempted_tx_total;
     uint64_t start_commit_cnt = stat_committed_tx_total;
     clock_gettime(CLOCK_REALTIME, &msr_start);
+    // 对于SYSTEM_MODE == 12，设置全局开始时间（只设置一次）
+    if (SYSTEM_MODE == 12) {
+      bool expected = false;
+      if (msr_start_global_set.compare_exchange_strong(expected, true)) {
+        clock_gettime(CLOCK_REALTIME, &msr_start_global);
+      }
+    }
     while (true) {
         // Guarantee that each coroutine has a different seed
         bool is_partitioned = FastRand(&seed) % 100 < (LOCAL_TRASACTION_RATE * 100); // local transaction rate
@@ -518,7 +537,7 @@ void RunTPCC(coro_yield_t& yield, coro_id_t coro_id) {
         clock_gettime(CLOCK_REALTIME, &msr_end);
         // double msr_usec = (msr_end.tv_sec - msr_start.tv_sec) * 1000000 + (double) (msr_end.tv_nsec - msr_start.tv_nsec) / 1000;
         double msr_sec = (msr_end.tv_sec - msr_start.tv_sec) + (double)(msr_end.tv_nsec - msr_start.tv_nsec) / 1000000000;
-        FinalizeStats(msr_sec);
+        FinalizeStats(msr_sec , dtx->compute_server);
     }
     delete dtx;
 }
@@ -588,7 +607,7 @@ void initThread(thread_params* params,
     timer = new double[ATTEMPTED_NUM+50]();
 }
 
-void RunWorkLoad(ComputeServer* server, std::string bench_name , std::atomic<int> &finished_cnt , int thread_id){
+void RunWorkLoad(ComputeServer* server, std::string bench_name , std::atomic<int> &finished_cnt , int thread_id , int run_cnt){
   auto task = [=, &finished_cnt]() {
      // 构造假 yield
      coro_yield_t* fake_yield_ptr = nullptr; 
@@ -603,8 +622,12 @@ void RunWorkLoad(ComputeServer* server, std::string bench_name , std::atomic<int
      }
      finished_cnt++;
   };
-  server->get_node()->getScheduler()->addFiberCnt();
-  server->get_node()->getScheduler()->schedule(task , thread_id);
+  server->get_node()->getScheduler()->lockSlice();
+  for (int i = 0 ; i < run_cnt ; i++){
+    server->get_node()->getScheduler()->addFiberCnt();
+    server->get_node()->getScheduler()->scheduleToWaitQueue(task , thread_id);
+  }
+  server->get_node()->getScheduler()->unlockSlice();
 }
 
 void run_thread(thread_params* params,

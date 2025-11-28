@@ -282,6 +282,10 @@ public:
         return unlock_remote;
     }
 
+    int getLock() const {
+        return lock;
+    }
+
     // 返回<是否需要释放远程锁， 是否需要push页面>
     int UnlockShared() {
         --lock;

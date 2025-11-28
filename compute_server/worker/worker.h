@@ -29,10 +29,10 @@ void run_thread(thread_params* params,
                 SmallBank* smallbank_client,
                 TPCC* tpcc_client);
 
-void CaculateInfo();
+void CaculateInfo(ComputeServer *server);
 
 void initThread(thread_params* params,
               SmallBank* smallbank_cli,
               TPCC* tpcc_cli);
 
-void RunWorkLoad(ComputeServer* server, std::string bench_name , std::atomic<int> &finished_cnt , int thread_id = -1);
+void RunWorkLoad(ComputeServer* server, std::string bench_name , std::atomic<int> &finished_cnt , int thread_id = -1 , int run_cnt = 1);

@@ -12,6 +12,7 @@
 #include <gflags/gflags.h>
 
 #include "remote_partition_table.pb.h"
+#include <unistd.h>
 
 namespace partition_table_service{
 class PartitionTableImpl : public PartitionTableService {
@@ -81,29 +82,41 @@ class PartitionTableImpl : public PartitionTableService {
 
         while (true){
             global_epoch_mutex.lock();
-            assert(global_epoch_cnt <= compute_epoch[node_id]);
-            if (compute_epoch[node_id] == global_epoch_cnt){
+            assert(global_epoch_cnt >= compute_epoch[node_id]);
+            // 说明 global_epoch_cnt 变了，可以推进阶段了
+            if (compute_epoch[node_id] < global_epoch_cnt){
                 compute_epoch[node_id]++;
-                for (int i = 0 ; i < ComputeNodeCount ; i++){
-                    if (compute_epoch[i] <= global_epoch_cnt && !compute_finish[i]){
-                        need_update_epoch = false;
-                        break;
-                    }
-                }
-                if (need_update_epoch){
-                    global_epoch_cnt++;
-                    std::cout << "Epoch++ , Now Epoch = " << global_epoch_cnt << "\n";
-                }
+                assert(compute_epoch[node_id] == global_epoch_cnt);
+                compute_finish[node_id] = false;
                 global_epoch_mutex.unlock();
                 break;
             }else {
                 global_epoch_mutex.unlock();
+                usleep(10);
                 continue;
-            }   
+            }
         }
         
         page_lock_table_list_->at(0)->GetPartitionLock(partition_id)->LockExclusive(node_id);
-        // TODO：这里其实可以考虑一下发送给节点时间片的时间(动态时间片)，这里先这样吧
+        
+        // 增加获取页面位置信息的逻辑
+        if(request->table_id_size() > 0) {
+            assert(request->table_id_size() == request->start_page_no_size());
+            for(int i = 0; i < request->table_id_size(); i++){
+                table_id_t table_id = request->table_id(i);
+                page_id_t start_page_id = request->start_page_no(i);
+                page_id_t end_page_id = request->end_page_no(i);
+
+                for(int page_id = start_page_id; page_id <= end_page_id; page_id++){
+                    node_id_t newest_node = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid(node_id);
+                    if(newest_node != -1){
+                        response->add_table_id(table_id);
+                        response->add_invalid_page_no(page_id);
+                        response->add_newest_node_id(newest_node);
+                    }
+                }
+            }
+        }
         
         return ;
     }
@@ -117,9 +130,27 @@ class PartitionTableImpl : public PartitionTableService {
         partition_id_t par_id = request->partition_id().partition_no();
         node_id_t node_id = request->node_id();
         page_lock_table_list_->at(0)->GetPartitionLock(par_id)->UnlockExclusive(node_id);
-        
-        // 添加模拟延迟
-        // if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
+
+        for(int i=0; i<request->page_id_size(); i++){
+            page_id_t page_id = request->page_id(i).page_no();
+            table_id_t table_id = request->page_id(i).table_id();
+            page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->UpdateValid(node_id);
+        }
+
+        global_epoch_mutex.lock();
+        compute_finish[node_id] = true;
+        bool need_to_update = true;
+        for (int i = 0 ; i < ComputeNodeCount ; i++){
+            if (compute_epoch[i] <= global_epoch_cnt && compute_finish[i] == false){
+                need_to_update = false;
+                break;
+            }
+        }
+        if (need_to_update){
+            global_epoch_cnt++;
+            std::cout << "Update Epoch , now epoch = " << global_epoch_cnt << "\n";
+        }
+        global_epoch_mutex.unlock();
         return;
     }
 
@@ -279,7 +310,8 @@ class PartitionTableImpl : public PartitionTableService {
                        const ::partition_table_service::TsGetPageLocateRequest* request,
                        ::partition_table_service::TsGetPageLocateResponse* response,
                        ::google::protobuf::Closure* done){
-                
+        auto ts_begin_time = std::chrono::high_resolution_clock::now();
+       
         brpc::ClosureGuard done_guard(done);
         node_id_t node_id = request->node_id();
         assert(request->table_id_size() == request->start_page_no_size());
@@ -288,7 +320,7 @@ class PartitionTableImpl : public PartitionTableService {
             page_id_t start_page_id = request->start_page_no(i);
             page_id_t end_page_id = request->end_page_no(i);
 
-            for(int page_id = start_page_id; page_id < end_page_id; page_id++){
+            for(int page_id = start_page_id; page_id <= end_page_id; page_id++){
                 // 这里的 GetValid() 不像 lazy_release 那样，会把自己也设置成 true，只拿到有效性信息
                 // 真正去修改修改被拿页面的有效性信息是在阶段结束之后
                 node_id_t newest_node = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid(node_id);
@@ -299,6 +331,9 @@ class PartitionTableImpl : public PartitionTableService {
                 }
             }
         }
+        auto ts_end_time = std::chrono::high_resolution_clock::now();
+        auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(ts_end_time - ts_begin_time).count();
+        std::cout << "Cost : " << duration_us / 1000 << "." << duration_us % 1000 << "ms\n";
         return;
     }
     
@@ -329,6 +364,7 @@ class PartitionTableImpl : public PartitionTableService {
             }
         }
         if(update){
+            std::cout << "Epoll = " << global_epoch_cnt << "\n";
             // LOG(INFO) << "Update global epoch" << global_epoch_cnt + 1;
             global_epoch_cnt++;
         }
@@ -361,7 +397,7 @@ class PartitionTableImpl : public PartitionTableService {
     std::vector<GlobalValidTable*>* page_valid_table_list_;
 
     bthread::Mutex global_epoch_mutex;
-    int global_epoch_cnt = 0;
+    int global_epoch_cnt = 1;
     int* compute_epoch;
     bool* compute_finish;
 

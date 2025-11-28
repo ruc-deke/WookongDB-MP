@@ -1,4 +1,6 @@
 #include "blink.h"
+#include "common.h"
+#include "compute_server/bp_tree/bp_tree_defs.h"
 #include "compute_server/server.h"
 #include "assert.h"
 
@@ -464,11 +466,41 @@ void BLinkIndexHandle::insert_into_parent(BLinkNodeHandle *old_node , const item
     assert(false);
 }
 
-bool BLinkIndexHandle::search(const itemkey_t *key , Rid &result){
-    BLinkNodeHandle *leaf = find_leaf_for_search(key);
+bool BLinkIndexHandle::checkIfDirectlyGetPage(const itemkey_t *key , Rid &result){
     Rid *rid;
+    key2leaf_mtx.lock();
+    auto it = key2leaf.find(*key);
+    key2leaf_mtx.unlock();
+    if (it != key2leaf.end()){
+        BLinkNodeHandle *tar_leaf = fetch_node(it->second , BPOperation::SEARCH_OPERA);
+        assert(tar_leaf->is_leaf());
+        if (tar_leaf->leaf_lookup(key , &rid)){
+            result = *rid;
+            release_node(tar_leaf->get_page_no() , BPOperation::SEARCH_OPERA);
+            return true;
+        }else {
+            key2leaf_mtx.lock();
+            key2leaf.erase(*key);   // 过期了，删掉
+            key2leaf_mtx.unlock();
+            release_node(tar_leaf->get_page_no() , BPOperation::SEARCH_OPERA);
+        }
+    }
+
+    return false;
+}
+
+bool BLinkIndexHandle::search(const itemkey_t *key , Rid &result){
+    if (checkIfDirectlyGetPage(key , result)){
+        return true;
+    }
+    
+    Rid *rid;
+    BLinkNodeHandle *leaf = find_leaf_for_search(key);
     bool exist = leaf->leaf_lookup(key , &rid);
     if (exist){
+        key2leaf_mtx.lock();
+        key2leaf[*key] = leaf->get_page_no();
+        key2leaf_mtx.unlock();
         result = *rid;
     }
     release_node(leaf->get_page_no() , BPOperation::SEARCH_OPERA);
@@ -531,4 +563,3 @@ bool BLinkIndexHandle::delete_entry(const itemkey_t *key){
     delete leaf;
     return true;
 }
-

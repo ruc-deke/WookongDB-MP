@@ -68,6 +68,9 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
         // 1. 别的节点是读锁，我也加了个读锁，可以立刻拿到锁
         // 2. 没有节点持有页面所有权，我直接去存储拿
         if(!response->wait_lock_release()){
+            if (need_to_record){
+                node_->fetch_three_cnt++;
+            }
             // 会走到这里，说明可以立刻获得锁的所有权
             node_id_t valid_node = response->newest_node();
             // 如果需要去存储里面拿
@@ -102,6 +105,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
             }
             if (need_to_record){
                 node_->fetch_from_remote_cnt++;
+                node_->fetch_four_cnt++;
             }
             page = node_->fetch_page(table_id , page_id);
             
@@ -189,6 +193,9 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
          **/
         if(!response->wait_lock_release()){
             node_id_t valid_node = response->newest_node();
+            if (need_to_record){
+                node_->fetch_three_cnt++;
+            }
             // 如果valid是false, 则需要去远程取这个数据页
             if (need_fetch_from_storage){
                 std::string data = rpc_fetch_page_from_storage(table_id , page_id , need_to_record);
@@ -231,6 +238,7 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
             }
             if (need_to_record){
                 node_->fetch_from_remote_cnt++;
+                node_->fetch_four_cnt++;
             }
 
             // 定位到问题了，在TryRemoteLockSuccess 的时候，会执行到 Pending ，然后把页面给删了
@@ -279,7 +287,9 @@ void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_
     if (unlock_remote == 0) {
         // 在这里 unpin，如果在后面 unpin 有 bug，可能 lock 减为 0 的时候会被 Replacer 锁定
         // LOG(INFO) << "Lazy release S Page , table_id = " << table_id << " page_id = " << page_id;
-        node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
+        if (lr_lock->getLock() == 0){
+            node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
+        }
         lr_lock->UnlockShared();
         lr_lock->UnlockMtx();
         return;
@@ -331,6 +341,7 @@ void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_
         // 对于x 锁来说，由于同一时间单节点只能持有一个，因此放锁的时候，如果不需要等待，dest_node_id 一定是 -1
         assert(lr_lock->getDestNodeIDNoBlock() == INVALID_PAGE_ID);
         // LOG(INFO) << "Lazy Release X , table_id = " << table_id << " page_id = " << page_id << " node_id = " << node_->getNodeID();
+        assert(lr_lock->getLock() == 0);
         node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
         node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockExclusive();
         node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();

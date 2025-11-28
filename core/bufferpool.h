@@ -57,8 +57,10 @@ public:
         assert(it != page_table.end());
 
         frame_id_t frame_id = it->second;
-        replacer->pin(frame_id);
         Page *page = pages[frame_id];
+        if (page->pin_count_++ == 0){
+            replacer->pin(frame_id);
+        }
         
         return page;
     }

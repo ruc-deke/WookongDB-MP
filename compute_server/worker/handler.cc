@@ -35,6 +35,8 @@ std::set<double> fetch_from_remote_vec;
 std::set<double> fetch_from_storage_vec;
 std::set<double> fetch_from_local_vec;
 std::set<double> evict_page_vec;
+std::set<double> fetch_three_vec;
+std::set<double> fetch_four_vec;
 std::set<double> total_outputs;
 std::vector<double> lock_durations;
 std::vector<uint64_t> total_try_times;
@@ -238,15 +240,8 @@ void Handler::GenThreads(std::string bench_name) {
     std::vector<int> thread_ids = compute_node->getSchedulerThreadIds();
     std::atomic<int> finished_cnt{0};
     std::cout << "coro num = " << coro_num << "\n";
-    for (int i = 0 ; i < coro_num ; i++){
-      // RunWorkLoad(compute_server, bench_name, thread_ids[i]);
-      RunWorkLoad(compute_server, bench_name, finished_cnt , -1);
-      // if (i < thread_num_per_machine){
-      //   RunWorkLoad(compute_server, bench_name , finished_cnt , thread_ids[i]);
-      // }else {
-      //   RunWorkLoad(compute_server, bench_name , finished_cnt , -1);
-      // }
-    }
+
+    RunWorkLoad(compute_server, bench_name, finished_cnt , -1 , coro_num);
 
     while (true){
       usleep(10000);
@@ -258,14 +253,14 @@ void Handler::GenThreads(std::string bench_name) {
 
     // 最后，统计一下信息：
     for (int i = 0 ; i < thread_num_per_machine ; i++){
-        // 先初始化一下调度器里面的每一个线程
         auto task = [&](){
-          CaculateInfo();
+          CaculateInfo(compute_server);
           init_finish_cnt--;
         };
         compute_node->getScheduler()->schedule(task , thread_ids[i]);
         // std::cout << "Thread ID " << i << " = " << thread_ids[i] << "\n";
     }
+    // compute_node->getScheduler()->stop();
 
     while(true){
       usleep(10000);

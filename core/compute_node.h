@@ -383,6 +383,12 @@ public:
     inline int get_lock_remote_cnt() {
         return lock_remote_cnt.load();
     }
+    inline int get_fetch_three_cnt() {
+        return fetch_three_cnt.load();
+    }
+    inline int get_fetch_four_cnt() {
+        return fetch_four_cnt.load();
+    }
     inline int get_hit_delayed_release_lock_cnt() {
         return hit_delayed_release_lock_cnt.load();
     }
@@ -559,6 +565,9 @@ public:
     std::atomic<int> fetch_from_storage_cnt;
     std::atomic<int> fetch_from_local_cnt;
     std::atomic<int> evict_page_cnt;
+    
+    std::atomic<int> fetch_three_cnt{0};
+    std::atomic<int> fetch_four_cnt{0};
 
 private:
     std::atomic<int> lock_remote_cnt;

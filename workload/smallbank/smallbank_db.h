@@ -200,20 +200,20 @@ class SmallBank {
   inline void get_account(uint64_t* seed, uint64_t* acct_id,const DTX* dtx, bool is_partitioned, node_id_t gen_node_id, table_id_t table_id = 0) const {
       double global_conflict = 100;
       if(ComputeNodeCount == 1) {
-          if (FastRand(seed) % 100 < TX_HOT) {
-              *acct_id = FastRand(seed) % num_hot_global;
-          }
-          else {
-              *acct_id = FastRand(seed) % num_accounts_global;
-          }
+        // 是热点页面
+        if (FastRand(seed) % 100 < TX_HOT) {
+            // 
+            *acct_id = FastRand(seed) % num_hot_global;
+        }
+        else {
+            *acct_id = FastRand(seed) % num_accounts_global;
+        }
       }
-      else if(is_partitioned) { //执行本地事务
-          // 每个page_id 后面+1是因为page_id从1开始
-          // SYSTEM_MODE == 12: 使用时间片分区，用 ts_cnt 代替固定的 node_id
+      else if(is_partitioned) { 
           int node_id = (SYSTEM_MODE == 12) ? dtx->compute_server->get_node()->get_ts_cnt() : gen_node_id;
           int page_num = dtx->page_cache->getPageCache().find(table_id)->second.size() + 1;
           page_id_t page_id;
-          if(FastRand(seed) % 100 < TX_HOT){ // 如果是热点事务
+          if(FastRand(seed) % 100 < TX_HOT){ 
               page_id = FastRand(seed) % (int) ((page_num / ComputeNodeCount) * hot_rate);
               if(FastRand(seed) % 100 < global_conflict) {
                   page_id = page_id  + 1 + node_id * (page_num / ComputeNodeCount);
@@ -230,9 +230,10 @@ class SmallBank {
                       page_id--;
                   }
               }
+              // LOG(INFO) << "NOT HOT PAGE ID = " << page_id << " Now Epoch = " << dtx->compute_server->get_node()->ts_cnt;
           }
           *acct_id = dtx->page_cache->SearchRandom(seed, table_id, page_id);
-      } else { // 执行跨分区事务
+      } else { 
           // SYSTEM_MODE == 12: 使用时间片分区，用 ts_cnt 代替固定的 node_id
           int node_id = (SYSTEM_MODE == 12) ? dtx->compute_server->get_node()->get_ts_cnt() : gen_node_id;
           int page_num = dtx->page_cache->getPageCache().find(table_id)->second.size() + 1;
@@ -249,6 +250,7 @@ class SmallBank {
                           node_id * (page_num / ComputeNodeCount / ComputeNodeCount) +
                           (random < node_id ? random : random + 1)  * (page_num / ComputeNodeCount) + 1;
               }
+              // LOG(INFO) << "HOT PAGE ID = " << page_id << " Now Epoch = " << dtx->compute_server->get_node()->ts_cnt;
           } else { //如果是非热点事务
             int random = FastRand(seed) % (ComputeNodeCount - 1);
 //              page_id = FastRand(seed) % (page_num / ComputeNodeCount) +
@@ -261,6 +263,7 @@ class SmallBank {
                           node_id * (page_num / ComputeNodeCount / ComputeNodeCount) +
                           (random < node_id ? random : random + 1)  * (page_num / ComputeNodeCount) + 1;
               }
+              // LOG(INFO) << "NOT HOT PAGE ID = " << page_id << " Now Epoch = " << dtx->compute_server->get_node()->ts_cnt;
           }
           *acct_id = dtx->page_cache->SearchRandom(seed, table_id, page_id);
       }

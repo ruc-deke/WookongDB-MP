@@ -4,6 +4,8 @@
 #include "mutex"
 #include "list"
 #include "unordered_map"
+#include "vector"
+#include "assert.h"
 
 #include "common.h"
 

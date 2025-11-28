@@ -60,9 +60,15 @@ message ParXLockResponse{
 message TsParXLockRequest{
     PartitionID partition_id = 1;
     sint32 node_id = 2;
+    repeated uint32 table_id = 3;
+    repeated uint64 start_page_no = 4;
+    repeated uint64 end_page_no = 5;
 };
 
 message TsParXLockResponse{
+    repeated uint32 table_id = 1;
+    repeated uint64 invalid_page_no = 2;
+    repeated uint32 newest_node_id = 3;
 }
 
 message ParXUnlockRequest {
@@ -75,6 +81,7 @@ message ParXUnlockResponse{}
 message TsParXUnlockRequest{
     PartitionID partition_id = 1;
     sint32 node_id = 2;
+    repeated PageID page_id = 3;
 }
 
 message TsParXUnlockResponse{
