@@ -7,6 +7,7 @@
 #include <sys/prctl.h>
 #include <thread>
 #include <atomic>
+#include <iomanip>
 
 static int cnt;
 
@@ -217,30 +218,22 @@ void ComputeServer::ts_switch_phase(){
         auto ts_active_start_time = std::chrono::high_resolution_clock::now();
         auto duration_parxlock_time = std::chrono::duration_cast<std::chrono::microseconds>(ts_active_start_time - ts_start_time).count();
         {
-            LOG(INFO) << "TSParLock Time = " << duration_parxlock_time/1000 << "." << duration_parxlock_time % 1000 << "ms";
+            LOG(INFO) << "TSParLock Time = " << std::fixed << std::setprecision(3) << (duration_parxlock_time / 1000.0) << "ms";
         }
         
         node_->setPhase(TsPhase::RUNNING);
         // LOG(INFO) << "Before Schedule , Active Thread Count = " << node_->getScheduler()->getActiveThreadCount();
         int active_cnt = node_->getScheduler()->activateSlice(node_->ts_cnt);
-        LOG(INFO) << "Active Fiber Cnt = " << active_cnt;
+        // LOG(INFO) << "Active Fiber Cnt = " << active_cnt;
         auto ts_active_end_time = std::chrono::high_resolution_clock::now();
         auto duration_active_time = std::chrono::duration_cast<std::chrono::microseconds>(ts_active_end_time - ts_active_start_time).count();
-        LOG(INFO) << "Active Fiber Time = " << duration_active_time/1000 << "." << duration_active_time % 1000 << "ms";
+        LOG(INFO) << "Active Fiber Time = " << std::fixed << std::setprecision(3) << (duration_active_time / 1000.0) << "ms";
         // 等待时间片到
         {
-            // auto run_ts_time = std::chrono::microseconds(node_->ts_time);
-            // if (node_->is_running){
-            //     std::unique_lock<std::mutex> lk(node_->ts_switch_mutex);
-            //     // 除非是节点终止了，否则就等到时间片结束
-            //     node_->ts_switch_cond.wait_for(lk , run_ts_time , [&](){
-            //         return !node_->is_running;
-            //     });
-            // }
             usleep(node_->ts_time);
         }
-        LOG(INFO) << "After Running , Still In Queue Size = " << node_->getScheduler()->getTaskQueueSize(node_->ts_cnt) 
-            << " Active Thread Count = " << node_->getScheduler()->getActiveThreadCount();
+        // LOG(INFO) << "After Running , Still In Queue Size = " << node_->getScheduler()->getTaskQueueSize(node_->ts_cnt) 
+        //     << " Active Thread Count = " << node_->getScheduler()->getActiveThreadCount();
 
         // 等到全部的 fetch 页面完成
         // 这里要做两件事情：1. 等待之前没有 Fetch 完成的页面，2. 阻止主节点再去 Fetch 页面    
@@ -304,7 +297,7 @@ void ComputeServer::ts_switch_phase(){
 
         auto ts_unlock_end = std::chrono::high_resolution_clock::now();
         auto duration_unlock_time = std::chrono::duration_cast<std::chrono::microseconds>(ts_unlock_end - ts_unlock_start).count();
-        LOG(INFO) << "Unlock Time = " << duration_active_time / 1000 << "." << duration_unlock_time % 1000 << "ms";
+        LOG(INFO) << "Unlock Time = " << std::fixed << std::setprecision(3) << (duration_unlock_time / 1000.0) << "ms";
         // auto unlock_par_time = std::chrono::high_resolution_clock::now();
         // 完成标志由 TsParXUnlock 服务端合并处理，无需额外 RPC
 
@@ -328,15 +321,7 @@ void ComputeServer::ts_switch_phase(){
             }
             // LOG(INFO) << "WAITING FOR fetch Over Over";
             LOG(INFO) << "Node Left Fiber Cnt = " << node_->getScheduler()->getTaskQueueSize(node_->ts_cnt);
-            
-            // 如果任务队列为空，运行一次 RunWorkLoad
-            // if (node_->getScheduler()->getTaskQueueSize(node_->ts_cnt) == 0) {
-            //     std::atomic<int> finished_cnt{0};
-            //     // 根据 WORKLOAD_MODE 确定 bench_name，如果 bench_name 未设置则使用 WORKLOAD_MODE
-            //     std::string current_bench_name = (!bench_name.empty()) ? 
-            //         bench_name : (WORKLOAD_MODE == 0 ? "smallbank" : "tpcc");
-            //     RunWorkLoad(this, current_bench_name, finished_cnt, -1);
-            // }
+
             
             node_->ts_cnt = (node_->ts_cnt + 1) % ComputeNodeCount;
         }
@@ -347,7 +332,7 @@ void ComputeServer::ts_switch_phase(){
         auto ts_end_time = std::chrono::high_resolution_clock::now();
         auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(ts_end_time - ts_start_time).count();
 
-        LOG(INFO) << "Real Time = " << duration_us/1000 << "." << duration_us % 1000 << "ms\n";
+        LOG(INFO) << "Real Time = " << std::fixed << std::setprecision(3) << (duration_us / 1000.0) << "ms\n";
 
         // 时间片阶段耗时统计
         // const auto duration_us = [](const auto& end, const auto& start) -> double {

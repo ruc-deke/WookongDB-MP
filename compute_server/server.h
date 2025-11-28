@@ -741,6 +741,16 @@ public:
         return node_->getNodeID();
     }
 
+    int get_alive_fiber_cnt(){
+        return alive_fiber_cnt.load();
+    }
+    void set_alive_fiber_cnt(int value){
+        alive_fiber_cnt.store(value);
+    }
+    void decrease_alive_fiber_cnt(int desc_cnt){
+        alive_fiber_cnt.fetch_sub(desc_cnt);
+    }
+
 private:
     ComputeNode* node_;
     std::vector<GlobalLockTable*>* global_page_lock_table_list_;
@@ -752,6 +762,9 @@ private:
 
     brpc::Channel* nodes_channel; //与其他计算节点通信的channel
     page_table_service::PageTableServiceImpl* page_table_service_impl_; // 保存在类中，以便本地调用
+
+    // 时间片轮转的，表示当前多少个协程已经完成了或者没必要启动了
+    std::atomic<int> alive_fiber_cnt;
 };
 
 int socket_start_client(std::string ip, int port);

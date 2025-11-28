@@ -10,6 +10,7 @@
 #include <butil/logging.h> 
 #include <brpc/server.h>
 #include <gflags/gflags.h>
+#include <iomanip>
 
 #include "remote_partition_table.pb.h"
 #include <unistd.h>
@@ -333,7 +334,7 @@ class PartitionTableImpl : public PartitionTableService {
         }
         auto ts_end_time = std::chrono::high_resolution_clock::now();
         auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(ts_end_time - ts_begin_time).count();
-        std::cout << "Cost : " << duration_us / 1000 << "." << duration_us % 1000 << "ms\n";
+        std::cout << std::fixed << std::setprecision(3) << "Cost : " << (duration_us / 1000.0) << "ms\n";
         return;
     }
     

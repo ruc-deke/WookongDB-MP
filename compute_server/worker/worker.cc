@@ -345,7 +345,6 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
     Txn_request_info txn_meta;
     clock_gettime(CLOCK_REALTIME, &txn_meta.start_time);
 
-    tx_type = SmallBankTxType::kTransactSaving;
     switch (tx_type) {
       case SmallBankTxType::kAmalgamate: {
           thread_local_try_times[uint64_t(tx_type)]++;
@@ -408,6 +407,9 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
     if (!has_caculate) {
         has_caculate = true;
         clock_gettime(CLOCK_REALTIME, &msr_end_ts);
+        int not_schedule_cnt = dtx->compute_server->get_node()->getScheduler()->getLeftQueueSize();
+        dtx->compute_server->decrease_alive_fiber_cnt(not_schedule_cnt);
+        std::cout << "Not Schedule Fiber Cnt = " << not_schedule_cnt << "\n";
     }
     // 对于执行过的每个协程，都把本协程跑过的事务信息统计一下
     CollectStats(dtx);
@@ -607,8 +609,8 @@ void initThread(thread_params* params,
     timer = new double[ATTEMPTED_NUM+50]();
 }
 
-void RunWorkLoad(ComputeServer* server, std::string bench_name , std::atomic<int> &finished_cnt , int thread_id , int run_cnt){
-  auto task = [=, &finished_cnt]() {
+void RunWorkLoad(ComputeServer* server, std::string bench_name , int thread_id , int run_cnt){
+  auto task = [=]() {
      // 构造假 yield
      coro_yield_t* fake_yield_ptr = nullptr; 
      coro_yield_t& fake_yield = *reinterpret_cast<coro_yield_t*>(fake_yield_ptr);
@@ -620,7 +622,7 @@ void RunWorkLoad(ComputeServer* server, std::string bench_name , std::atomic<int
      } else {
         assert(false);
      }
-     finished_cnt++;
+     server->decrease_alive_fiber_cnt(1);
   };
   server->get_node()->getScheduler()->lockSlice();
   for (int i = 0 ; i < run_cnt ; i++){

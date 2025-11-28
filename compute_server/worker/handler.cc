@@ -238,15 +238,13 @@ void Handler::GenThreads(std::string bench_name) {
       usleep(1000);
     }
     std::vector<int> thread_ids = compute_node->getSchedulerThreadIds();
-    std::atomic<int> finished_cnt{0};
     std::cout << "coro num = " << coro_num << "\n";
-
-    RunWorkLoad(compute_server, bench_name, finished_cnt , -1 , coro_num);
+    compute_server->set_alive_fiber_cnt(coro_num);
+    RunWorkLoad(compute_server, bench_name , -1 , coro_num);
 
     while (true){
       usleep(10000);
-      if (finished_cnt == coro_num){
-        // compute_server->get_node()->getScheduler()->stop();
+      if (compute_server->get_alive_fiber_cnt() == 0){
         break;
       }
     }

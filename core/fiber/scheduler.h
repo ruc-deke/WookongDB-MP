@@ -100,6 +100,14 @@ public:
         return m_sliceQueues[idx].size();
     }
 
+    int getLeftQueueSize(){
+        std::lock_guard<std::mutex> lk(m_sliceMutex);
+        int ret = m_waitQueues.size();
+        m_waitQueues.clear();
+        
+        return ret;
+    }
+
     void addFiberCnt(){
         m_fiberCnt++;
         // std::cout << "Add A Fiber , Now Fiber Cnt = " << m_fiberCnt << "\n";

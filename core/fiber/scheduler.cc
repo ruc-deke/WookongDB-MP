@@ -188,34 +188,35 @@ void Scheduler::scheduleToSlice(std::function<void()> cb, size_t slice_id, int t
 int Scheduler::activateSlice(size_t slice_id) {
     assert(m_sliceSchedulerEnabled && !m_sliceQueues.empty());
 
-    std::deque<FiberAndThread> ready_tasks;
-    {
-        std::lock_guard<std::mutex> lk(m_sliceMutex);
-        ready_tasks.swap(m_sliceQueues[slice_id]);
-        m_activeSlice.store(slice_id, std::memory_order_relaxed);
-    }
+    // std::deque<FiberAndThread> ready_tasks;
+    // {
+    //     std::lock_guard<std::mutex> lk(m_sliceMutex);
+    //     ready_tasks.swap(m_sliceQueues[slice_id]);
+    //     m_activeSlice.store(slice_id, std::memory_order_relaxed);
+    // }
 
-    int ret = ready_tasks.size();
+    // int ret = ready_tasks.size();
 
-    bool need_tickle = false;
-    // 加入到任务队列里边去
-    if(!ready_tasks.empty()) {
-        MutexType::Lock lock(m_mutex);
-        need_tickle = m_fibers.empty();
-        while(!ready_tasks.empty()) {
-            m_fibers.push_back(std::move(ready_tasks.front()));
-            ready_tasks.pop_front();
-        }
-    }
+    // bool need_tickle = false;
+    // // 加入到任务队列里边去
+    // if(!ready_tasks.empty()) {
+    //     MutexType::Lock lock(m_mutex);
+    //     need_tickle = m_fibers.empty();
+    //     while(!ready_tasks.empty()) {
+    //         m_fibers.push_back(std::move(ready_tasks.front()));
+    //         ready_tasks.pop_front();
+    //     }
+    // }
 
     m_activeSlice.store(slice_id);
     m_validFetch = true;
 
-    return ret;
+    return -1;
 }
 
 void Scheduler::stopSlice(size_t slice_id){
-    assert(slice_id == m_activeSlice.load());
+    int current_slice = m_activeSlice.load();
+    assert(slice_id == current_slice);
     m_validFetch = false;
 }
 
@@ -284,18 +285,9 @@ bool Scheduler::fetchFiberFromActiveSlice(FiberAndThread& out , pid_t thread_id)
     }
     size_t slice = m_activeSlice.load(std::memory_order_relaxed);
     std::lock_guard<std::mutex> lk(m_sliceMutex);
-    
-    // double check，防止在获取锁的过程中 slice 变了
-    size_t current_slice = m_activeSlice.load(std::memory_order_relaxed);
-    if (current_slice != slice) {
-        // 如果变了，就尝试去新的 slice 拿，或者直接返回 false 让外层重试
-        slice = current_slice;
-    }
-    
-    if (slice >= m_sliceQueues.size()) return false;
+    assert(slice < m_sliceQueues.size());
 
     auto& queue = m_sliceQueues[slice];
-
     for(auto it = queue.begin(); it != queue.end(); ++it) {
         if(it->thread == -1 || it->thread == thread_id) {
             if (it->fiber && it->fiber->getState() == Fiber::EXEC) {
@@ -338,8 +330,18 @@ void Scheduler::run(){
         ft.reset();
         // bool tickle_me = false;
         bool is_active = false;
-        
+        // 首先，尝试直接去 m_sliceQueue 里面取一个任务做
         {
+            if (m_sliceSchedulerEnabled && m_validFetch) {
+                if (fetchFiberFromActiveSlice(ft, getThreadID())) {
+                    ++m_activeThreadCount;
+                    is_active = true;
+                }
+            }
+        }
+
+        // 如果 sliceQueue 没有，就去任务队列里面取任务做
+        if (!is_active){
             MutexType::Lock lock(m_mutex);
             auto it = m_fibers.begin();
             while (it != m_fibers.end()){
@@ -365,7 +367,7 @@ void Scheduler::run(){
             // tickle_me |= it != m_fibers.end();
         }
         
-        // 如果 m_fibers 里面没任务了，我就去时间片队列里面拿
+        // 如果上面两个都没任务，那就创建一个新的
         if (!is_active){
             if (m_sliceSchedulerEnabled && m_validFetch){
                 m_sliceMutex.lock();
