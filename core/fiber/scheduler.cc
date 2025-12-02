@@ -4,10 +4,16 @@
 #include "fiber/thread.h"
 #include <chrono>
 #include <butil/logging.h>
+#include <mutex>
 #include <unistd.h>
 
 static thread_local Scheduler* t_scheduler = nullptr;
 static thread_local Fiber* t_scheduler_fiber = nullptr;
+static thread_local bool t_job_finished = false;
+
+void Scheduler::setJobFinish(bool value){
+    t_job_finished = value;
+}
 
 Scheduler::Scheduler(size_t threads, bool use_caller, const std::string& name)
     :m_name(name) {
@@ -28,6 +34,7 @@ Scheduler::Scheduler(size_t threads, bool use_caller, const std::string& name)
         m_rootThread = -1;
     }
     m_threadCount = threads;
+    std::cout << "Thread Count = " << m_threadCount << "\n";
 }
 
 Scheduler::~Scheduler(){
@@ -188,37 +195,34 @@ void Scheduler::scheduleToSlice(std::function<void()> cb, size_t slice_id, int t
 int Scheduler::activateSlice(size_t slice_id) {
     assert(m_sliceSchedulerEnabled && !m_sliceQueues.empty());
 
-    // std::deque<FiberAndThread> ready_tasks;
-    // {
-    //     std::lock_guard<std::mutex> lk(m_sliceMutex);
-    //     ready_tasks.swap(m_sliceQueues[slice_id]);
-    //     m_activeSlice.store(slice_id, std::memory_order_relaxed);
-    // }
-
-    // int ret = ready_tasks.size();
-
-    // bool need_tickle = false;
-    // // 加入到任务队列里边去
-    // if(!ready_tasks.empty()) {
-    //     MutexType::Lock lock(m_mutex);
-    //     need_tickle = m_fibers.empty();
-    //     while(!ready_tasks.empty()) {
-    //         m_fibers.push_back(std::move(ready_tasks.front()));
-    //         ready_tasks.pop_front();
-    //     }
-    // }
-
     m_activeSlice.store(slice_id);
     m_validFetch = true;
 
-    return -1;
+    return m_sliceQueues[slice_id].size();
 }
+
+int Scheduler::activateHot(){
+    assert(m_sliceSchedulerEnabled);
+    int ret = m_waitHotQueues.size();
+    m_validFetchFromHot = true;
+    return ret;
+}
+
+size_t Scheduler::getWaitHotSize() const {
+    return m_waitHotQueues.size();
+}
+
 
 void Scheduler::stopSlice(size_t slice_id){
     int current_slice = m_activeSlice.load();
     assert(slice_id == current_slice);
     m_validFetch = false;
 }
+
+void Scheduler::stopHot(){
+    m_validFetchFromHot = false;
+}
+
 
 
 
@@ -231,29 +235,15 @@ void Scheduler::YieldToSlice(size_t slice_id) {
     Fiber::YieldToHold();
 }
 
-void Scheduler::YieldAllToSlice(size_t slice_id){
-    if(!m_sliceSchedulerEnabled || m_sliceQueues.empty()) {
-        assert(false);
-        return;
+void Scheduler::YieldToHotQueue(){
+    Fiber::ptr cur = Fiber::GetThis();
+    assert(cur);
+    FiberAndThread ft(cur, -1);
+    {
+        std::lock_guard<std::mutex> lk(m_sliceMutex);
+        m_waitHotQueues.push_back(std::move(ft));
     }
-    
-    MutexType::Lock lock(m_mutex);
-    auto it = m_fibers.begin();
-    while (it != m_fibers.end()) {
-        bool need_to_hang = false;
-        
-        // 仅当存储的是协程，且不在运行状态的时候，才加入到等待队列里去
-        if (it->fiber){
-            Fiber::State state = it->fiber->getState();
-            if (state != Fiber::EXEC && state != Fiber::TERM && state != Fiber::EXCEPT) {
-                FiberAndThread ft = std::move(*it);
-                it = m_fibers.erase(it);
-                enqueueSliceTask(std::move(ft), slice_id);
-            }
-        }else {
-            it++;
-        }
-    }
+    Fiber::YieldToHold();
 }
 
 size_t Scheduler::getActiveSlice() const {
@@ -278,7 +268,7 @@ void Scheduler::enqueueSliceTask(FiberAndThread&& ft, size_t slice_id) {
     }
 }
 
-bool Scheduler::fetchFiberFromActiveSlice(FiberAndThread& out , pid_t thread_id) {
+bool Scheduler::fetchFiberFromActiveSlice(FiberAndThread &out , pid_t thread_id) {
     if(!m_sliceSchedulerEnabled || m_sliceQueues.empty()) {
         assert(false);
         return false;
@@ -300,6 +290,23 @@ bool Scheduler::fetchFiberFromActiveSlice(FiberAndThread& out , pid_t thread_id)
     }
     
     return false;
+}
+
+bool Scheduler::fetchFiberFromHotQueue(FiberAndThread &out , pid_t thread_id){
+    std::lock_guard<std::mutex> lk(m_sliceMutex);
+    if (m_waitHotQueues.empty()){
+        return false;
+    }
+    for (auto it = m_waitHotQueues.begin() ; it != m_waitHotQueues.end() ; it++){
+        if (it->thread == -1 || it->thread == thread_id){
+            if (it->fiber && it->fiber->getState() == Fiber::EXEC){
+                continue;
+            }
+            out = std::move(*it);
+            m_waitHotQueues.erase(it);
+            return true;
+        }
+    }
 }
 
 bool Scheduler::sliceQueuesEmpty() const {
@@ -330,18 +337,9 @@ void Scheduler::run(){
         ft.reset();
         // bool tickle_me = false;
         bool is_active = false;
-        // 首先，尝试直接去 m_sliceQueue 里面取一个任务做
-        {
-            if (m_sliceSchedulerEnabled && m_validFetch) {
-                if (fetchFiberFromActiveSlice(ft, getThreadID())) {
-                    ++m_activeThreadCount;
-                    is_active = true;
-                }
-            }
-        }
 
-        // 如果 sliceQueue 没有，就去任务队列里面取任务做
-        if (!is_active){
+        // 首先检查是否有新的任务，或者超时的任务需要去完成，优先去跑这些任务
+        {
             MutexType::Lock lock(m_mutex);
             auto it = m_fibers.begin();
             while (it != m_fibers.end()){
@@ -352,10 +350,25 @@ void Scheduler::run(){
                     continue;
                 }
                 assert(it->fiber || it->thread);
+                
                 // 如果这个协程已经有别的线程在跑了
                 if (it->fiber && it->fiber->getState() == Fiber::State::EXEC){
                     ++it;
                     continue;
+                }
+                // 如果任务超时了，那就调度这个任务
+                if (it->fiber && it->delay_us != 0){
+                    // 检查是否超时：获取当前时间（微秒）并与截止时间比较
+                    uint64_t current_time_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::high_resolution_clock::now().time_since_epoch()
+                    ).count();
+                    // 如果还没超时，跳过这个任务
+                    if (current_time_us <= it->delay_us) {
+                        ++it;
+                        continue;
+                    }
+                    // 如果超时了，清除延迟标记，继续调度
+                    it->delay_us = 0;
                 }
 
                 ft = *it;
@@ -364,12 +377,22 @@ void Scheduler::run(){
                 is_active = true;
                 break;
             }
-            // tickle_me |= it != m_fibers.end();
+        }
+
+        if (!is_active && m_sliceSchedulerEnabled && !t_job_finished){
+            // 先试着去热点页面等待队列里面取任务      
+            // TODO：这里感觉会有饥饿问题，如果等待热点的事务太多了的话，时间片里面的可能会调度不到
+            if (m_validFetchFromHot && fetchFiberFromHotQueue(ft , getThreadID())){
+                ++m_activeThreadCount;
+                is_active = true;
+            }else if (m_validFetch && fetchFiberFromActiveSlice(ft, getThreadID())) {
+                ++m_activeThreadCount;
+                is_active = true;
+            }
         }
         
-        // 如果上面两个都没任务，那就创建一个新的
         if (!is_active){
-            if (m_sliceSchedulerEnabled && m_validFetch){
+            if (m_sliceSchedulerEnabled && m_validFetch && !t_job_finished){
                 m_sliceMutex.lock();
                 auto it =  m_waitQueues.begin();
                 while (it != m_waitQueues.end()){
@@ -392,6 +415,8 @@ void Scheduler::run(){
                 m_sliceMutex.unlock();
             }
         }
+
+        assert(m_activeThreadCount <= m_threadCount);
 
         if (ft.fiber && (ft.fiber->getState() != Fiber::State::TERM
                     && ft.fiber->getState() != Fiber::State::EXCEPT)){

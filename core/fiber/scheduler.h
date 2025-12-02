@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <chrono>
 #include <deque>
 #include <iostream>
 #include <list>
@@ -76,6 +77,23 @@ public:
         return m_activeThreadCount;
     }
 
+    void YieldWithTime(uint64_t sleep_us){
+        Fiber::ptr cur = Fiber::GetThis();
+        // 获取当前时间（微秒）并加上超时时间
+        uint64_t current_time_us = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now().time_since_epoch()
+        ).count();
+        uint64_t dead_line = current_time_us + sleep_us;
+        // 将微秒转换为毫秒存储到 delay_ms
+        FiberAndThread ft(cur, -1, dead_line);
+
+        {
+            MutexType::Lock lock(m_mutex);
+            m_fibers.emplace_front(ft);
+        }
+        Fiber::YieldToHold();
+    }
+
     size_t getFibersSize() {
         MutexType::Lock lk(m_mutex);
         return m_fibers.size();
@@ -88,12 +106,18 @@ public:
     void scheduleToSlice(Fiber::ptr fiber, size_t slice_id, int thread = -1);
     void scheduleToSlice(std::function<void()> cb, size_t slice_id, int thread = -1);
     int activateSlice(size_t slice_id);
+    int activateHot();
     void stopSlice(size_t slice_id);
-    void invalidSlice(size_t slice_id);
+    void stopHot();
+
+
     void YieldToSlice(size_t slice_id);
-    void YieldAllToSlice(size_t slice_id);
+    void YieldToHotQueue();
+
+
     size_t getActiveSlice() const;
     size_t getSliceCount() const;
+    size_t getWaitHotSize() const;
     std::vector<int> getThreadIds() { return m_threadIds; }
 
     int getTaskQueueSize(int idx){
@@ -116,6 +140,7 @@ public:
         return m_fiberCnt.load();
     }
 
+    static void setJobFinish(bool value);
 public:
     const std::string& getName() const { 
         return m_name;
@@ -157,33 +182,46 @@ private:
         std::function<void()> cb;
         /// 线程id
         int thread;
+        /// 延迟时间（毫秒）
+        uint64_t delay_us = 0;
+        
 
         FiberAndThread(Fiber::ptr f, int thr)
             :fiber(f), thread(thr) {
+            delay_us = 0;
+        }
+
+        FiberAndThread(Fiber::ptr f , int thr , uint64_t delay)
+            :fiber(f) , thread(thr) , delay_us(delay){
         }
 
         FiberAndThread(Fiber::ptr* f, int thr)
             :thread(thr) {
             fiber.swap(*f);
+            delay_us = 0;
         }
 
         FiberAndThread(std::function<void()> f, int thr)
             :cb(f), thread(thr) {
+            delay_us = 0;
         }
 
         FiberAndThread(std::function<void()>* f, int thr)
             :thread(thr) {
             cb.swap(*f);
+            delay_us = 0;
         }
 
         FiberAndThread()
             :thread(-1) {
+            delay_us = 0;
         }
 
         void reset() {
             fiber = nullptr;
             cb = nullptr;
             thread = -1;
+            delay_us = 0;
         }
     };
 
@@ -191,13 +229,15 @@ private:
     MutexType m_mutex;
     std::vector<Thread::ptr> m_threads;
     std::list<FiberAndThread> m_fibers;
+    // std::list<FiberAndThread> m_timeQueues;         // 定时队列，往这里面放定时任务，时间到了再调度
     // user_caller = true 的时候有效，代表的是调度器所在的协程
     Fiber::ptr m_rootFiber;
     std::string m_name;
 
 protected:
     void enqueueSliceTask(FiberAndThread&& ft, size_t slice_id);
-    bool fetchFiberFromActiveSlice(FiberAndThread& out , pid_t thread_id);
+    bool fetchFiberFromActiveSlice(FiberAndThread &out , pid_t thread_id);
+    bool fetchFiberFromHotQueue(FiberAndThread &out , pid_t thread_id);
     bool sliceQueuesEmpty() const;
 
     std::vector<int> m_threadIds;
@@ -212,8 +252,11 @@ protected:
     bool m_sliceSchedulerEnabled = false;                       // 是否启动时间片调度
     std::vector<std::deque<FiberAndThread>> m_sliceQueues;      // 时间片调度队列
     std::deque<FiberAndThread> m_waitQueues;                    
+    std::deque<FiberAndThread> m_waitHotQueues;                 // 等待热点页面所有权的队列
     mutable std::mutex m_sliceMutex;                            // 锁
     std::atomic<size_t> m_activeSlice{0};                     // 当前所在的时间片
-    std::atomic<bool> m_validFetch;                             // 是否允许直接从时间片队列里面取(绕过 m_fibers)
+    std::atomic<bool> m_validFetch;                             // 是否允许直接从时间片队列里面取
+    std::atomic<bool> m_validFetchFromHot;                      // 是否允许从热点页面等待队列里面取任务
+
     std::atomic<int> m_fiberCnt{0};                           // 调试参数    
 };

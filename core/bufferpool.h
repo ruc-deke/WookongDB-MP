@@ -65,7 +65,6 @@ public:
         return page;
     }
 
-    // 尝试去缓冲区拿一个页面，没拿到就算了，没有 fetch_page 那么严格的要求
     Page *try_fetch_page(page_id_t page_id){
         std::lock_guard<std::mutex> lk(mtx);
         auto it = page_table.find(page_id);
@@ -74,23 +73,28 @@ public:
         }
 
         frame_id_t frame_id = it->second;
-        replacer->pin(frame_id);
         Page *page = pages[frame_id];
-        page->pin_count_++;
+        if (page->pin_count_++ == 0){
+            replacer->pin(frame_id);
+        }
+        assert(page->page_id_ == page_id);
 
         return page;
     }
 
-    void unpin_page_with_pincount(page_id_t page_id){
+    const std::string try_fetch_page_ret_string(page_id_t page_id){
         std::lock_guard<std::mutex> lk(mtx);
         auto it = page_table.find(page_id);
-        assert(it != page_table.end());
+        if (it == page_table.end()){
+            return "";
+        }
 
         frame_id_t frame_id = it->second;
-        Page *page = pages[frame_id];
-        if (--page->pin_count_ == 0){
-            replacer->unpin(frame_id);
-        }
+        std::string ret(pages[frame_id]->get_data() , PAGE_SIZE);
+
+        assert(pages[frame_id]->page_id_ == page_id);
+        assert(ret.size() == PAGE_SIZE);
+        return ret;
     }
 
     // 直接从缓冲区里面把这个页面删掉，这个是当节点释放页面所有权的时候调用的
@@ -101,6 +105,7 @@ public:
 
         frame_id_t frame_id = it->second;
         Page *pg = pages[frame_id];
+        pg->pin_count_ = 0;
         pg->reset_memory();
         pg->page_id_ = INVALID_PAGE_ID;
 
@@ -109,15 +114,6 @@ public:
         // 确保该帧不被 LRU 追踪，然后归还到 free_list
         replacer->pin(frame_id);
         free_lists.push_back(frame_id);
-    }
-
-
-    void pin_page(page_id_t page_id){
-        std::lock_guard<std::mutex> lk(mtx);
-        auto it = page_table.find(page_id);
-        assert(it != page_table.end());
-        frame_id_t frame_id = it->second;
-        replacer->pin(frame_id);
     }
 
 
@@ -133,6 +129,7 @@ public:
         assert(it != page_table.end());
 
         frame_id_t frame_id = it->second;
+        pages[frame_id]->pin_count_ = 0;
         // 不需要 pin_count，因为我这个缓冲区是严格限制的，unpin 一定是用完了缓冲区
         replacer->unpin(frame_id);
     }

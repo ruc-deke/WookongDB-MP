@@ -112,6 +112,9 @@ void Handler::GenThreads(std::string bench_name) {
   node_id_t machine_id = (node_id_t)client_conf.get("machine_id").get_int64();
   std::cout << "starting primary , machine id = " << machine_id << "\n";
   t_id_t thread_num_per_machine = (t_id_t)client_conf.get("thread_num_per_machine").get_int64();
+  if (SYSTEM_MODE == 12){
+    thread_num_per_machine++;
+  }
   const int coro_num = (int)client_conf.get("coroutine_num").get_int64();
 
   LOCAL_BATCH_TXN_SIZE = (int)client_conf.get("batch_size").get_int64();
@@ -151,12 +154,12 @@ void Handler::GenThreads(std::string bench_name) {
   socket_start_client(global_meta_man->remote_server_nodes[0].ip, global_meta_man->remote_server_meta_port);
 
   // After all compute nodes have connected (barrier), start TS phase switching loop if using TS mode
-  if (SYSTEM_MODE == 12) {
-    std::thread ts_switch_thread([compute_server]{
-      compute_server->ts_switch_phase();
-    });
-    ts_switch_thread.detach();
-  }
+  // if (SYSTEM_MODE == 12) {
+  //   std::thread ts_switch_thread([compute_server]{
+  //     compute_server->ts_switch_phase();
+  //   });
+  //   ts_switch_thread.detach();
+  // }
 
   std::cout << "finish start client\n";
 
@@ -184,6 +187,7 @@ void Handler::GenThreads(std::string bench_name) {
   // LOG(INFO) << "Spawn threads to execute...";
   std::atomic<int> init_finish_cnt(0);
   t_id_t i = 0;
+  
   for (; i < thread_num_per_machine; i++) { 
     param_arr[i].thread_global_id = (machine_id * thread_num_per_machine) + i;
     param_arr[i].thread_id = i;
@@ -224,6 +228,8 @@ void Handler::GenThreads(std::string bench_name) {
       }
     }
   }
+
+  
   
   if (SYSTEM_MODE != 12){
     for (t_id_t i = 0; i < thread_num_per_machine; i++) {
@@ -237,6 +243,13 @@ void Handler::GenThreads(std::string bench_name) {
     while (init_finish_cnt < thread_num_per_machine ){
       usleep(1000);
     }
+    compute_node->getScheduler()->schedule([compute_server]{
+      compute_server->ts_switch_phase(compute_server->get_node()->ts_time);
+    });
+    compute_node->getScheduler()->schedule([compute_server]{
+      // 先用 10ms 试试
+      compute_server->ts_switch_phase_hot(10000);
+    });
     std::vector<int> thread_ids = compute_node->getSchedulerThreadIds();
     std::cout << "coro num = " << coro_num << "\n";
     compute_server->set_alive_fiber_cnt(coro_num);

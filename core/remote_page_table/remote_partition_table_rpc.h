@@ -21,10 +21,14 @@ class PartitionTableImpl : public PartitionTableService {
     PartitionTableImpl(std::vector<GlobalLockTable*>* page_lock_table_list, std::vector<GlobalValidTable*>* page_valid_table_list)
         :page_lock_table_list_(page_lock_table_list), page_valid_table_list_(page_valid_table_list){
             compute_epoch = new int[ComputeNodeCount]();
+            compute_epoch_hot = new int[ComputeNodeCount]();
             compute_finish = new bool[ComputeNodeCount]();
+            compute_finish_hot = new bool[ComputeNodeCount]();
             for(int i=0; i<ComputeNodeCount; i++){
                 compute_epoch[i] = 0;
+                compute_epoch_hot[i] = 0;
                 compute_finish[i] = false;
+                compute_finish_hot[i] = true;
             }
         };
 
@@ -109,7 +113,7 @@ class PartitionTableImpl : public PartitionTableService {
                 page_id_t end_page_id = request->end_page_no(i);
 
                 for(int page_id = start_page_id; page_id <= end_page_id; page_id++){
-                    node_id_t newest_node = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid(node_id);
+                    node_id_t newest_node = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid_NoBlock(node_id);
                     if(newest_node != -1){
                         response->add_table_id(table_id);
                         response->add_invalid_page_no(page_id);
@@ -122,12 +126,68 @@ class PartitionTableImpl : public PartitionTableService {
         return ;
     }
 
+    virtual void TsHotParXLock(::google::protobuf::RpcController* controller,
+            const ::partition_table_service::TsHotParXLockRequest* request,
+            ::partition_table_service::TsHotParXLockResponse* response,
+            ::google::protobuf::Closure* done){
+        brpc::ClosureGuard done_guard(done);
+        node_id_t node_id = request->node_id();
+        node_id_t pre_node_id = (node_id == 0) ? ComputeNodeCount - 1 : node_id - 1;
+        int try_cnt = 0;
+        while (true){
+            global_epoch_mutex_hot.lock();
+            // LOG(INFO) << "global epoch = " << global_epoch_cnt_hot << " node epoch = " 
+            //     <<  compute_epoch_hot[node_id] << " node_id = " << node_id << " pre_node = " << pre_node_id << " finish = " << compute_finish_hot[pre_node_id]
+            //      << " pre = " << compute_epoch_hot[node_id] * ComputeNodeCount + node_id << " after = " << global_epoch_cnt_hot << " next = " << compute_finish_hot[pre_node_id];
+            // assert(global_epoch_cnt_hot >= compute_epoch_hot[node_id] * 3);
+            // 说明 global_epoch_cnt 变了，可以推进阶段了
+            if ((compute_epoch_hot[node_id] * ComputeNodeCount + node_id == global_epoch_cnt_hot) && compute_finish_hot[pre_node_id]){
+                compute_epoch_hot[node_id]++;
+                compute_finish_hot[node_id] = false;
+                global_epoch_mutex_hot.unlock();
+                break;
+            }else{
+                global_epoch_mutex_hot.unlock();
+                usleep(10);
+                continue;
+            }
+            
+            // usleep(10);
+        }
+
+        // // 增加获取页面位置信息的逻辑
+        if(request->table_id_size() > 0) {
+            assert(request->table_id_size() == request->start_page_no_size());
+            for(int i = 0; i < request->table_id_size(); i++){
+                table_id_t table_id = request->table_id(i);
+                page_id_t start_page_id = request->start_page_no(i);
+                page_id_t end_page_id = request->end_page_no(i);
+
+                for(int page_id = start_page_id; page_id <= end_page_id; page_id++){
+                    node_id_t newest_node = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid_NoBlock(node_id);
+                    if(newest_node != -1){
+                        response->add_table_id(table_id);
+                        response->add_invalid_page_no(page_id);
+                        response->add_newest_node_id(newest_node);
+                    }
+                }
+            }
+        }
+
+
+
+        LOG(INFO) << "TS PAR LOCK OVER try cnt = " << try_cnt << " node_id = " << node_id;
+
+        return ;
+    }
+
     virtual void TsParXUnlock(::google::protobuf::RpcController* controller,
                         const ::partition_table_service::TsParXUnlockRequest* request,
                         ::partition_table_service::TsParXUnlockResponse* response,
                         ::google::protobuf::Closure* done){
+        auto ts_start_time = std::chrono::high_resolution_clock::now();
 
-        brpc::ClosureGuard done_guard(done);
+        brpc::ClosureGuard done_guard(done);    
         partition_id_t par_id = request->partition_id().partition_no();
         node_id_t node_id = request->node_id();
         page_lock_table_list_->at(0)->GetPartitionLock(par_id)->UnlockExclusive(node_id);
@@ -138,20 +198,51 @@ class PartitionTableImpl : public PartitionTableService {
             page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->UpdateValid(node_id);
         }
 
-        global_epoch_mutex.lock();
-        compute_finish[node_id] = true;
-        bool need_to_update = true;
-        for (int i = 0 ; i < ComputeNodeCount ; i++){
-            if (compute_epoch[i] <= global_epoch_cnt && compute_finish[i] == false){
-                need_to_update = false;
-                break;
+        {
+            global_epoch_mutex.lock();
+            compute_finish[node_id] = true;
+            bool need_to_update = true;
+            for (int i = 0 ; i < ComputeNodeCount ; i++){
+                if (compute_epoch[i] <= global_epoch_cnt && compute_finish[i] == false){
+                    need_to_update = false;
+                    break;
+                }
             }
+            if (need_to_update){
+                global_epoch_cnt++;
+                LOG(INFO) << "Update Epoch , now epoch = " << global_epoch_cnt << "\n";
+            }
+            global_epoch_mutex.unlock();
         }
-        if (need_to_update){
-            global_epoch_cnt++;
-            std::cout << "Update Epoch , now epoch = " << global_epoch_cnt << "\n";
+
+        auto ts_end_time = std::chrono::high_resolution_clock::now();
+        auto duration_unlock_time = std::chrono::duration_cast<std::chrono::microseconds>(ts_end_time - ts_start_time).count();
+        LOG(INFO) << "Invalid Size = " << request->page_id_size() << " Unlock Time = " << std::fixed << std::setprecision(3) << (duration_unlock_time / 1000.0) << "ms\n";
+        return;
+    }
+
+    virtual void TsHotParXUnlock(::google::protobuf::RpcController* controller,
+                        const ::partition_table_service::TsHotParXUnlockRequest* request,
+                        ::partition_table_service::TsHotParXUnlockResponse* response,
+                        ::google::protobuf::Closure* done){
+        brpc::ClosureGuard done_guard(done);    
+        node_id_t node_id = request->node_id();
+
+        for(int i=0; i<request->page_id_size(); i++){
+            page_id_t page_id = request->page_id(i).page_no();
+            table_id_t table_id = request->page_id(i).table_id();
+            page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->UpdateValid(node_id);
         }
-        global_epoch_mutex.unlock();
+
+        {
+            global_epoch_mutex_hot.lock();
+            compute_finish_hot[node_id] = true;
+            global_epoch_cnt_hot++;
+            global_epoch_mutex_hot.unlock();
+            
+            std::cout << "Update Epoch Hot , now epoch = " << global_epoch_cnt_hot << " node_id = " << node_id << "\n";
+        }
+
         return;
     }
 
@@ -398,9 +489,13 @@ class PartitionTableImpl : public PartitionTableService {
     std::vector<GlobalValidTable*>* page_valid_table_list_;
 
     bthread::Mutex global_epoch_mutex;
+    bthread::Mutex global_epoch_mutex_hot;
     int global_epoch_cnt = 1;
+    int global_epoch_cnt_hot = 0;
     int* compute_epoch;
+    int *compute_epoch_hot;
     bool* compute_finish;
+    bool *compute_finish_hot;
 
     double cross_ratio = 0;
     int global_phase_time = EpochTime * cross_ratio;  // ms

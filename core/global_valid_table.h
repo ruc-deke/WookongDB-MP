@@ -100,20 +100,19 @@ public:
         mutex.unlock();
     }
 
+    // 这里不需要锁保护，因为只有自己会访问
     void UpdateValid(node_id_t node_id){
-        mutex.lock();
         if (node_has_newest_page_status[node_id]){
             assert(newest_node == node_id);
-            mutex.unlock();
             return ;
         }
         assert(newest_node != node_id);
         if (newest_node != -1){
+            assert(node_has_newest_page_status[newest_node]);
             node_has_newest_page_status[newest_node] = false;
         }
         newest_node = node_id;
         node_has_newest_page_status[node_id] = true;
-        mutex.unlock();
     }
 
     void ReleasePageNoBlock(node_id_t node_id){

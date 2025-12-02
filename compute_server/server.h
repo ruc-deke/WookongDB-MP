@@ -141,6 +141,7 @@ class ComputeServer {
 public:
     ComputeServer(ComputeNode* node, std::vector<std::string> compute_ips, std::vector<int> compute_ports): node_(node){
         InitTableNameMeta();
+        InitHotPages();
         // 构造与其他计算节点通信的channel
         nodes_channel = new brpc::Channel[ComputeNodeCount];
         brpc::ChannelOptions options;
@@ -337,11 +338,10 @@ public:
     void rpc_ts_switch_get_page_locate();    
     void rpc_ts_switch_invalid_pages();
 
-    // 项目初始化的时候跑的，初始化阶段切换的线程
-    void rpc_ts_phase_switch_run(int rpc_ts_phase_switch_run);
     // 切换当前节点所在的时间片
-    void ts_switch_phase();  
-    void ts_switch_phase_run_thread(int try_operation_cnt , int thread_id);
+    void ts_switch_phase(uint64_t time_slice);  
+    // 热点页面的轮转
+    void ts_switch_phase_hot(uint64_t time_slice);
 
     Page_request_info generate_random_pageid(std::mt19937& gen, std::uniform_real_distribution<>& dis);
 
@@ -375,26 +375,50 @@ public:
     //     node_->ts_switch_mutex.unlock();
     // }
 
-    void tryLockTs(table_id_t table_id , page_id_t page_id){
-        RWMutex::ReadLock r_lock(node_->rw_mutex);
-        bool cond1 = is_ts_par_page(table_id , page_id);
-        bool cond2 = (node_->getPhaseNoBlock() == TsPhase::RUNNING);
-        while (!(cond1 && cond2)){
-            int target = get_ts_belong_par(table_id , page_id);
-            r_lock.unlock();
-            if (!cond2){
-                node_->getScheduler()->YieldAllToSlice(node_->ts_cnt);
+    bool tryLockTs(table_id_t table_id , page_id_t page_id , bool is_write){
+        bool is_hot = is_hot_page(table_id , page_id);
+        
+        if (is_hot){
+            int k1 = hot_visit_cnt++;
+            if (k1 % 100000 == 0){
+                std::cout << "Hot : " << k1 << " Cold : " << cold_visit_cnt << "\n";
             }
-            // LOG(INFO) << "Yield To Slice , table_id = " << table_id << " page_id = " << page_id << " Target Slice = " << target << " Now Fiber ID = " << Fiber::GetFiberID();
-            // LOG(INFO) << "READY TO Yield , now FiberID = " << Fiber::GetFiberID();
-            node_->getScheduler()->YieldToSlice(target);
+            RWMutex::ReadLock r_lock(node_->rw_mutex_hot);
+            while (node_->ts_phase_hot != TsPhase::RUNNING){
+                r_lock.unlock();
+                node_->getScheduler()->YieldToHotQueue();
+                r_lock.lock();
+            }
+            if (is_write){
+                node_->set_page_dirty_hot(table_id , page_id , true);
+            }
+            node_->ts_inflight_fetch_hot.fetch_add(1);
+            return true;
+        }else{
+            cold_visit_cnt++;
+            {
+                RWMutex::ReadLock r_lock(node_->rw_mutex);
+                bool cond1 = is_ts_par_page(table_id , page_id);
+                bool cond2 = (node_->getPhaseNoBlock() == TsPhase::RUNNING);
+                while (!(cond1 && cond2)){
+                    int target = get_ts_belong_par(table_id , page_id);
+                    r_lock.unlock();
+                    // if (!cond2){
+                    //     node_->getScheduler()->YieldAllToSlice(node_->ts_cnt);
+                    // }
+                    node_->getScheduler()->YieldToSlice(target);
 
-            r_lock.lock();
-            cond1 = is_ts_par_page(table_id , page_id);
-            cond2 = (node_->getPhaseNoBlock() == TsPhase::RUNNING);
+                    r_lock.lock();
+                    cond1 = is_ts_par_page(table_id , page_id);
+                    cond2 = (node_->getPhaseNoBlock() == TsPhase::RUNNING);
+                }
+            }
+            if (is_write){
+                node_->set_page_dirty(table_id , page_id , true);
+            }
+            node_->ts_inflight_fetch.fetch_add(1);
+            return false;
         }
-        node_->set_page_dirty(table_id , page_id , true);
-        node_->ts_inflight_fetch.fetch_add(1);
     }
     // ******************* ts fetch end ***********************
 
@@ -713,6 +737,45 @@ public:
         return page_id >= (node_->getNodeID() * partition_size + 1) && page_id < ((node_->getNodeID() + 1) * partition_size + 1);
     }
 
+    inline uint64_t make_page_key(table_id_t table_id, page_id_t page_id) const {
+        return (static_cast<uint64_t>(static_cast<uint32_t>(table_id)) << 32) | static_cast<uint32_t>(page_id);
+    }
+
+    void InitHotPages(){
+        std::string config_filepath = "../../config/smallbank_config.json";
+        auto json_config = JsonConfig::load_file(config_filepath);
+        auto conf = json_config.get("smallbank");
+        uint32_t tot_account = conf.get("num_accounts").get_uint64();
+        uint32_t hot_account = conf.get("num_hot_accounts").get_uint64();
+        double hot_rate = (double)hot_account / (double)tot_account;
+
+        hot_page_set.clear();
+        auto table_size = node_->meta_manager_->GetTableNum();
+        for (int t = 0; t < table_size; ++t){
+            auto max_pages = node_->meta_manager_->GetMaxPageNumPerTable(t);
+            auto partition_size = max_pages / ComputeNodeCount;
+
+            // 每个分区中，热点页面分区在前面，每个分区的热点页面长度是下面这个计算方法
+            uint64_t hot_len = static_cast<uint64_t>(partition_size * hot_rate);
+            std::cout << "Hot Page Len = " << hot_len << "\n";
+            assert(hot_len <= partition_size);
+
+            // 分区数量是 ComputeNodeCount
+            for (int p = 0; p < ComputeNodeCount; ++p){
+                uint64_t start = static_cast<uint64_t>(p) * partition_size + 1;
+                uint64_t end = start + hot_len;
+                std::cout << "start : " << start << " end : " << end << "\n";
+                for (uint64_t pid = start; pid < end; ++pid){
+                    hot_page_set.insert(make_page_key(t, static_cast<page_id_t>(pid)));
+                }
+            }
+        }
+    }
+
+    inline bool is_hot_page(table_id_t table_id, page_id_t page_id){
+        return hot_page_set.find(make_page_key(table_id, page_id)) != hot_page_set.end();
+    }
+
     inline node_id_t get_node_id_by_page_id(table_id_t table_id, page_id_t page_id){
         auto max_pages_this_table = node_->meta_manager_->GetMaxPageNumPerTable(table_id);
         auto partition_size = max_pages_this_table / ComputeNodeCount;
@@ -765,6 +828,9 @@ private:
 
     // 时间片轮转的，表示当前多少个协程已经完成了或者没必要启动了
     std::atomic<int> alive_fiber_cnt;
+    std::atomic<int> hot_visit_cnt{0};
+    std::atomic<int> cold_visit_cnt{0};
+    std::unordered_set<uint64_t> hot_page_set;
 };
 
 int socket_start_client(std::string ip, int port);

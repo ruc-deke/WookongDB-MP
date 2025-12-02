@@ -17,6 +17,7 @@
 #include "config.h"
 #include "dtx/dtx.h"
 #include "fiber/fiber.h"
+#include "fiber/scheduler.h"
 #include "fiber/thread.h"
 #include "scheduler/coroutine.h"
 #include "scheduler/corotine_scheduler.h"
@@ -29,6 +30,7 @@
 #include "tpcc/tpcc_txn.h"
 #include "thread_pool.h"
 #include "util/json_config.h"
+#include "util/zipfan.h"
 
 using namespace std::placeholders;
 
@@ -98,6 +100,8 @@ thread_local CoroutineScheduler* coro_sched;  // Each transaction thread has a c
 thread_local CoroutineScheduler* coro_sched_0; // Coroutine 0, use a single sheduler to manage it, only use in long transactions evaluation
 thread_local int* using_which_coro_sched; // 0=>coro_sched_0, 1=>coro_sched
 
+thread_local ZipFanGen *zipfan_gen = nullptr;
+
 // Performance measurement (thread granularity)
 thread_local struct timespec msr_start, msr_end;
 static std::atomic<bool> has_caculate{false};
@@ -153,6 +157,7 @@ void CollectStats(DTX* dtx) {
   distribute_txn += dtx->distribute_txn;
 
   mux.unlock();
+  // std::cout << "Collect Over\n";
 }
 
 void FinalizeStats(double msr_sec , ComputeServer *compute_server) {
@@ -198,16 +203,22 @@ void FinalizeStats(double msr_sec , ComputeServer *compute_server) {
   double tx_tput = (double)stat_committed_tx_total / msr_sec;
   double abort_rate = (double)(stat_attempted_tx_total - stat_committed_tx_total) / stat_attempted_tx_total;
 
-  std::sort(timer, timer + stat_committed_tx_total);
-  double percentile_50 = timer[stat_committed_tx_total / 2];
-  double percentile_90 = timer[stat_committed_tx_total * 90 / 100];
+  {
+    uint64_t sort_len = std::min<uint64_t>(stat_committed_tx_total.load(), ATTEMPTED_NUM + 50);
+    if (sort_len > 0) {
+      std::sort(timer, timer + sort_len);
+    }
+    double percentile_50 = sort_len > 0 ? timer[sort_len / 2] : 0;
+    double percentile_90 = sort_len > 0 ? timer[sort_len * 90 / 100] : 0;
+    medianlat_vec.push_back(percentile_50);
+    taillat_vec.push_back(percentile_90);
+  }
 
   std::cout << "RecordTpLat......" << std::endl;
 
   attemp_tp_vec.push_back(attemp_tput);
   tp_vec.push_back(tx_tput);
-  medianlat_vec.push_back(percentile_50);
-  taillat_vec.push_back(percentile_90);
+  
   ab_rate.push_back(abort_rate);
 
   for (size_t i = 0; i < total_try_times.size(); i++) {
@@ -267,17 +278,23 @@ void RecordTpLat(double msr_sec, DTX* dtx) {
     fetch_four = (double)dtx->compute_server->get_node()->get_fetch_four_cnt();
   }
 
-  std::sort(timer, timer + stat_committed_tx_total);
-  double percentile_50 = timer[stat_committed_tx_total / 2];
-  double percentile_90 = timer[stat_committed_tx_total * 90 / 100];
+  {
+    uint64_t sort_len = std::min<uint64_t>(stat_committed_tx_total.load(), ATTEMPTED_NUM + 50);
+    if (sort_len > 0) {
+      std::sort(timer, timer + sort_len);
+    }
+    double percentile_50 = sort_len > 0 ? timer[sort_len / 2] : 0;
+    double percentile_90 = sort_len > 0 ? timer[sort_len * 90 / 100] : 0;
+    medianlat_vec.push_back(percentile_50);
+    taillat_vec.push_back(percentile_90);
+  }
 
   std::cout << "RecordTpLat......" << std::endl;
 
   tid_vec.push_back(thread_gid);
   attemp_tp_vec.push_back(attemp_tput);
   tp_vec.push_back(tx_tput);
-  medianlat_vec.push_back(percentile_50);
-  taillat_vec.push_back(percentile_90);
+  
   ab_rate.push_back(abort_rate);
   fetch_remote_vec.emplace(fetch_remote);
   fetch_all_vec.emplace(fetch_all);
@@ -317,26 +334,31 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
                      remote_server_channel,
                      thread_pool,
                      thread_txn_log);
-
+    
   clock_gettime(CLOCK_REALTIME, &msr_start);
+  uint64_t run_seed = seed;
   // 对于SYSTEM_MODE == 12，设置全局开始时间（只设置一次）
   if (SYSTEM_MODE == 12) {
     bool expected = false;
+    run_seed = (static_cast<uint64_t>(thread_gid) << 32) ^ (static_cast<uint64_t>(Fiber::GetFiberID()) * 0x9E3779B97F4A7C15ULL);
     if (msr_start_global_set.compare_exchange_strong(expected, true)) {
       clock_gettime(CLOCK_REALTIME, &msr_start_global);
     }
   }
+  // run_seed = seed;
   SmallBankDTX* bench_dtx = new SmallBankDTX();
   bench_dtx->dtx = dtx;
+  zipfan_gen = nullptr;
   while (true) {
-    // 如果本节点做的事务已经做的差不多了
+    // 如果本节点已经完成了全部的事务，那就退出
     if (stat_attempted_tx_total >= ATTEMPTED_NUM || stat_enter_commit_tx_total >= ATTEMPTED_NUM) {
       break;
     }
     // 根据跨分区事务的比例，来决定本事务是否有跨分区访问的页面
-    bool is_partitioned = FastRand(&seed) % 100 < (LOCAL_TRASACTION_RATE * 100); 
+    bool is_partitioned = FastRand(&run_seed) % 100 < (LOCAL_TRASACTION_RATE * 100); 
     // 随机生成一个事务类型
-    SmallBankTxType tx_type = smallbank_workgen_arr[FastRand(&seed) % 100];
+    SmallBankTxType tx_type = smallbank_workgen_arr[FastRand(&run_seed) % 100];
+
     uint64_t iter = ++tx_id_generator;  // Global atomic transaction id
     stat_attempted_tx_total++;
 
@@ -344,41 +366,42 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
     
     Txn_request_info txn_meta;
     clock_gettime(CLOCK_REALTIME, &txn_meta.start_time);
-
+    // tx_type = SmallBankTxType::kBalance;
+    // tx_type = SmallBankTxType::kTransactSaving;
     switch (tx_type) {
       case SmallBankTxType::kAmalgamate: {
           thread_local_try_times[uint64_t(tx_type)]++;
-          tx_committed = bench_dtx->TxAmalgamate(smallbank_client, &seed, yield, iter, dtx, is_partitioned);
+          tx_committed = bench_dtx->TxAmalgamate(smallbank_client, &run_seed, yield, iter, dtx, is_partitioned , nullptr);
           if (tx_committed) thread_local_commit_times[uint64_t(tx_type)]++;
         break;
       }
       case SmallBankTxType::kBalance: {
           thread_local_try_times[uint64_t(tx_type)]++;
-          tx_committed = bench_dtx->TxBalance(smallbank_client, &seed, yield, iter, dtx,is_partitioned);
+          tx_committed = bench_dtx->TxBalance(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , nullptr);
           if (tx_committed) thread_local_commit_times[uint64_t(tx_type)]++;
         break;
       }
       case SmallBankTxType::kDepositChecking: {
           thread_local_try_times[uint64_t(tx_type)]++;
-          tx_committed = bench_dtx->TxDepositChecking(smallbank_client, &seed, yield, iter, dtx,is_partitioned);
+          tx_committed = bench_dtx->TxDepositChecking(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , nullptr);
           if (tx_committed) thread_local_commit_times[uint64_t(tx_type)]++;
         break;
       }
       case SmallBankTxType::kSendPayment: {
           thread_local_try_times[uint64_t(tx_type)]++;
-          tx_committed = bench_dtx->TxSendPayment(smallbank_client, &seed, yield, iter, dtx,is_partitioned);
+          tx_committed = bench_dtx->TxSendPayment(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , nullptr);
           if (tx_committed) thread_local_commit_times[uint64_t(tx_type)]++;
         break;
       }
       case SmallBankTxType::kTransactSaving: {
           thread_local_try_times[uint64_t(tx_type)]++;
-          tx_committed = bench_dtx->TxTransactSaving(smallbank_client, &seed, yield, iter, dtx,is_partitioned);
+          tx_committed = bench_dtx->TxTransactSaving(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , nullptr);
           if (tx_committed) thread_local_commit_times[uint64_t(tx_type)]++;
         break;
       }
       case SmallBankTxType::kWriteCheck: {
           thread_local_try_times[uint64_t(tx_type)]++;
-          tx_committed = bench_dtx->TxWriteCheck(smallbank_client, &seed, yield, iter, dtx,is_partitioned);
+          tx_committed = bench_dtx->TxWriteCheck(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , nullptr);
           if (tx_committed) thread_local_commit_times[uint64_t(tx_type)]++;
         break;
       }
@@ -390,7 +413,11 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
     if (tx_committed) {
       clock_gettime(CLOCK_REALTIME, &tx_end_time);
       double tx_usec = (tx_end_time.tv_sec - txn_meta.start_time.tv_sec) * 1000000 + (double)(tx_end_time.tv_nsec - txn_meta.start_time.tv_nsec) / 1000;
-      timer[stat_committed_tx_total++] = tx_usec;
+      uint64_t idx = stat_committed_tx_total.load();
+      if (idx < ATTEMPTED_NUM + 50) {
+        timer[idx] = tx_usec;
+      }
+      stat_committed_tx_total++;
     }
     /********************************** Stat end *****************************************/
     if (SYSTEM_MODE != 12){
@@ -407,6 +434,7 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
     if (!has_caculate) {
         has_caculate = true;
         clock_gettime(CLOCK_REALTIME, &msr_end_ts);
+        Scheduler::setJobFinish(true);
         int not_schedule_cnt = dtx->compute_server->get_node()->getScheduler()->getLeftQueueSize();
         dtx->compute_server->decrease_alive_fiber_cnt(not_schedule_cnt);
         std::cout << "Not Schedule Fiber Cnt = " << not_schedule_cnt << "\n";
@@ -518,7 +546,11 @@ void RunTPCC(coro_yield_t& yield, coro_id_t coro_id) {
         if (tx_committed) {
           clock_gettime(CLOCK_REALTIME, &tx_end_time);
           double tx_usec = (tx_end_time.tv_sec - txn_meta.start_time.tv_sec) * 1000000 + (double)(tx_end_time.tv_nsec - txn_meta.start_time.tv_nsec) / 1000;
-          timer[stat_committed_tx_total++] = tx_usec;
+          uint64_t idx = stat_committed_tx_total.load();
+          if (idx < ATTEMPTED_NUM + 50) {
+            timer[idx] = tx_usec;
+          }
+          stat_committed_tx_total++;
         }
         if (stat_attempted_tx_total >= ATTEMPTED_NUM || stat_enter_commit_tx_total >= ATTEMPTED_NUM) {
           break;
@@ -548,6 +580,8 @@ void RunTPCC(coro_yield_t& yield, coro_id_t coro_id) {
 void initThread(thread_params* params,
               SmallBank* smallbank_cli,
               TPCC* tpcc_cli){
+    static std::atomic<int> cnt{1};
+    int thread_id_logic = cnt++;
     LOG(INFO) << "INIT Thread , Thread ID = " << getThreadID(); 
     bench_name = params->bench_name;
     std::string config_filepath = "../../config/" + bench_name + "_config.json";
@@ -573,7 +607,7 @@ void initThread(thread_params* params,
       LOG(FATAL) << "Unsupported benchmark: " << bench_name;
     }
 
-    thread_gid = params->thread_global_id;
+    thread_gid = thread_id_logic;
     thread_local_id = params->thread_id;
     thread_num = params->thread_num_per_machine;
     meta_man = params->global_meta_man;
@@ -581,6 +615,15 @@ void initThread(thread_params* params,
     page_cache = params->page_cache;
     compute_server = params->compute_server;
 
+    /*
+        如果直接用 Zipfian，那页面访问会集中在部分页面，且这部分页面会集中在某个分区内
+        这样就导致所有的节点都在时间片 0 才会做一大堆事情，需要把分区和 ZipFian 结合在一起
+        目前的想法是，就用 ZipFian 生成 0~单个分区大小的随机数，然后随机数再根据是否跨分区的策略，得到一个真正要去访问的页面
+    */
+    uint64_t zipf_seed = 2 * thread_gid * GetCPUCycle();
+    uint64_t zipf_seed_mask = (uint64_t(1) << 48) - 1;
+    zipfan_gen = new ZipFanGen(smallbank_cli->num_accounts_global / ComputeNodeCount , 0.50 , zipf_seed & zipf_seed_mask);
+    
     data_channel = new brpc::Channel();
     log_channel = new brpc::Channel();
     remote_server_channel = new brpc::Channel();

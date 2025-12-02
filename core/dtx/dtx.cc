@@ -87,6 +87,11 @@ char* DTX::FetchSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_i
         page = compute_server->single_fetch_s_page(table_id,page_id);
     } else if (SYSTEM_MODE == 12){
         page = compute_server->rpc_ts_fetch_s_page(table_id , page_id);
+        // if (compute_server->is_hot_page(table_id, page_id)){
+        //     page = compute_server->rpc_lazy_fetch_s_page(table_id, page_id, true);
+        // } else {
+        //     page = compute_server->rpc_ts_fetch_s_page(table_id , page_id);
+        // }
     } else{
         assert(false);
     }
@@ -108,6 +113,11 @@ char* DTX::FetchXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_i
         page = compute_server->single_fetch_x_page(table_id,page_id);
     }else if (SYSTEM_MODE == 12){
         page = compute_server->rpc_ts_fetch_x_page(table_id , page_id);
+        // if (compute_server->is_hot_page(table_id, page_id)){
+        //     page = compute_server->rpc_lazy_fetch_x_page(table_id, page_id, true);
+        // } else {
+        //     page = compute_server->rpc_ts_fetch_x_page(table_id , page_id);
+        // }
     }
     else assert(false);
     return page->get_data();
@@ -125,8 +135,13 @@ void DTX::ReleaseSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_
     }
     else if(SYSTEM_MODE == 3){
         compute_server->single_release_s_page(table_id,page_id);
-    }else if (SYSTEM_MODE == 12){
+    }else if(SYSTEM_MODE == 12){
         compute_server->rpc_ts_release_s_page(table_id , page_id);
+        // if (compute_server->is_hot_page(table_id, page_id)){
+        //     compute_server->rpc_lazy_release_s_page(table_id , page_id);
+        // } else {
+        //     compute_server->rpc_ts_release_s_page(table_id , page_id);
+        // }
     }
     else assert(false);
 
@@ -146,6 +161,11 @@ void DTX::ReleaseXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_
         compute_server->single_release_x_page(table_id,page_id);
     }else if (SYSTEM_MODE == 12){
         compute_server->rpc_ts_release_x_page(table_id , page_id);
+        // if (compute_server->is_hot_page(table_id, page_id)){
+        //     compute_server->rpc_lazy_release_x_page(table_id , page_id);
+        // } else {
+        //     compute_server->rpc_ts_release_x_page(table_id , page_id);
+        // }
     }
     else assert(false);
     

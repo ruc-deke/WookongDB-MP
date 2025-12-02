@@ -146,7 +146,9 @@ public:
                 }
 
                 for (int i = 0 ; i < 6 ; i++){
-                    if (i < 4){
+                    if (i < 2){
+                        lazy_local_page_lock_tables.emplace_back(nullptr);
+                    }else if (i < 4){
                         lazy_local_page_lock_tables.emplace_back(nullptr);
                     }else {
                         lazy_local_page_lock_tables.emplace_back(new LRLocalPageLockTable());
@@ -268,7 +270,8 @@ public:
             }
             std::stringstream ss;
             ss << "node" << node_id << " scheduler";
-            scheduler = new Scheduler(thread_num , false , ss.str());
+            // 多的一个线程来调度时间片轮转
+            scheduler = new Scheduler(thread_num + 1, false , ss.str());
             scheduler->enableTimeSliceScheduling(ComputeNodeCount);
             scheduler->start();
         }
@@ -296,7 +299,7 @@ public:
     int PendingPage(page_id_t page_id, bool xpending, table_id_t table_id) {
       int unlock_remote;
       if(SYSTEM_MODE == 1){ // lazy release
-        assert(lazy_local_page_lock_tables[table_id] != nullptr && local_page_lock_tables[table_id] == nullptr);
+        assert(lazy_local_page_lock_tables[table_id] != nullptr);
         return lazy_local_page_lock_tables[table_id]->GetLock(page_id)->Pending(node_id, xpending);
       }
       else{
@@ -308,7 +311,7 @@ public:
     // 远程通知此节点获取页面控制权成功
     void NotifyPushPageSuccess(table_id_t table_id, page_id_t page_id) {
       if(SYSTEM_MODE == 1){ // lazy release
-        assert(lazy_local_page_lock_tables[table_id] != nullptr && local_page_lock_tables[table_id] == nullptr);
+        assert(lazy_local_page_lock_tables[table_id] != nullptr);
         lazy_local_page_lock_tables[table_id]->GetLock(page_id)->RemotePushPageSuccess();
       }
       else if (SYSTEM_MODE == 12){
@@ -321,7 +324,7 @@ public:
     // 远程通知此节点获取页面控制权成功
     void NotifyLockPageSuccess(table_id_t table_id, page_id_t page_id, bool xlock , bool is_newest) {
       if(SYSTEM_MODE == 1){ // lazy release
-        assert(lazy_local_page_lock_tables[table_id] != nullptr && local_page_lock_tables[table_id] == nullptr);
+        assert(lazy_local_page_lock_tables[table_id] != nullptr);
         lazy_local_page_lock_tables[table_id]->GetLock(page_id)->RemoteNotifyLockSuccess(xlock, is_newest);
       }
       else{
@@ -339,12 +342,12 @@ public:
         return local_buffer_pools[table_id]->try_fetch_page(page_id);
     }
 
-    void unpin_page(table_id_t table_id , page_id_t page_id , bool use_pincount){
-        if (!use_pincount){
-            local_buffer_pools[table_id]->unpin_page(page_id);
-        }else {
-            local_buffer_pools[table_id]->unpin_page_with_pincount(page_id);
-        }
+    void unpin_page(table_id_t table_id , page_id_t page_id ){
+        local_buffer_pools[table_id]->unpin_page(page_id);
+    }
+
+    std::string try_fetch_page_ret_string(table_id_t table_id , page_id_t page_id){
+        return local_buffer_pools[table_id]->try_fetch_page_ret_string(page_id);
     }
 
     const std::atomic<int> &getFetchRemoteCnt() const {
@@ -434,15 +437,20 @@ public:
     }
     
     void set_page_dirty(table_id_t table_id , page_id_t page_id , bool flag){
-        std::lock_guard<std::mutex>lk(dirty_mtx);
+        std::lock_guard<std::mutex> lk(dirty_mtx);
         if (flag){
             dirty_pages.insert(std::make_pair(table_id , page_id));
         }else {
-            if (dirty_pages.find(std::make_pair(table_id , page_id)) == dirty_pages.end()){
-                return ;
-            }else {
-                dirty_pages.erase(std::make_pair(table_id , page_id));
-            }
+            dirty_pages.erase(std::make_pair(table_id , page_id));
+        }
+    }
+
+    void set_page_dirty_hot(table_id_t table_id , page_id_t page_id , bool flag){
+        std::lock_guard<std::mutex> lk(dirty_mtx_hot);
+        if (flag){
+            dirty_pages_hot.insert(std::make_pair(table_id , page_id));
+        }else {
+            dirty_pages_hot.erase(std::make_pair(table_id , page_id));
         }
     }
 
@@ -467,6 +475,11 @@ public:
     void setPhase(TsPhase val) {
         RWMutex::WriteLock lock(rw_mutex);
         ts_phase = val;
+    }
+
+    void setPhaseHot(TsPhase val){
+        RWMutex::WriteLock lock(rw_mutex_hot);
+        ts_phase_hot = val;
     }
 
     void addPhase(){
@@ -544,15 +557,21 @@ public:
 
     // 时间戳阶段转化用的
     std::atomic<TsPhase> ts_phase{TsPhase::BEGIN};
+    std::atomic<TsPhase> ts_phase_hot{TsPhase::BEGIN};
+
     int ts_cnt = 0;                 // 当前节点处于哪个时间片中
     RWMutex rw_mutex;
+    RWMutex rw_mutex_hot;      
     std::condition_variable ts_switch_cond;
-    int ts_time;  
+    int ts_time = 1000000;  // 默认 100ms
     // TS: 统计当前正在进行中的 fetch 数，切片切换时等待其归零以保证安全
     std::atomic<int> ts_inflight_fetch{0};
+    std::atomic<int> ts_inflight_fetch_hot{0};
+    std::mutex dirty_mtx;
+    std::mutex dirty_mtx_hot;
 
     std::set<std::pair<table_id_t , page_id_t>> dirty_pages;
-    std::mutex dirty_mtx;
+    std::set<std::pair<table_id_t , page_id_t>> dirty_pages_hot;
 
     // for delay release
     bool check_delay_release_finish = false;

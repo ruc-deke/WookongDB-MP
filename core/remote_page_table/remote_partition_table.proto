@@ -71,6 +71,18 @@ message TsParXLockResponse{
     repeated uint32 newest_node_id = 3;
 }
 
+message TsHotParXLockRequest{
+    sint32 node_id = 1;
+    repeated uint32 table_id = 2;
+    repeated uint64 start_page_no = 3;
+    repeated uint64 end_page_no = 4;
+}
+message TsHotParXLockResponse{
+    repeated uint32 table_id = 1;
+    repeated uint64 invalid_page_no = 2;
+    repeated uint64 newest_node_id = 3;
+}
+
 message ParXUnlockRequest {
     PartitionID partition_id = 1;
     sint32 node_id = 2;
@@ -83,11 +95,15 @@ message TsParXUnlockRequest{
     sint32 node_id = 2;
     repeated PageID page_id = 3;
 }
-
 message TsParXUnlockResponse{
     PartitionID partition_id = 1;
     sint32 node_id = 2;
 }
+message TsHotParXUnlockRequest{
+    sint32 node_id = 1;
+    repeated PageID page_id = 2;
+}
+message TsHotParXUnlockResponse{}
 
 message InvalidRequest{
     PageID page_id = 1;
@@ -134,8 +150,12 @@ message TsGetPageLocateResponse{
 service PartitionTableService {
     rpc ParSLock(ParSLockRequest) returns (ParSLockResponse);
     rpc ParSUnlock(ParSUnlockRequest) returns (ParSUnlockResponse);
+
     rpc TsParXLock(TsParXLockRequest) returns (TsParXLockResponse);
     rpc TsParXUnlock(TsParXUnlockRequest) returns (TsParXUnlockResponse);
+    rpc TsHotParXLock(TsHotParXLockRequest) returns (TsHotParXLockResponse);
+    rpc TsHotParXUnlock(TsHotParXUnlockRequest) returns (TsHotParXUnlockResponse);
+
     rpc ParXLock(ParXLockRequest) returns (ParXLockResponse);
     rpc ParXUnlock(ParXUnlockRequest) returns (ParXUnlockResponse);
     rpc Invalid(InvalidRequest) returns (InvalidResponse);

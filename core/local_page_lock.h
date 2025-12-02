@@ -47,6 +47,13 @@ public:
     void UnlockMtx(){
         mutex.unlock();
     }
+
+    bool is_page_dirty() const {
+        return is_dirty;
+    }
+    void set_page_dirty(bool val){
+        is_dirty = val;
+    }
     
     node_id_t LockShared() {
         node_id_t ret = -1;
@@ -78,7 +85,7 @@ public:
             }
             else {
                 lock = EXCLUSIVE_LOCKED;
-                is_dirty = true;
+                // is_dirty = true;
                 if(newest_node != -1) {
                     ret = newest_node;
                     newest_node = -1;

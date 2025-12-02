@@ -305,7 +305,7 @@ bool SmallBankDTX::ReTxWriteCheck(coro_yield_t& yield) {
 
 /******************** The original logic (Transaction) start ********************/
 
-bool SmallBankDTX::TxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned) {
+bool SmallBankDTX::TxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , ZipFanGen *zip_fan) {
   // 设置开始时间戳
   dtx->TxBegin(tx_id);
   
@@ -314,7 +314,12 @@ bool SmallBankDTX::TxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, cor
 #if UniformHot
   smallbank_client->get_uniform_hot_two_accounts(seed, &acct_id_0, &acct_id_1, dtx, dtx->compute_server->get_node()->getNodeID(), is_partitioned);
 #else
-  smallbank_client->get_two_accounts(seed, &acct_id_0, &acct_id_1, dtx, dtx->compute_server->get_node()->getNodeID(), is_partitioned);
+  if (zip_fan == nullptr){
+    smallbank_client->get_two_accounts(seed, &acct_id_0, &acct_id_1, dtx, dtx->compute_server->get_node()->getNodeID(), is_partitioned);
+  }else{
+    smallbank_client->get_two_accounts(acct_id_0 , acct_id_1 , zip_fan , is_partitioned , dtx , seed , 0);
+  }
+
 #endif
 
   /* Read from savings and checking tables for acct_id_0 */
@@ -368,7 +373,7 @@ bool SmallBankDTX::TxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, cor
 }
 
 /* Calculate the sum of saving and checking kBalance */
-bool SmallBankDTX::TxBalance(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned) {
+bool SmallBankDTX::TxBalance(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , ZipFanGen *zip_fan) {
   dtx->TxBegin(tx_id);
     //  // LOG(INFO) << "TxBalance";
   /* Transaction parameters */
@@ -376,7 +381,11 @@ bool SmallBankDTX::TxBalance(SmallBank* smallbank_client, uint64_t* seed, coro_y
 #if UniformHot
   smallbank_client->get_uniform_hot_account(seed, &acct_id, dtx, is_partitioned,dtx->compute_server->get_node()->getNodeID());
 #else
-  smallbank_client->get_account(seed, &acct_id, dtx, is_partitioned,dtx->compute_server->get_node()->getNodeID());
+  if (zip_fan == nullptr){
+    smallbank_client->get_account(seed, &acct_id, dtx, is_partitioned,dtx->compute_server->get_node()->getNodeID());
+  }else{
+    smallbank_client->get_account(acct_id , zip_fan , is_partitioned , dtx , seed , 0);
+  }
 #endif
 
   /* Read from savings and checking tables */
@@ -412,7 +421,7 @@ bool SmallBankDTX::TxBalance(SmallBank* smallbank_client, uint64_t* seed, coro_y
 }
 
 /* Add $1.3 to acct_id's checking account */
-bool SmallBankDTX::TxDepositChecking(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned) {
+bool SmallBankDTX::TxDepositChecking(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , ZipFanGen *zip_fan) {
   dtx->TxBegin(tx_id);
     //  // LOG(INFO) << "TxDepositChecking" ;
   /* Transaction parameters */
@@ -420,7 +429,11 @@ bool SmallBankDTX::TxDepositChecking(SmallBank* smallbank_client, uint64_t* seed
 #if UniformHot
   smallbank_client->get_uniform_hot_account(seed, &acct_id, dtx, is_partitioned,dtx->compute_server->get_node()->getNodeID());
 #else
-  smallbank_client->get_account(seed, &acct_id, dtx, is_partitioned,dtx->compute_server->get_node()->getNodeID());
+  if (zip_fan == nullptr){
+    smallbank_client->get_account(seed, &acct_id, dtx, is_partitioned,dtx->compute_server->get_node()->getNodeID());
+  }else {
+    smallbank_client->get_account(acct_id , zip_fan , is_partitioned , dtx , seed , 0);
+  }
 #endif
   float amount = 1.3;
 
@@ -448,7 +461,7 @@ bool SmallBankDTX::TxDepositChecking(SmallBank* smallbank_client, uint64_t* seed
 }
 
 /* Send $5 from acct_id_0's checking account to acct_id_1's checking account */
-bool SmallBankDTX::TxSendPayment(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned) {
+bool SmallBankDTX::TxSendPayment(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , ZipFanGen *zip_fan) {
   dtx->TxBegin(tx_id);
     //  // LOG(INFO) << "TxSendPayment" ;
   /* Transaction parameters: send money from acct_id_0 to acct_id_1 */
@@ -456,7 +469,11 @@ bool SmallBankDTX::TxSendPayment(SmallBank* smallbank_client, uint64_t* seed, co
 #if UniformHot
   smallbank_client->get_uniform_hot_two_accounts(seed, &acct_id_0, &acct_id_1, dtx, dtx->compute_server->get_node()->getNodeID(), is_partitioned);
 #else
-  smallbank_client->get_two_accounts(seed, &acct_id_0, &acct_id_1,dtx, dtx->compute_server->get_node()->getNodeID(), is_partitioned);
+  if (zip_fan == nullptr){
+    smallbank_client->get_two_accounts(seed, &acct_id_0, &acct_id_1,dtx, dtx->compute_server->get_node()->getNodeID(), is_partitioned);
+  }else {
+    smallbank_client->get_two_accounts(acct_id_0 , acct_id_1 , zip_fan , is_partitioned , dtx , seed , 0);
+  }
 #endif
   float amount = 5.0;
 
@@ -503,7 +520,7 @@ bool SmallBankDTX::TxSendPayment(SmallBank* smallbank_client, uint64_t* seed, co
 }
 
 /* Add $20 to acct_id's saving's account */
-bool SmallBankDTX::TxTransactSaving(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned) {
+bool SmallBankDTX::TxTransactSaving(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , ZipFanGen *zip_fan) {
   dtx->TxBegin(tx_id);
     //  // LOG(INFO) << "TxTransactSaving" ;
   /* Transaction parameters */
@@ -511,7 +528,11 @@ bool SmallBankDTX::TxTransactSaving(SmallBank* smallbank_client, uint64_t* seed,
 #if UniformHot
   smallbank_client->get_uniform_hot_account(seed, &acct_id, dtx, is_partitioned,dtx->compute_server->get_node()->getNodeID());
 #else
-  smallbank_client->get_account(seed, &acct_id,dtx, is_partitioned,dtx->compute_server->get_node()->getNodeID());
+  if (zip_fan == nullptr){
+    smallbank_client->get_account(seed, &acct_id,dtx, is_partitioned,dtx->compute_server->get_node()->getNodeID());
+  }else{
+    smallbank_client->get_account(acct_id , zip_fan , is_partitioned , dtx , seed , 0);
+  }
 #endif
   float amount = 20.20;
 
@@ -540,7 +561,7 @@ bool SmallBankDTX::TxTransactSaving(SmallBank* smallbank_client, uint64_t* seed,
 }
 
 /* Read saving and checking kBalance + update checking kBalance unconditionally */
-bool SmallBankDTX::TxWriteCheck(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned) {
+bool SmallBankDTX::TxWriteCheck(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , ZipFanGen *zip_fan) {
   dtx->TxBegin(tx_id);
     //  // LOG(INFO) << "TxWriteCheck" ;
   /* Transaction parameters */
@@ -548,7 +569,11 @@ bool SmallBankDTX::TxWriteCheck(SmallBank* smallbank_client, uint64_t* seed, cor
 #if UniformHot
   smallbank_client->get_uniform_hot_account(seed, &acct_id, dtx, is_partitioned,dtx->compute_server->get_node()->getNodeID());
 #else
-  smallbank_client->get_account(seed, &acct_id, dtx, is_partitioned,dtx->compute_server->get_node()->getNodeID());
+  if (zip_fan == nullptr){
+    smallbank_client->get_account(seed, &acct_id, dtx, is_partitioned,dtx->compute_server->get_node()->getNodeID());
+  }else{
+    smallbank_client->get_account(acct_id , zip_fan , is_partitioned , dtx , seed , 0);
+  }
 #endif
   float amount = 5.0;
 

@@ -9,6 +9,8 @@
 #include <cstdint>
 
 #include "base/data_item.h"
+#include "common.h"
+#include "config.h"
 #include "util/fast_random.h"
 #include "util/json_config.h"
 #include "record/rm_manager.h"
@@ -17,6 +19,7 @@
 #include "dtx/dtx.h"
 #include "storage/bp_tree/bp_tree.h"
 #include "storage/blink_tree/blink_tree.h"
+#include "util/zipfan.h"
 
 /* STORED PROCEDURE EXECUTION FREQUENCIES (0-100) */
 // #define FREQUENCY_AMALGAMATE 15
@@ -33,7 +36,7 @@
 #define FREQUENCY_TRANSACT_SAVINGS 20
 #define FREQUENCY_WRITE_CHECK 20
 
-#define TX_HOT 80 /* Percentage of txns that use accounts from hotspot */
+#define TX_HOT 50 /* Percentage of txns that use accounts from hotspot */
 
 // Smallbank table keys and values
 // All keys have been sized to 8 bytes
@@ -191,6 +194,34 @@ class SmallBank {
     assert(i == 100 && j == 100);
 
     return workgen_arr;
+  }
+
+  inline void get_account(itemkey_t &acc1 , ZipFanGen *zip_fan , bool is_partitioned , const DTX *dtx , uint64_t *seed , table_id_t table_id){
+    int now_par_id = (SYSTEM_MODE == 12) ? dtx->compute_server->get_node()->ts_cnt : dtx->compute_server->get_node()->get_node_id();
+    int page_num = dtx->page_cache->getPageCache().find(table_id)->second.size() + 1;
+    page_id_t page_id = zip_fan->next() + 1;
+    if (is_partitioned){
+        
+        int random_id = -1;
+        do {
+            random_id = FastRand(seed) % ComputeNodeCount;
+        }while(random_id == now_par_id);
+
+        page_id = page_id + random_id * (page_num / ComputeNodeCount);
+    }else {
+        page_id = page_id + now_par_id * (page_num / ComputeNodeCount);
+    }
+
+    assert(page_id < page_num);
+
+    acc1 = dtx->page_cache->SearchRandom(seed , table_id , page_id);
+  }
+
+  void get_two_accounts(itemkey_t &acc1 , itemkey_t &acc2 , ZipFanGen *zip_fan , bool is_partitioned , const DTX *dtx , uint64_t *seed , table_id_t table_id){
+    get_account(acc1 , zip_fan , is_partitioned , dtx , seed , table_id);
+    do {
+        get_account(acc1 , zip_fan , is_partitioned , dtx , seed , table_id);
+    }while(acc1 == acc2);
   }
 
   /*

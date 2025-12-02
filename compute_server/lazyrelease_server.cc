@@ -125,7 +125,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
 }
 
 Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_id, bool need_to_record) {
-    // auto ts_start_time = std::chrono::high_resolution_clock::now();
+    // LOG(INFO) << "Fetching X , table_id = " << table_id << " page_id = " << page_id;
     assert(page_id < ComputeNodeBufferPageSize);
     if (need_to_record && cnt++ % 10000 == 0){
         std::cout << "lazy fetch cnt : " << cnt << "\n";
