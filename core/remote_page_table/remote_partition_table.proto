@@ -72,10 +72,11 @@ message TsParXLockResponse{
 }
 
 message TsHotParXLockRequest{
-    sint32 node_id = 1;
-    repeated uint32 table_id = 2;
-    repeated uint64 start_page_no = 3;
-    repeated uint64 end_page_no = 4;
+    PartitionID partition_id = 1;
+    sint32 node_id = 2;
+    repeated uint32 table_id = 3;
+    repeated uint64 start_page_no = 4;
+    repeated uint64 end_page_no = 5;
 }
 message TsHotParXLockResponse{
     repeated uint32 table_id = 1;
@@ -100,10 +101,14 @@ message TsParXUnlockResponse{
     sint32 node_id = 2;
 }
 message TsHotParXUnlockRequest{
-    sint32 node_id = 1;
-    repeated PageID page_id = 2;
+    PartitionID partition_id = 1;
+    sint32 node_id = 2;
+    repeated PageID page_id = 3;
 }
-message TsHotParXUnlockResponse{}
+message TsHotParXUnlockResponse{
+    PartitionID partition_id = 1;
+    sint32 node_id = 2;
+}
 
 message InvalidRequest{
     PageID page_id = 1;

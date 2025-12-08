@@ -106,18 +106,19 @@ public:
     void scheduleToSlice(Fiber::ptr fiber, size_t slice_id, int thread = -1);
     void scheduleToSlice(std::function<void()> cb, size_t slice_id, int thread = -1);
     int activateSlice(size_t slice_id);
-    int activateHot();
+    int activateHot(size_t slice_id);
     void stopSlice(size_t slice_id);
     void stopHot();
 
 
     void YieldToSlice(size_t slice_id);
+    void YieldToHotSlice(size_t slice_id);
     void YieldToHotQueue();
 
 
     size_t getActiveSlice() const;
     size_t getSliceCount() const;
-    size_t getWaitHotSize() const;
+    size_t getWaitHotSize(int slice_id) const;
     std::vector<int> getThreadIds() { return m_threadIds; }
 
     int getTaskQueueSize(int idx){
@@ -238,6 +239,7 @@ protected:
     void enqueueSliceTask(FiberAndThread&& ft, size_t slice_id);
     bool fetchFiberFromActiveSlice(FiberAndThread &out , pid_t thread_id);
     bool fetchFiberFromHotQueue(FiberAndThread &out , pid_t thread_id);
+    bool fetchFiberFromHotSlice(FiberAndThread &out , pid_t thread_id);
     bool sliceQueuesEmpty() const;
 
     std::vector<int> m_threadIds;
@@ -250,13 +252,14 @@ protected:
 
     // 时间片调度数据结构
     bool m_sliceSchedulerEnabled = false;                       // 是否启动时间片调度
-    std::vector<std::deque<FiberAndThread>> m_sliceQueues;      // 时间片调度队列
+    std::vector<std::deque<FiberAndThread>> m_sliceQueues;      // 时间片调度队列的队列
+    std::vector<std::deque<FiberAndThread>> m_hotSliceQueues;   // 热点页面时间片调度队列的队列
     std::deque<FiberAndThread> m_waitQueues;                    
-    std::deque<FiberAndThread> m_waitHotQueues;                 // 等待热点页面所有权的队列
     mutable std::mutex m_sliceMutex;                            // 锁
-    std::atomic<size_t> m_activeSlice{0};                     // 当前所在的时间片
-    std::atomic<bool> m_validFetch;                             // 是否允许直接从时间片队列里面取
-    std::atomic<bool> m_validFetchFromHot;                      // 是否允许从热点页面等待队列里面取任务
+    std::atomic<int> m_activeSlice{0};                     // 当前所在的时间片
+    std::atomic<int> m_hotActiveSlice{-1};                  // 热点页面调度所在的时间片
+    std::atomic<bool> m_validFetch{false};                             // 是否允许直接从时间片队列里面取
+    std::atomic<bool> m_validFetchFromHot{false};                      // 是否允许从热点页面等待队列里面取任务
 
     std::atomic<int> m_fiberCnt{0};                           // 调试参数    
 };

@@ -44,8 +44,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
         if( page_belong_node == node_->node_id) {
             // 如果是本地节点, 则直接调用
             this->page_table_service_impl_->LRPSLock_Localcall(&request, response);
-        }
-        else{
+        } else{
             // LOG(INFO) << "Fetching S Page Remote , table_id = " << table_id << " page_id = " << page_id;
             // 如果是远程节点, 则通过RPC调用
             brpc::Channel* page_table_channel =  this->nodes_channel + page_belong_node;
@@ -287,9 +286,7 @@ void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_
     if (unlock_remote == 0) {
         // 在这里 unpin，如果在后面 unpin 有 bug，可能 lock 减为 0 的时候会被 Replacer 锁定
         // LOG(INFO) << "Lazy release S Page , table_id = " << table_id << " page_id = " << page_id;
-        if (lr_lock->getLock() == 0){
-            node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
-        }
+        node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
         lr_lock->UnlockShared();
         lr_lock->UnlockMtx();
         return;

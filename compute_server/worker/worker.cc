@@ -174,7 +174,7 @@ void FinalizeStats(double msr_sec , ComputeServer *compute_server) {
   double evict_page = 0;
   double fetch_three = 0;
   double fetch_four = 0;
-  if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 12) {
+  if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 12 || SYSTEM_MODE == 13) {
     fetch_remote = compute_server->get_node()->get_fetch_remote_cnt() ;
     fetch_all = compute_server->get_node()->get_fetch_allpage_cnt();
     lock_remote = compute_server->get_node()->get_lock_remote_cnt();
@@ -266,7 +266,7 @@ void RecordTpLat(double msr_sec, DTX* dtx) {
   double evict_page = 0;
   double fetch_three = 0;
   double fetch_four = 0;
-  if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 12) {
+  if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 12 || SYSTEM_MODE == 13) {
     fetch_remote = (double)dtx->compute_server->get_node()->get_fetch_remote_cnt() ;
     fetch_all = (double)dtx->compute_server->get_node()->get_fetch_allpage_cnt();
     lock_remote = (double)dtx->compute_server->get_node()->get_lock_remote_cnt();
@@ -338,7 +338,7 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
   clock_gettime(CLOCK_REALTIME, &msr_start);
   uint64_t run_seed = seed;
   // 对于SYSTEM_MODE == 12，设置全局开始时间（只设置一次）
-  if (SYSTEM_MODE == 12) {
+  if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13) {
     bool expected = false;
     run_seed = (static_cast<uint64_t>(thread_gid) << 32) ^ (static_cast<uint64_t>(Fiber::GetFiberID()) * 0x9E3779B97F4A7C15ULL);
     if (msr_start_global_set.compare_exchange_strong(expected, true)) {
@@ -420,17 +420,17 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
       stat_committed_tx_total++;
     }
     /********************************** Stat end *****************************************/
-    if (SYSTEM_MODE != 12){
+    if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3){
       coro_sched->Yield(yield, coro_id);
     }
   }
-  if (SYSTEM_MODE != 12){
+  if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3){
     coro_sched->FinishCorotine(coro_id);
     while(coro_sched->isAllCoroStopped() == false) {
         coro_sched->Yield(yield, coro_id);
     }
   }
-  if (SYSTEM_MODE == 12){
+  if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
     if (!has_caculate) {
         has_caculate = true;
         clock_gettime(CLOCK_REALTIME, &msr_end_ts);
@@ -480,7 +480,7 @@ void RunTPCC(coro_yield_t& yield, coro_id_t coro_id) {
     uint64_t start_commit_cnt = stat_committed_tx_total;
     clock_gettime(CLOCK_REALTIME, &msr_start);
     // 对于SYSTEM_MODE == 12，设置全局开始时间（只设置一次）
-    if (SYSTEM_MODE == 12) {
+    if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13) {
       bool expected = false;
       if (msr_start_global_set.compare_exchange_strong(expected, true)) {
         clock_gettime(CLOCK_REALTIME, &msr_start_global);
@@ -703,7 +703,7 @@ void run_thread(thread_params* params,
     LOG(FATAL) << "Unsupported benchmark: " << bench_name;
   }
   // 不用线程池
-  if (SYSTEM_MODE != 12) thread_pool = new ThreadPool(ThreadPoolSizePerWorker, params->thread_id);
+  if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3) thread_pool = new ThreadPool(ThreadPoolSizePerWorker, params->thread_id);
   // Initialize thread-local variables
   thread_gid = params->thread_global_id;
   thread_local_id = params->thread_id;
@@ -726,7 +726,7 @@ void run_thread(thread_params* params,
 
   // Guarantee that each thread has a global different initial seed
   seed = 0xdeadbeef + thread_gid;
-  if (SYSTEM_MODE != 12){
+  if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3){
     coro_sched = new CoroutineScheduler(thread_gid, coro_num);
     for (coro_id_t coro_i = 0; coro_i < coro_num; coro_i++) {
       uint64_t coro_seed = static_cast<uint64_t>((static_cast<uint64_t>(thread_gid) << 32) | static_cast<uint64_t>(coro_i));
@@ -736,11 +736,11 @@ void run_thread(thread_params* params,
       // Bind workload to coroutine
       if (bench_name == "smallbank") {
         // 绑定协程执行的函数为 RunSmallBank
-        if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3 || SYSTEM_MODE == 12){
+        if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3){
           coro_sched->coro_array[coro_i].func = coro_call_t(bind(RunSmallBank, _1, coro_i));
         }
       } else if (bench_name == "tpcc") {
-        if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3 || SYSTEM_MODE == 12){
+        if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3){
           coro_sched->coro_array[coro_i].func = coro_call_t(bind(RunTPCC, _1, coro_i));
         } 
       } else {
@@ -773,7 +773,7 @@ void run_thread(thread_params* params,
       LOG(FATAL) << "Fail to initialize channel";
   }
   
-  if (SYSTEM_MODE != 12) {
+  if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3) {
       // // Link all coroutines via pointers in a loop manner
       // coro_sched->LoopLinkCoroutine(coro_num);
       for(coro_id_t coro_i = 0; coro_i < coro_num; coro_i++){

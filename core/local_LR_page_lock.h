@@ -7,6 +7,7 @@
 #include <iostream>
 #include <condition_variable>
 #include <atomic>
+#include "list"
 
 // 这里是想要使用LRLocalPageLock来实现Lazy Release的功能
 class LRLocalPageLock{ 
@@ -75,8 +76,7 @@ public:
                 // 当前节点已经有线程正在远程获取这个数据页的锁，其他线程无需再去远程获取锁
                 // 其他节点正在远程申请这个数据页的锁, 为了防止饿死, 应阻塞而不授予锁
                 mutex.unlock();
-            }
-            else if(remote_mode == LockMode::EXCLUSIVE){
+            } else if(remote_mode == LockMode::EXCLUSIVE){
                 if(lock == EXCLUSIVE_LOCKED) {
                     mutex.unlock();
                 }
@@ -87,28 +87,24 @@ public:
                     try_latch = false;
                     mutex.unlock();
                 }
-            }
-            else if(remote_mode == LockMode::SHARED){
+            } else if(remote_mode == LockMode::SHARED){
                 if(lock == EXCLUSIVE_LOCKED) {
                     mutex.unlock();
                     LOG(ERROR) << "Locol Grant Exclusive Lock, however remote only grant shared lock";
-                }
-                else {
+                } else {
                     lock++;
                     mutex.unlock();
                     // 由于远程已经持有共享锁, 因此无需再去远程获取锁
                     lock_remote = false;
                     try_latch = false;
                 }
-            }
-            else if(remote_mode == LockMode::NONE){
+            } else if(remote_mode == LockMode::NONE){
                 lock++;
                 is_granting = true;
                 lock_remote = true;
                 try_latch = false;
                 mutex.unlock();
-            }
-            else{
+            } else{
                 assert(false);
             }
         }

@@ -147,6 +147,7 @@ void Fiber::YieldToHold(){
     Fiber::ptr cur = GetThis();
     assert(cur->m_state == EXEC);
     // cur->m_state = HOLD; //不需要在这里设置，在 Scheduler::run 里面设置
+    // 直接把这个协程换出，回到 Scheduler::run
     cur->swapOut();
 }
 

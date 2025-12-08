@@ -165,6 +165,7 @@ void Scheduler::enableTimeSliceScheduling(size_t slice_count) {
     m_sliceSchedulerEnabled = true;
     m_sliceQueues.clear();
     m_sliceQueues.resize(slice_count);
+    m_hotSliceQueues.resize(slice_count);
     m_activeSlice.store(0, std::memory_order_relaxed);
 }
 
@@ -172,13 +173,13 @@ void Scheduler::scheduleToSlice(Fiber::ptr fiber, size_t slice_id, int thread) {
     assert(fiber);
     if(!m_sliceSchedulerEnabled || m_sliceQueues.empty()) {
         assert(false);
-        schedule(fiber, thread);
-        return;
     }
     // fiber->m_state = Fiber::State::READY;
     FiberAndThread ft(fiber, thread);
     enqueueSliceTask(std::move(ft), slice_id);
 }
+
+
 
 void Scheduler::scheduleToSlice(std::function<void()> cb, size_t slice_id, int thread) {
     if(!cb) {
@@ -201,17 +202,17 @@ int Scheduler::activateSlice(size_t slice_id) {
     return m_sliceQueues[slice_id].size();
 }
 
-int Scheduler::activateHot(){
+int Scheduler::activateHot(size_t slice_id){
     assert(m_sliceSchedulerEnabled);
-    int ret = m_waitHotQueues.size();
+    m_hotActiveSlice.store(slice_id);
     m_validFetchFromHot = true;
-    return ret;
+
+    return m_hotSliceQueues[slice_id].size();
 }
 
-size_t Scheduler::getWaitHotSize() const {
-    return m_waitHotQueues.size();
+size_t Scheduler::getWaitHotSize(int slice_id) const {
+    return m_hotSliceQueues[slice_id].size();
 }
-
 
 void Scheduler::stopSlice(size_t slice_id){
     int current_slice = m_activeSlice.load();
@@ -235,16 +236,28 @@ void Scheduler::YieldToSlice(size_t slice_id) {
     Fiber::YieldToHold();
 }
 
-void Scheduler::YieldToHotQueue(){
+void Scheduler::YieldToHotSlice(size_t slice_id){
     Fiber::ptr cur = Fiber::GetThis();
     assert(cur);
     FiberAndThread ft(cur, -1);
     {
         std::lock_guard<std::mutex> lk(m_sliceMutex);
-        m_waitHotQueues.push_back(std::move(ft));
+        // 需要插入到头部
+        m_hotSliceQueues[slice_id].push_back(std::move(ft));
     }
     Fiber::YieldToHold();
 }
+
+// void Scheduler::YieldToHotQueue(){
+//     Fiber::ptr cur = Fiber::GetThis();
+//     assert(cur);
+//     FiberAndThread ft(cur, -1);
+//     {
+//         std::lock_guard<std::mutex> lk(m_sliceMutex);
+//         m_waitHotQueues.push_back(std::move(ft));
+//     }
+//     Fiber::YieldToHold();
+// }
 
 size_t Scheduler::getActiveSlice() const {
     return m_activeSlice.load(std::memory_order_relaxed);
@@ -292,22 +305,41 @@ bool Scheduler::fetchFiberFromActiveSlice(FiberAndThread &out , pid_t thread_id)
     return false;
 }
 
-bool Scheduler::fetchFiberFromHotQueue(FiberAndThread &out , pid_t thread_id){
+bool Scheduler::fetchFiberFromHotSlice(FiberAndThread &out , pid_t thread_id){
     std::lock_guard<std::mutex> lk(m_sliceMutex);
-    if (m_waitHotQueues.empty()){
-        return false;
-    }
-    for (auto it = m_waitHotQueues.begin() ; it != m_waitHotQueues.end() ; it++){
-        if (it->thread == -1 || it->thread == thread_id){
-            if (it->fiber && it->fiber->getState() == Fiber::EXEC){
+    size_t slice_id = m_hotActiveSlice.load();
+    auto &queue = m_hotSliceQueues[slice_id];
+
+    for (auto it = queue.begin() ; it != queue.end() ; it++){
+        if(it->thread == -1 || it->thread == thread_id) {
+            if (it->fiber && it->fiber->getState() == Fiber::EXEC) {
                 continue;
             }
             out = std::move(*it);
-            m_waitHotQueues.erase(it);
+            queue.erase(it);
             return true;
         }
     }
+
+    return false;
 }
+
+// bool Scheduler::fetchFiberFromHotQueue(FiberAndThread &out , pid_t thread_id){
+//     std::lock_guard<std::mutex> lk(m_sliceMutex);
+//     if (m_waitHotQueues.empty()){
+//         return false;
+//     }
+//     for (auto it = m_waitHotQueues.begin() ; it != m_waitHotQueues.end() ; it++){
+//         if (it->thread == -1 || it->thread == thread_id){
+//             if (it->fiber && it->fiber->getState() == Fiber::EXEC){
+//                 continue;
+//             }
+//             out = std::move(*it);
+//             m_waitHotQueues.erase(it);
+//             return true;
+//         }
+//     }
+// }
 
 bool Scheduler::sliceQueuesEmpty() const {
     if(!m_sliceSchedulerEnabled) {
@@ -382,7 +414,7 @@ void Scheduler::run(){
         if (!is_active && m_sliceSchedulerEnabled && !t_job_finished){
             // 先试着去热点页面等待队列里面取任务      
             // TODO：这里感觉会有饥饿问题，如果等待热点的事务太多了的话，时间片里面的可能会调度不到
-            if (m_validFetchFromHot && fetchFiberFromHotQueue(ft , getThreadID())){
+            if (m_validFetchFromHot && fetchFiberFromHotSlice(ft , getThreadID())){
                 ++m_activeThreadCount;
                 is_active = true;
             }else if (m_validFetch && fetchFiberFromActiveSlice(ft, getThreadID())) {

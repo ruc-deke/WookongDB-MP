@@ -221,6 +221,7 @@ void MetaManager::PrefetchIndex(const int &table_id) {
     stub.PrefetchIndex(&cntl, &request, &response, nullptr);
     if(cntl.Failed()){
       LOG(FATAL) << "Fail to prefetch index";
+      assert(false);
     }
     assert(response.itemkey_size() == response.pageid_size());
     assert(response.pageid_size() == response.slotid_size());

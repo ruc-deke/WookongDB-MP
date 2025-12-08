@@ -81,6 +81,11 @@ class ComputeNodeServiceImpl : public ComputeNodeService {
                        ::compute_node_service::TransferDTXResponse* response,
                        ::google::protobuf::Closure* done);
 
+    virtual void TransferHotLocate(::google::protobuf::RpcController* controller,
+                       const ::compute_node_service::TransferHotLocateRequest* request,
+                       ::compute_node_service::TransferHotLocateResponse* response,
+                       ::google::protobuf::Closure* done);
+
     
 
     private:
@@ -141,7 +146,9 @@ class ComputeServer {
 public:
     ComputeServer(ComputeNode* node, std::vector<std::string> compute_ips, std::vector<int> compute_ports): node_(node){
         InitTableNameMeta();
-        InitHotPages();
+        if (SYSTEM_MODE == 13){
+            InitHotPages();
+        }
         // 构造与其他计算节点通信的channel
         nodes_channel = new brpc::Channel[ComputeNodeCount];
         brpc::ChannelOptions options;
@@ -334,25 +341,24 @@ public:
     void rpc_ts_release_s_page(table_id_t table_id , page_id_t page_id);
     void rpc_ts_release_x_page(table_id_t table_id , page_id_t page_id);
    
-    // 阶段切换的时候，需要向远程发送请求，让他们告诉我目前我的这个分片内，每个页面的最新版本在谁那里
-    void rpc_ts_switch_get_page_locate();    
-    void rpc_ts_switch_invalid_pages();
 
     // 切换当前节点所在的时间片
     void ts_switch_phase(uint64_t time_slice);  
     // 热点页面的轮转
     void ts_switch_phase_hot(uint64_t time_slice);
+    void ts_switch_phase_hot_new(uint64_t time_slice);
 
     Page_request_info generate_random_pageid(std::mt19937& gen, std::uniform_real_distribution<>& dis);
 
-    inline bool is_ts_par_page(table_id_t table_id , page_id_t page_id){
+    inline bool is_ts_par_page(table_id_t table_id , page_id_t page_id , int now_ts_cnt){
         auto max_pages_this_table = node_->meta_manager_->GetMaxPageNumPerTable(table_id);
         auto partition_size = (max_pages_this_table) / ComputeNodeCount;
         
-        page_id_t page_begin = node_->ts_cnt * partition_size + 1;
-        page_id_t page_end = (node_->ts_cnt + 1) * partition_size;
+        page_id_t page_begin = now_ts_cnt * partition_size + 1;
+        page_id_t page_end = (now_ts_cnt + 1) * partition_size;
         return page_id >= page_begin && page_id <= page_end;
     }
+
     int get_ts_belong_par(table_id_t table_id , page_id_t page_id){
         auto max_pages_this_table = node_->meta_manager_->GetMaxPageNumPerTable(table_id);
         auto partition_size = (max_pages_this_table) / ComputeNodeCount;
@@ -375,49 +381,53 @@ public:
     //     node_->ts_switch_mutex.unlock();
     // }
 
-    bool tryLockTs(table_id_t table_id , page_id_t page_id , bool is_write){
-        bool is_hot = is_hot_page(table_id , page_id);
+    void tryLockTs(table_id_t table_id , page_id_t page_id , bool is_write){
+        bool is_hot = false;
+        if (SYSTEM_MODE == 13){
+            is_hot = is_hot_page(table_id , page_id);
+        }
         
         if (is_hot){
-            int k1 = hot_visit_cnt++;
-            if (k1 % 100000 == 0){
-                std::cout << "Hot : " << k1 << " Cold : " << cold_visit_cnt << "\n";
+            if (is_write){
+                node_->switch_mtx_hot.lock();
             }
-            RWMutex::ReadLock r_lock(node_->rw_mutex_hot);
-            while (node_->ts_phase_hot != TsPhase::RUNNING){
-                r_lock.unlock();
-                node_->getScheduler()->YieldToHotQueue();
-                r_lock.lock();
+            while (!(is_ts_par_page(table_id , page_id , node_->ts_cnt_hot) && node_->getPhaseHotNoBlock() == TsPhase::RUNNING)){
+                if (is_write) node_->switch_mtx_hot.unlock();
+                int target = get_ts_belong_par(table_id , page_id);
+                node_->getScheduler()->YieldToHotSlice(target);
+                if (is_write) node_->switch_mtx_hot.lock();
             }
             if (is_write){
                 node_->set_page_dirty_hot(table_id , page_id , true);
-            }
-            node_->ts_inflight_fetch_hot.fetch_add(1);
-            return true;
+            } 
+            node_->ts_inflight_fetch_hot++;
+            if (is_write) node_->switch_mtx_hot.unlock();
         }else{
-            cold_visit_cnt++;
-            {
-                RWMutex::ReadLock r_lock(node_->rw_mutex);
-                bool cond1 = is_ts_par_page(table_id , page_id);
-                bool cond2 = (node_->getPhaseNoBlock() == TsPhase::RUNNING);
-                while (!(cond1 && cond2)){
-                    int target = get_ts_belong_par(table_id , page_id);
-                    r_lock.unlock();
-                    // if (!cond2){
-                    //     node_->getScheduler()->YieldAllToSlice(node_->ts_cnt);
-                    // }
-                    node_->getScheduler()->YieldToSlice(target);
-
-                    r_lock.lock();
-                    cond1 = is_ts_par_page(table_id , page_id);
-                    cond2 = (node_->getPhaseNoBlock() == TsPhase::RUNNING);
+            if (is_write){
+                node_->switch_mtx.lock();
+            }
+            bool cond1 = is_ts_par_page(table_id , page_id , node_->ts_cnt);
+            bool cond2 = (node_->getPhaseNoBlock() == TsPhase::RUNNING);
+            while (!(cond1 && cond2)){
+                if (is_write){
+                    node_->switch_mtx.unlock();
                 }
+                int target = get_ts_belong_par(table_id , page_id);
+                // if (!cond2){
+                //     node_->getScheduler()->YieldAllToSlice(node_->ts_cnt);
+                // }
+                node_->getScheduler()->YieldToSlice(target);
+
+                if (is_write) node_->switch_mtx.lock();
+                cond1 = is_ts_par_page(table_id , page_id , node_->ts_cnt);
+                cond2 = (node_->getPhaseNoBlock() == TsPhase::RUNNING);
             }
             if (is_write){
                 node_->set_page_dirty(table_id , page_id , true);
+                node_->switch_mtx.unlock();
             }
+            
             node_->ts_inflight_fetch.fetch_add(1);
-            return false;
         }
     }
     // ******************* ts fetch end ***********************
@@ -765,7 +775,7 @@ public:
                 uint64_t start = static_cast<uint64_t>(p) * partition_size + 1;
                 uint64_t end = start + hot_len;
                 std::cout << "start : " << start << " end : " << end << "\n";
-                for (uint64_t pid = start; pid < end; ++pid){
+                for (uint64_t pid = start; pid <= end; ++pid){
                     hot_page_set.insert(make_page_key(t, static_cast<page_id_t>(pid)));
                 }
             }
@@ -828,8 +838,6 @@ private:
 
     // 时间片轮转的，表示当前多少个协程已经完成了或者没必要启动了
     std::atomic<int> alive_fiber_cnt;
-    std::atomic<int> hot_visit_cnt{0};
-    std::atomic<int> cold_visit_cnt{0};
     std::unordered_set<uint64_t> hot_page_set;
 };
 

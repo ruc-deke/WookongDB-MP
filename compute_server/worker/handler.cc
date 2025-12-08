@@ -85,13 +85,15 @@ void Handler::ConfigureComputeNode(int argc, char* argv[]) {
     txn_system_value = 2;
   } else if (system_name.find("single") != std::string::npos) {
     txn_system_value = 3;
-    } else if (system_name.find("ts_sep") != std::string::npos) {
-    // TS/Chimera 模式：使用时间片分区访问
+  } else if (system_name.find("ts_sep_hot") != std::string::npos){
+    txn_system_value = 13;
+  } else if (system_name.find("ts_sep") != std::string::npos) {
     txn_system_value = 12;
-  } else {
+  }else {
     LOG(FATAL) << "Unsupported system name: " << system_name;
   }
   SYSTEM_MODE = txn_system_value;
+  std::cout << "SYSTEM_MODE = " << SYSTEM_MODE << "\n";
   std::string s = "sed -i '7c \"txn_system\": " + std::to_string(txn_system_value) + ",' " + config_file;
   system(s.c_str());
   return;
@@ -112,7 +114,7 @@ void Handler::GenThreads(std::string bench_name) {
   node_id_t machine_id = (node_id_t)client_conf.get("machine_id").get_int64();
   std::cout << "starting primary , machine id = " << machine_id << "\n";
   t_id_t thread_num_per_machine = (t_id_t)client_conf.get("thread_num_per_machine").get_int64();
-  if (SYSTEM_MODE == 12){
+  if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
     thread_num_per_machine++;
   }
   const int coro_num = (int)client_conf.get("coroutine_num").get_int64();
@@ -153,13 +155,6 @@ void Handler::GenThreads(std::string bench_name) {
   // Send TCP requests to remote servers here, and the remote server establishes a connection with the compute node
   socket_start_client(global_meta_man->remote_server_nodes[0].ip, global_meta_man->remote_server_meta_port);
 
-  // After all compute nodes have connected (barrier), start TS phase switching loop if using TS mode
-  // if (SYSTEM_MODE == 12) {
-  //   std::thread ts_switch_thread([compute_server]{
-  //     compute_server->ts_switch_phase();
-  //   });
-  //   ts_switch_thread.detach();
-  // }
 
   std::cout << "finish start client\n";
 
@@ -200,7 +195,7 @@ void Handler::GenThreads(std::string bench_name) {
     param_arr[i].compute_server = compute_server;
     param_arr[i].thread_num_per_machine = thread_num_per_machine;
     param_arr[i].total_thread_num = thread_num_per_machine * machine_num;
-    if (SYSTEM_MODE == 12){
+    if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
       std::vector<int> thread_ids = compute_node->getSchedulerThreadIds();
       if (i < thread_ids.size()) {
           // 先初始化一下调度器里面的每一个线程
@@ -231,7 +226,7 @@ void Handler::GenThreads(std::string bench_name) {
 
   
   
-  if (SYSTEM_MODE != 12){
+  if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3){
     for (t_id_t i = 0; i < thread_num_per_machine; i++) {
       if (thread_arr[i].joinable()) {
         thread_arr[i].join();
@@ -246,10 +241,12 @@ void Handler::GenThreads(std::string bench_name) {
     compute_node->getScheduler()->schedule([compute_server]{
       compute_server->ts_switch_phase(compute_server->get_node()->ts_time);
     });
-    compute_node->getScheduler()->schedule([compute_server]{
-      // 先用 10ms 试试
-      compute_server->ts_switch_phase_hot(10000);
-    });
+    if (SYSTEM_MODE == 13){
+      compute_node->getScheduler()->schedule([compute_server]{
+        // 先用 10ms 试试
+        compute_server->ts_switch_phase_hot_new(20000);
+      });
+    }
     std::vector<int> thread_ids = compute_node->getSchedulerThreadIds();
     std::cout << "coro num = " << coro_num << "\n";
     compute_server->set_alive_fiber_cnt(coro_num);

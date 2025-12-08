@@ -242,11 +242,8 @@ void ComputeNodeServiceImpl::GetPage(::google::protobuf::RpcController* controll
 
         brpc::ClosureGuard done_guard(done);
         page_id_t page_id = request->page_id().page_no();
-        // Page* page = server->get_node()->getBufferPool()->GetPage(page_id);
+
         table_id_t table_id = request->page_id().table_id();
-        // 在这里 fetch_page 的时候，页面可能还在存储里，但是在真正推送页面的时候，可能不在了
-        // 这是完全有可能的，因为 Pull 请求是无法预知的，所以在 fetch 的时候直接把页面数据存在一个字符串内
-        // Page *page = server->get_node()->try_fetch_page(table_id , page_id);
         std::string data = server->get_node()->try_fetch_page_ret_string(table_id , page_id);
         if (data.size() == 0){
             response->set_need_to_storage(true);
@@ -256,9 +253,6 @@ void ComputeNodeServiceImpl::GetPage(::google::protobuf::RpcController* controll
         response->set_need_to_storage(false);
         response->set_page_data(data.c_str() , PAGE_SIZE);
 
-        // server->get_node()->unpin_page(table_id , page_id , true);
-
-        // 性能优化：移除模拟延迟，NetworkLatency已经为0
         // if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
         return;
     }
@@ -321,6 +315,25 @@ void ComputeNodeServiceImpl::TransferDTX(::google::protobuf::RpcController* cont
                        ::google::protobuf::Closure* done){
 
         brpc::ClosureGuard done_guard(done);
+        return;
+    }
+
+void ComputeNodeServiceImpl::TransferHotLocate(::google::protobuf::RpcController* controller,
+                       const ::compute_node_service::TransferHotLocateRequest* request,
+                       ::compute_node_service::TransferHotLocateResponse* response,
+                       ::google::protobuf::Closure* done){
+
+        brpc::ClosureGuard done_guard(done);
+        node_id_t dest_node_id = request->dest_node_id();
+        assert(dest_node_id == server->get_node()->getNodeID());
+        for (int i = 0 ; i < request->entries_size() ; i++){
+            auto &entry = request->entries(i);
+            table_id_t table_id = entry.page_id().table_id();
+            page_id_t page_id = entry.page_id().page_no();
+            node_id_t newest = entry.newest_node_id();
+            server->get_node()->getLocalPageLockTables(table_id)->GetLock(page_id)->SetNewestNode(newest);
+        }
+        server->get_node()->notifyRemoteOK();
         return;
     }
 }

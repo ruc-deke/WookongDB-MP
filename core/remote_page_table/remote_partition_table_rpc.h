@@ -28,7 +28,7 @@ class PartitionTableImpl : public PartitionTableService {
                 compute_epoch[i] = 0;
                 compute_epoch_hot[i] = 0;
                 compute_finish[i] = false;
-                compute_finish_hot[i] = true;
+                compute_finish_hot[i] = false;
             }
         };
 
@@ -102,7 +102,7 @@ class PartitionTableImpl : public PartitionTableService {
             }
         }
         
-        page_lock_table_list_->at(0)->GetPartitionLock(partition_id)->LockExclusive(node_id);
+        // page_lock_table_list_->at(0)->GetPartitionLock(partition_id)->LockExclusive(node_id);
         
         // 增加获取页面位置信息的逻辑
         if(request->table_id_size() > 0) {
@@ -131,31 +131,31 @@ class PartitionTableImpl : public PartitionTableService {
             ::partition_table_service::TsHotParXLockResponse* response,
             ::google::protobuf::Closure* done){
         brpc::ClosureGuard done_guard(done);
+        bool need_update_epoch = true;
         node_id_t node_id = request->node_id();
-        node_id_t pre_node_id = (node_id == 0) ? ComputeNodeCount - 1 : node_id - 1;
-        int try_cnt = 0;
+        partition_id_t partition_id = request->partition_id().partition_no();
+
+
+        // std::cout << "TsHotParXLock node_id = " << node_id << "\n";
+
         while (true){
             global_epoch_mutex_hot.lock();
-            // LOG(INFO) << "global epoch = " << global_epoch_cnt_hot << " node epoch = " 
-            //     <<  compute_epoch_hot[node_id] << " node_id = " << node_id << " pre_node = " << pre_node_id << " finish = " << compute_finish_hot[pre_node_id]
-            //      << " pre = " << compute_epoch_hot[node_id] * ComputeNodeCount + node_id << " after = " << global_epoch_cnt_hot << " next = " << compute_finish_hot[pre_node_id];
-            // assert(global_epoch_cnt_hot >= compute_epoch_hot[node_id] * 3);
+            assert(global_epoch_cnt_hot >= compute_epoch_hot[node_id]);
             // 说明 global_epoch_cnt 变了，可以推进阶段了
-            if ((compute_epoch_hot[node_id] * ComputeNodeCount + node_id == global_epoch_cnt_hot) && compute_finish_hot[pre_node_id]){
+            if (compute_epoch_hot[node_id] < global_epoch_cnt_hot){
                 compute_epoch_hot[node_id]++;
+                assert(compute_epoch_hot[node_id] == global_epoch_cnt_hot);
                 compute_finish_hot[node_id] = false;
                 global_epoch_mutex_hot.unlock();
                 break;
-            }else{
+            }else {
+                assert(compute_epoch_hot[node_id] == global_epoch_cnt_hot);
                 global_epoch_mutex_hot.unlock();
                 usleep(10);
                 continue;
             }
-            
-            // usleep(10);
         }
 
-        // // 增加获取页面位置信息的逻辑
         if(request->table_id_size() > 0) {
             assert(request->table_id_size() == request->start_page_no_size());
             for(int i = 0; i < request->table_id_size(); i++){
@@ -165,6 +165,7 @@ class PartitionTableImpl : public PartitionTableService {
 
                 for(int page_id = start_page_id; page_id <= end_page_id; page_id++){
                     node_id_t newest_node = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid_NoBlock(node_id);
+                    assert(newest_node != node_id);
                     if(newest_node != -1){
                         response->add_table_id(table_id);
                         response->add_invalid_page_no(page_id);
@@ -174,23 +175,18 @@ class PartitionTableImpl : public PartitionTableService {
             }
         }
 
-
-
-        LOG(INFO) << "TS PAR LOCK OVER try cnt = " << try_cnt << " node_id = " << node_id;
-
-        return ;
+        // std::cout << "TsHotParXLock End Node Id = " << node_id << "\n";
     }
 
     virtual void TsParXUnlock(::google::protobuf::RpcController* controller,
                         const ::partition_table_service::TsParXUnlockRequest* request,
                         ::partition_table_service::TsParXUnlockResponse* response,
                         ::google::protobuf::Closure* done){
-        auto ts_start_time = std::chrono::high_resolution_clock::now();
 
         brpc::ClosureGuard done_guard(done);    
         partition_id_t par_id = request->partition_id().partition_no();
         node_id_t node_id = request->node_id();
-        page_lock_table_list_->at(0)->GetPartitionLock(par_id)->UnlockExclusive(node_id);
+        // page_lock_table_list_->at(0)->GetPartitionLock(par_id)->UnlockExclusive(node_id);
 
         for(int i=0; i<request->page_id_size(); i++){
             page_id_t page_id = request->page_id(i).page_no();
@@ -210,14 +206,10 @@ class PartitionTableImpl : public PartitionTableService {
             }
             if (need_to_update){
                 global_epoch_cnt++;
-                LOG(INFO) << "Update Epoch , now epoch = " << global_epoch_cnt << "\n";
             }
             global_epoch_mutex.unlock();
         }
 
-        auto ts_end_time = std::chrono::high_resolution_clock::now();
-        auto duration_unlock_time = std::chrono::duration_cast<std::chrono::microseconds>(ts_end_time - ts_start_time).count();
-        LOG(INFO) << "Invalid Size = " << request->page_id_size() << " Unlock Time = " << std::fixed << std::setprecision(3) << (duration_unlock_time / 1000.0) << "ms\n";
         return;
     }
 
@@ -226,6 +218,7 @@ class PartitionTableImpl : public PartitionTableService {
                         ::partition_table_service::TsHotParXUnlockResponse* response,
                         ::google::protobuf::Closure* done){
         brpc::ClosureGuard done_guard(done);    
+        partition_id_t par_id = request->partition_id().partition_no();
         node_id_t node_id = request->node_id();
 
         for(int i=0; i<request->page_id_size(); i++){
@@ -237,11 +230,21 @@ class PartitionTableImpl : public PartitionTableService {
         {
             global_epoch_mutex_hot.lock();
             compute_finish_hot[node_id] = true;
-            global_epoch_cnt_hot++;
+            bool need_to_update = true;
+            for (int i = 0 ; i < ComputeNodeCount ; i++){
+                if (compute_epoch_hot[i] <= global_epoch_cnt_hot && compute_finish_hot[i] == false){
+                    need_to_update = false;
+                    break;
+                }
+            }
+            if (need_to_update){
+                global_epoch_cnt_hot++;
+                std::cout << "Update Epoch Hot, now epoch = " << global_epoch_cnt_hot << " node_id = " << node_id << "\n";
+            }
             global_epoch_mutex_hot.unlock();
-            
-            std::cout << "Update Epoch Hot , now epoch = " << global_epoch_cnt_hot << " node_id = " << node_id << "\n";
         }
+
+
 
         return;
     }
@@ -491,7 +494,7 @@ class PartitionTableImpl : public PartitionTableService {
     bthread::Mutex global_epoch_mutex;
     bthread::Mutex global_epoch_mutex_hot;
     int global_epoch_cnt = 1;
-    int global_epoch_cnt_hot = 0;
+    int global_epoch_cnt_hot = 1;
     int* compute_epoch;
     int *compute_epoch_hot;
     bool* compute_finish;

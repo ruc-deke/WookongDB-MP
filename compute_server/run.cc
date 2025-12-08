@@ -112,13 +112,25 @@ int main(int argc, char* argv[]) {
     result_file << p90_latency << std::endl;
     if(std::string(argv[1]) == "smallbank") {
         for (int i = 0; i < SmallBank_TX_TYPES; i++) {
-//            result_file << total_try_times[i] << " " << total_commit_times[i] << " " << (double)(total_try_times[i] - total_commit_times[i]) / (double)total_try_times[i] << std::endl;
             result_file << total_try_times[i] << " " << total_commit_times[i] << std::endl;
+        }
+        for (int i = 0; i < SmallBank_TX_TYPES; i++) {
+            double rr = 0.0;
+            if (total_try_times[i] > 0) {
+                rr = (double)(total_try_times[i] - total_commit_times[i]) / (double)total_try_times[i];
+            }
+            result_file << rr << std::endl;
         }
     } else if(std::string(argv[1]) == "tpcc") {
         for (int i = 0; i < TPCC_TX_TYPES; i++) {
-//            result_file << total_try_times[i] << " " << total_commit_times[i] << " " << (double)(total_try_times[i] - total_commit_times[i]) / (double)total_try_times[i] << std::endl;
             result_file << total_try_times[i] << " " << total_commit_times[i] << std::endl;
+        }
+        for (int i = 0; i < TPCC_TX_TYPES; i++) {
+            double rr = 0.0;
+            if (total_try_times[i] > 0) {
+                rr = (double)(total_try_times[i] - total_commit_times[i]) / (double)total_try_times[i];
+            }
+            result_file << rr << std::endl;
         }
     }
 

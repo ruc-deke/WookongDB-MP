@@ -67,7 +67,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
   for (auto& task : ro_fetch_tasks) {
     size_t idx = task.first;
     Rid rid = task.second.first;
-    if (SYSTEM_MODE == 12){
+    if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
       DataSetItem &item = read_only_set[idx];
       assert(&item == task.second.second);
       auto data = FetchSPage(yield , item.item_ptr->table_id , rid.page_no_);
@@ -111,7 +111,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
   for (auto& task : rw_fetch_tasks) {
     size_t idx = task.first;
     Rid rid = task.second.first;
-    if (SYSTEM_MODE == 12){
+    if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
       DataSetItem& item = read_write_set[idx];  // Explicitly copy the pointer
       assert(&item == task.second.second); // Ensure the pointer matches
       auto data = FetchXPage(yield, item.item_ptr->table_id, rid.page_no_);
@@ -189,7 +189,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
     }
   }
   // 等待所有任务都结束
-  if (SYSTEM_MODE != 12){
+  if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3){
     for (auto& fut : futures) {
         fut.get(); // Wait for the future to complete
     }
@@ -210,7 +210,7 @@ bool DTX::TxCommit(coro_yield_t& yield){
   struct timespec start_time, end_time;
     clock_gettime(CLOCK_REALTIME, &start_time);
     bool commit_status = false;
-  if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3 || SYSTEM_MODE == 12){
+  if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3 || SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
     commit_status = TxCommitSingle(yield);
   }
   else if(SYSTEM_MODE == 2){
@@ -286,7 +286,7 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
 void DTX::TxAbort(coro_yield_t& yield) {
     struct timespec start_time, end_time;
     clock_gettime(CLOCK_REALTIME, &start_time);
-  if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3 || SYSTEM_MODE == 12){
+  if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3 || SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
     // // LOG(INFO) << "TxAbort";
     for(size_t i=0; i<read_write_set.size(); i++){
       DataSetItem& data_item = read_write_set[i];

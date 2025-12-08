@@ -55,6 +55,7 @@ public:
         brpc::ChannelOptions options;
         options.use_rdma = use_rdma;
         ts_cnt = node_id;       // 初始分配的时间片设置成 node_id
+        ts_cnt_hot = node_id;
         std::cout << "Node : " << node_id << " allocate a timestamp , id = " << ts_cnt << "\n";
         // options.timeout_ms = 5000; // 5s超时
         options.timeout_ms = 0x7fffffff; // 2147483647ms
@@ -78,7 +79,7 @@ public:
         } 
         else if (SYSTEM_MODE == 2 || SYSTEM_MODE == 3) {
             local_page_lock_table = nullptr;
-        }else if (SYSTEM_MODE == 12){
+        }else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
             local_page_lock_table = nullptr;
             lazy_local_page_lock_table = nullptr;
         }
@@ -135,7 +136,7 @@ public:
                     local_page_lock_tables.emplace_back(new LocalPageLockTable());
                 }
             } 
-            else if (SYSTEM_MODE == 12){
+            else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
                 local_page_lock_tables.reserve(2);
                 // B+ 树还是需要用到 lazy_local_page_lock_tables 的
                 // 之前写的代码其实有问题，B+ 树固定到 2，3,4,5 几个表里了
@@ -217,7 +218,7 @@ public:
                     local_page_lock_tables.emplace_back(new LocalPageLockTable());
                 }
             }
-            else if (SYSTEM_MODE == 12){
+            else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
                 local_page_lock_tables.reserve(11);
                 lazy_local_page_lock_tables.reserve(33);
                 for (int i = 0 ; i < 11 ; i++){
@@ -258,7 +259,7 @@ public:
             }
         }
 
-        if (SYSTEM_MODE == 12){
+        if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
             int thread_num = 5;
             {
                 std::string config_filepath = "../../config/compute_node_config.json";
@@ -314,7 +315,7 @@ public:
         assert(lazy_local_page_lock_tables[table_id] != nullptr);
         lazy_local_page_lock_tables[table_id]->GetLock(page_id)->RemotePushPageSuccess();
       }
-      else if (SYSTEM_MODE == 12){
+      else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
         // 对于 TS SWITCH 来说，B+ 树也需要 lazy_lock_page
         assert(lazy_local_page_lock_tables[table_id] != nullptr);
         lazy_local_page_lock_tables[table_id]->GetLock(page_id)->RemotePushPageSuccess();
@@ -358,6 +359,7 @@ public:
     inline int getNodeID() { return node_id; }
 
     inline LocalPageLockTable* getLocalPageLockTable() { return local_page_lock_table; }
+    inline LocalPageLockTable *getLocalPageLockTables(table_id_t table_id) {return local_page_lock_tables[table_id];}
     inline ERLocalPageLockTable* getEagerPageLockTable() { return eager_local_page_lock_table; }
     inline LRLocalPageLockTable* getLazyPageLockTable() { return lazy_local_page_lock_table; }
     inline LRLocalPageLockTable* getLazyPageLockTable(table_id_t table_id) { return lazy_local_page_lock_tables[table_id]; }
@@ -437,7 +439,6 @@ public:
     }
     
     void set_page_dirty(table_id_t table_id , page_id_t page_id , bool flag){
-        std::lock_guard<std::mutex> lk(dirty_mtx);
         if (flag){
             dirty_pages.insert(std::make_pair(table_id , page_id));
         }else {
@@ -446,20 +447,39 @@ public:
     }
 
     void set_page_dirty_hot(table_id_t table_id , page_id_t page_id , bool flag){
-        std::lock_guard<std::mutex> lk(dirty_mtx_hot);
         if (flag){
             dirty_pages_hot.insert(std::make_pair(table_id , page_id));
-        }else {
-            dirty_pages_hot.erase(std::make_pair(table_id , page_id));
+        }else{
+            dirty_pages.erase(std::make_pair(table_id , page_id));
         }
+    }
+
+    void waitRemoteOK(){
+        std::unique_lock<std::mutex> lk(switch_mtx_hot);
+        // assert(success_return == false);
+
+        // 等待远程通知我，热点页面轮到你了
+        switch_hot_cv.wait(lk , [this]{
+            return success_return;
+        });
+
+        success_return = false;
+    }
+    void notifyRemoteOK(){
+        success_return = true;
+        switch_hot_cv.notify_one();
     }
 
     TsPhase getPhase() {
         RWMutex::ReadLock lock(rw_mutex);
         return ts_phase;
     }
-    TsPhase getPhaseNoBlock(){
+    TsPhase getPhaseNoBlock() const {
         return ts_phase;
+    }
+
+    TsPhase getPhaseHotNoBlock() const {
+        return ts_phase_hot;
     }
 
     Scheduler* getScheduler() {
@@ -558,8 +578,8 @@ public:
     // 时间戳阶段转化用的
     std::atomic<TsPhase> ts_phase{TsPhase::BEGIN};
     std::atomic<TsPhase> ts_phase_hot{TsPhase::BEGIN};
-
-    int ts_cnt = 0;                 // 当前节点处于哪个时间片中
+    std::atomic<int> ts_cnt{0};                 // 当前节点处于哪个时间片中
+    std::atomic<int> ts_cnt_hot{0};
     RWMutex rw_mutex;
     RWMutex rw_mutex_hot;      
     std::condition_variable ts_switch_cond;
@@ -567,9 +587,10 @@ public:
     // TS: 统计当前正在进行中的 fetch 数，切片切换时等待其归零以保证安全
     std::atomic<int> ts_inflight_fetch{0};
     std::atomic<int> ts_inflight_fetch_hot{0};
-    std::mutex dirty_mtx;
-    std::mutex dirty_mtx_hot;
-
+    std::mutex switch_mtx;
+    std::condition_variable switch_hot_cv;
+    bool success_return = false;
+    std::mutex switch_mtx_hot;
     std::set<std::pair<table_id_t , page_id_t>> dirty_pages;
     std::set<std::pair<table_id_t , page_id_t>> dirty_pages_hot;
 

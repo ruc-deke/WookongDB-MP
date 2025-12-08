@@ -175,6 +175,7 @@ public:
         if (node_has_newest_page_status[node_id] == true){
             return -1;
         }else {
+            assert(newest_node != node_id);
             return newest_node;
         } 
     }
