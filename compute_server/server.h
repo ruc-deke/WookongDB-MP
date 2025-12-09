@@ -473,9 +473,26 @@ public:
         return node_->getBufferPoolByIndex(table_id)->checkIfDirectlyUpdate(page_id , data);
     }
 
+    Page *put_page_into_buffer(table_id_t table_id , page_id_t page_id , const void *data , int type){
+        if (type == 0){
+            // eager
+            return put_page_into_buffer_eager(table_id , page_id , data);
+        }else if (type == 1){
+            // lazy
+            return put_page_into_buffe_lazy(table_id , page_id , data);
+        }else if (type == 2){
+            // 2pc
+            return put_page_into_buffer_2pc(table_id , page_id , data);
+        }else if (type == 3){
+            // TODO
+        }else if (type == 12 || type == 13){
+            return put_page_into_buffer_ts(table_id , page_id , data);
+        }
+    }
+
     // 将页面放进缓冲区中，如果缓冲区满，选择一个页面淘汰
     // lazy_release 的淘汰策略
-    Page *put_page_into_local_buffer(table_id_t table_id , page_id_t page_id , const void *data) {
+    Page *put_page_into_buffe_lazy(table_id_t table_id , page_id_t page_id , const void *data) {
         bool is_from_lru = false;
         frame_id_t frame_id = -1;
 
@@ -487,8 +504,7 @@ public:
 
         // 作为一个参数传入淘汰窗口中，目标是锁定一个页面，确保页面淘汰过程中不会被访问
         auto try_begin_evict = ([this , table_id](page_id_t victim_page_id) {
-            LRLocalPageLock *lock = this->node_->lazy_local_page_lock_tables[table_id]->GetLock(victim_page_id);
-            return lock->TryBeginEvict();
+            return this->node_->lazy_local_page_lock_tables[table_id]->GetLock(victim_page_id)->TryBeginEvict();
         });
 
         int try_cnt = -1;
@@ -607,7 +623,44 @@ public:
         }
     }
 
-    Page *put_page_into_local_buffer_without_remote(table_id_t table_id , page_id_t page_id , const void *data){
+    // eager 模式下，把数据放到缓冲区里面，不需要通知远程
+    Page *put_page_into_buffer_eager(table_id_t table_id , page_id_t page_id , const void *data){
+        bool is_from_lru = false;
+        frame_id_t frame_id = -1;
+        if (checkIfDirectlyUpdate(table_id , page_id , data)){
+            return node_->fetch_page(table_id , page_id);
+        }
+        Page *page = checkIfDirectlyPutInBuffer(table_id , page_id , data);
+        if (page != nullptr){
+            return page;
+        }
+
+        auto try_begin_evict = ([this , table_id](page_id_t victim_page_id) {
+            return this->node_->eager_local_page_lock_tables[table_id]->GetLock(victim_page_id)->tryBeginEvict();
+        });
+
+        int try_cnt = -1;
+        while(true){
+            try_cnt++;
+            auto [replaced_page_id , later_page_id] = node_->getBufferPoolByIndex(table_id)->replace_page(page_id , frame_id , try_cnt , try_begin_evict);
+            assert(frame_id >= 0);
+            assert(replaced_page_id != INVALID_PAGE_ID);
+            ERLocalPageLock *local_lock = node_->eager_local_page_lock_tables[table_id]->GetLock(replaced_page_id);
+            if (later_page_id == INVALID_PAGE_ID){
+                local_lock->EndEvict();
+                continue;
+            }
+
+            rpc_flush_page_to_storage(table_id , replaced_page_id);
+            Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(table_id , page_id , frame_id , true , replaced_page_id , data);
+            node_->evict_page_cnt++;
+            local_lock->EndEvict();
+            return page;
+        }
+        return page;
+    }
+
+    Page *put_page_into_buffer_ts(table_id_t table_id , page_id_t page_id , const void *data){
         bool is_from_lru = false;
         frame_id_t frame_id = -1;
         if (checkIfDirectlyUpdate(table_id , page_id , data)){
@@ -623,7 +676,7 @@ public:
             return this->node_->local_page_lock_tables[table_id]->GetLock(victim_page_id)->TryBeginEvict();
         });
 
-        int try_cnt = 0;
+        int try_cnt = -1;
         while (true){
             try_cnt++;
             std::pair<page_id_t , page_id_t> res = node_->getBufferPoolByIndex(table_id)->replace_page(page_id , frame_id , try_cnt , try_begin_evict);
@@ -645,6 +698,44 @@ public:
             local_lock->EndEvict();
             return page;
         }
+        return nullptr;
+    }
+
+    Page *put_page_into_buffer_2pc(table_id_t table_id , page_id_t page_id , const void *data){
+        bool is_from_lru = false;
+        frame_id_t frame_id = INVALID_FRAME_ID;
+        Page *page = checkIfDirectlyPutInBuffer(table_id , page_id , data);
+        if (page != nullptr){
+            return page;
+        }
+
+        auto try_begin_evict = ([this , table_id](page_id_t victim_page_id) {
+            return this->node_->local_page_lock_tables[table_id]->GetLock(victim_page_id)->TryBeginEvict();
+        });
+
+        int try_cnt = -1;
+        while(true){
+            try_cnt++;
+            std::pair<page_id_t , page_id_t> res = node_->getBufferPoolByIndex(table_id)->replace_page(page_id , frame_id , try_cnt , try_begin_evict);
+            page_id_t replaced_page_id = res.first;
+            assert(frame_id >= 0);
+            assert(replaced_page_id != INVALID_PAGE_ID);
+
+            LocalPageLock *local_lock = node_->local_page_lock_tables[table_id]->GetLock(replaced_page_id);
+            if (res.second == INVALID_PAGE_ID){
+                local_lock->EndEvict();
+                continue;
+            }
+
+            rpc_flush_page_to_storage(table_id , replaced_page_id);
+            Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(table_id , page_id , frame_id , true , replaced_page_id , data);
+            node_->evict_page_cnt++;
+            local_lock->EndEvict();
+            return page;
+        }
+
+        assert(false);
+        return nullptr;
     }
 
     page_id_t rpc_create_page(table_id_t table_id){

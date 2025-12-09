@@ -210,11 +210,7 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
                 LOG(ERROR) << "Fail to unlock page " << page_id << " in remote page table";
             }
             //! unlock remote ok and unlatch local
-            if(SYSTEM_MODE == 1){
-                server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->UnlockRemoteOK();
-            }else{
-                assert(false);
-            }
+            server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->UnlockRemoteOK();
             // delete response;
             delete unlock_response;
         }
@@ -275,7 +271,7 @@ void ComputeNodeServiceImpl::PushPage(::google::protobuf::RpcController* control
         // LOG(INFO) << "Receive Page , src_node_id = " << src_node_id << " table_id = " << table_id << " page_id = " << page_id;
         
         // std::cout << "Receive Pushed Data From : " << src_node_id << " table_id = " << table_id << " page_id = " << page_id << "\n";
-        server->put_page_into_local_buffer(table_id , page_id , request->page_data().c_str());
+        server->put_page_into_buffer(table_id , page_id , request->page_data().c_str() , 1);
 
         server->get_node()->NotifyPushPageSuccess(table_id, page_id);
         

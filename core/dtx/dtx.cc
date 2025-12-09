@@ -72,18 +72,18 @@ timestamp_t DTX::GetTimestampRemote() {
 char* DTX::FetchSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id){
     Page *page = nullptr;
     if(SYSTEM_MODE == 0) {
-        assert(false);
+        // Eager
         page = compute_server->rpc_fetch_s_page(table_id, page_id);
     } 
     else if(SYSTEM_MODE == 1){
+        // Lazy
         page = compute_server->rpc_lazy_fetch_s_page(table_id,page_id , true);
     }
     else if(SYSTEM_MODE == 2){
-        assert(false);
+        // 2PC
         page = compute_server->local_fetch_s_page(table_id,page_id);
     }
     else if(SYSTEM_MODE == 3){
-        assert(false);
         page = compute_server->single_fetch_s_page(table_id,page_id);
     } else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
         page = compute_server->rpc_ts_fetch_s_page(table_id , page_id);

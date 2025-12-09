@@ -143,8 +143,7 @@ public:
         if(node_has_newest_page_status[node_id] == true) {
             mutex.unlock();
             return -1;
-        }
-        else{
+        } else {
             node_id_t ret = newest_node;
             need_from_storage = (ret == INVALID_NODE_ID);
             node_has_newest_page_status[node_id] = true;

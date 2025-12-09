@@ -320,7 +320,13 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
   // Each coroutine has a dtx: Each coroutine is a coordinator
   struct timespec tx_end_time;
   bool tx_committed = false;
-
+  /*
+    要完善一下 2PC，这里总结下 2PC 的流程，其实用了 2PC 之后，这个系统就不是一个多写的系统了，更像是一个分布式数据库
+    单个事务可能由多个主节点一起完成：
+    1. 和其它模式一样，先获取到这个事务的全部将要读写的页面集合
+    2. 根据 get_node_id_by_page_id，确定数据所在的节点 ID，加入到 participants 集合
+    3. 如果是远程节点，调用 Get_2pc_Remote_page，让远程把页面传过来，然后我做完任务之后，再把页面传回去更新
+  */
   DTX* dtx = new DTX(meta_man,
                      thread_gid,
                      thread_local_id,
@@ -348,7 +354,7 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
   // run_seed = seed;
   SmallBankDTX* bench_dtx = new SmallBankDTX();
   bench_dtx->dtx = dtx;
-  zipfan_gen = nullptr;
+  // zipfan_gen = nullptr;
   while (true) {
     // 如果本节点已经完成了全部的事务，那就退出
     if (stat_attempted_tx_total >= ATTEMPTED_NUM || stat_enter_commit_tx_total >= ATTEMPTED_NUM) {
@@ -689,7 +695,6 @@ void run_thread(thread_params* params,
 
   // 根据 bench 类型，生成长度 100 的事务类型概率数组，随机抽事务类型
   if (bench_name == "smallbank") { // SmallBank benchmark
-    // std::cout << "ASDDSSDAADS\n\n\n";
     smallbank_client = smallbank_cli;
     smallbank_workgen_arr = smallbank_client->CreateWorkgenArray(READONLY_TXN_RATE);
     thread_local_try_times = new uint64_t[SmallBank_TX_TYPES]();
@@ -702,9 +707,9 @@ void run_thread(thread_params* params,
   } else {
     LOG(FATAL) << "Unsupported benchmark: " << bench_name;
   }
-  // 不用线程池
+  // ts_sep 和 ts_sep_hot 不需要线程池，用 fiber.cc 里面的实现即可
   if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3) thread_pool = new ThreadPool(ThreadPoolSizePerWorker, params->thread_id);
-  // Initialize thread-local variables
+
   thread_gid = params->thread_global_id;
   thread_local_id = params->thread_id;
   thread_num = params->thread_num_per_machine;

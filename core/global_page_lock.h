@@ -27,47 +27,55 @@ public:
         lock = 0;
     }
     
-    bool LockShared() {
+    void LockShared() {
         while(true){
             mutex.lock();
             if(lock == EXCLUSIVE_LOCKED) {
                 mutex.unlock();
-            }
-            else {
+            } else {
                 lock++;
                 mutex.unlock();
                 break;
             }
         }
-        return true;
     }
 
-    bool LockExclusive() {
+    void LockExclusive() {
         while(true){
             mutex.lock();
             if(lock != 0) {
                 mutex.unlock();
-            }
-            else {
+            } else {
                 lock = EXCLUSIVE_LOCKED;
                 mutex.unlock();
                 break;
             }
         }
-        return true;
     }
 
-    bool UnlockShared() {
+    bool CheckIfLockedNoBlock(){
+        return lock != 0;
+    }
+
+    void UnlockShared() {
         mutex.lock();
+        assert(lock > 0);
         lock--;
-        mutex.unlock();
-        return true;
     }
 
-    bool UnlockExclusive() {
+    void LockMtx(){
         mutex.lock();
-        lock = 0;
+    }
+    void UnlockMtx(){
         mutex.unlock();
-        return true;
+    }
+
+
+    
+
+    void UnlockExclusive() {
+        mutex.lock();
+        assert(lock == EXCLUSIVE_LOCKED);
+        lock = 0;
     }
 };

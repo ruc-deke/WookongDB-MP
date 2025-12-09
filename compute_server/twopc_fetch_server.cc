@@ -67,13 +67,11 @@ void ComputeServer::Write_2pc_Local_data(node_id_t node_id, table_id_t table_id,
 void ComputeServer::Get_2pc_Local_page(node_id_t node_id, table_id_t table_id, Rid rid, bool lock, char* &data){
     assert(SYSTEM_MODE == 2);
     bool lock_success = true;
-    if(node_->getNodeID() != node_id){
-        LOG(ERROR) << "Get_2pc_Local_page called with wrong node_id";
-        assert(false);
-    }
+    assert(node_->get_node_id() == node_id);
     // Get local page data
     page_id_t page_id = rid.page_no_;
     int slot_id = rid.slot_no_;
+    // lock 代表是否是写锁
     if(!lock){
         Page* page = local_fetch_s_page(table_id, page_id);
         char* page_data = page->get_data();
@@ -124,8 +122,7 @@ void ComputeServer::Get_2pc_Remote_page(node_id_t node_id, table_id_t table_id, 
     if(response.abort()){
         assert(lock == true);
         data = nullptr;
-    }
-    else{
+    } else{
         char* page = (char*)response.data().c_str();
         char *bitmap = page + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
         char *slots = bitmap + node_->meta_manager_->GetTableMeta(table_id).bitmap_size_;

@@ -18,7 +18,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
   // // LOG(INFO) << "TxExe: " << tx_id;
 
   // new dtx exe logic
-  std::vector<std::future<void>> futures;
+  // std::vector<std::future<void>> futures;
   // 存储要真正去读和写的任务
   std::vector<std::pair<size_t, std::pair<Rid, DataSetItem*>>> ro_fetch_tasks;  // record the index and rid of read-only items
   std::vector<std::pair<size_t, std::pair<Rid, DataSetItem*>>> rw_fetch_tasks;  // record the index and rid of read-write items
@@ -86,17 +86,22 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
           item.is_fetched = true;
           ReleaseSPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page
           // no need to shared lock the data, bacause in mvcc protocol, write dose not block read
-        }
-        else if (SYSTEM_MODE == 2){
-          // this is coordinator
+        } else if (SYSTEM_MODE == 2){
+          // 2PC
+          // 1. 先获取到页面所在的节点 ID
           node_id_t node_id = compute_server->get_node_id_by_page_id(item.item_ptr->table_id, rid.page_no_); 
           participants.emplace(node_id);
           char* data = nullptr;
-          if(node_id == compute_server->get_node()->getNodeID())
+          if(node_id == compute_server->get_node()->getNodeID()){
             compute_server->Get_2pc_Local_page(node_id, item.item_ptr->table_id, rid, false, data);
-          else 
+          } else {
+            // 从远程把页面给拉过来，此时远程已经给这个元组加上锁了
             compute_server->Get_2pc_Remote_page(node_id, item.item_ptr->table_id, rid, false, data);
-          std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
+          }
+          if (sleep_time != 0){
+            std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
+          }
+          // 这里拿的是 s 锁，不会冲突(MVCC)
           assert (data != nullptr);
           DataItemPtr data_item = std::make_shared<DataItem>(*reinterpret_cast<DataItem*>(data));
           assert(data_item->key == item.item_ptr->key);
@@ -120,16 +125,12 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
       *item.item_ptr = *GetDataItemFromPageRW(item.item_ptr->table_id, data, rid, orginal_item);
       if(orginal_item->lock == UNLOCKED) {
         orginal_item->lock = EXCLUSIVE_LOCKED;
-        // // LOG(INFO) << "lock ok on table: " << item.item_ptr->table_id << "on page: " << rid.page_no_ << " key: " << item.item_ptr->key;
-        // // LOG(INFO) << "release ok ";
         if(item.release_imme) {
           orginal_item->lock = UNLOCKED;
         }
         ReleaseXPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page
       } else{
         // lock conflict
-        // // LOG(INFO) << "lock fail on table: " << item.item_ptr->table_id << "on page: " << rid.page_no_ << " key: " << item.item_ptr->key << "hold lock: " << item.item_ptr->version << "node_id: " << item.item_ptr->node_id;
-        // // LOG(INFO) << "release fail ";
         ReleaseXPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page
         tx_status = TXStatus::TX_ABORTING; // Transaction is aborting due to lock conflict
         break; // Exit the loop on lock conflict, will check tx_status later
@@ -147,8 +148,6 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
           *item.item_ptr = *GetDataItemFromPageRW(item.item_ptr->table_id, data, rid, orginal_item);
           if(orginal_item->lock == UNLOCKED) {
             orginal_item->lock = EXCLUSIVE_LOCKED;
-            // // LOG(INFO) << "lock ok on table: " << item.item_ptr->table_id << "on page: " << rid.page_no_ << " key: " << item.item_ptr->key;
-            // // LOG(INFO) << "release ok ";
             if(item.release_imme) {
               orginal_item->lock = UNLOCKED;
             }
@@ -189,11 +188,11 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
     }
   }
   // 等待所有任务都结束
-  if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3){
-    for (auto& fut : futures) {
-        fut.get(); // Wait for the future to complete
-    }
-  }
+  // if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3){
+  //   for (auto& fut : futures) {
+  //       fut.get(); // Wait for the future to complete
+  //   }
+  // }
   clock_gettime(CLOCK_REALTIME, &end_time2);
   tx_fetch_exe_time += (end_time2.tv_sec - start_time2.tv_sec) + (double)(end_time2.tv_nsec - start_time2.tv_nsec) / 1000000000;
   // Step 4: Check if the transaction is still valid

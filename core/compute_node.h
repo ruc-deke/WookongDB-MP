@@ -56,7 +56,9 @@ public:
         options.use_rdma = use_rdma;
         ts_cnt = node_id;       // 初始分配的时间片设置成 node_id
         ts_cnt_hot = node_id;
-        std::cout << "Node : " << node_id << " allocate a timestamp , id = " << ts_cnt << "\n";
+        if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
+            std::cout << "Node : " << node_id << " allocate a timestamp , id = " << ts_cnt << "\n";
+        }
         // options.timeout_ms = 5000; // 5s超时
         options.timeout_ms = 0x7fffffff; // 2147483647ms
         std::string remote_node = remote_server_ip + ":" + std::to_string(remote_server_port);
@@ -72,14 +74,14 @@ public:
             LOG(ERROR) << "Fail to init channel";
             exit(1);
         }
-        if (SYSTEM_MODE == 0)
+        if (SYSTEM_MODE == 0){
             eager_local_page_lock_table = nullptr;
-        else if (SYSTEM_MODE == 1){
             lazy_local_page_lock_table = nullptr;
-        } 
-        else if (SYSTEM_MODE == 2 || SYSTEM_MODE == 3) {
+        } else if (SYSTEM_MODE == 1){
+            lazy_local_page_lock_table = nullptr;
+        } else if (SYSTEM_MODE == 2 || SYSTEM_MODE == 3) {
             local_page_lock_table = nullptr;
-        }else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
+        } else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
             local_page_lock_table = nullptr;
             lazy_local_page_lock_table = nullptr;
         }
@@ -109,7 +111,9 @@ public:
             }
             std::cout << "Table BufferPool Size Per Table : " << table_pool_size_cfg << "\n";
             std::cout << "Index BufferPool Size Per Table : " << index_pool_size_cfg << "\n";
-            std::cout << "TS Time Slice : " << ts_time/1000 << "ms" << "\n";
+            if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
+                std::cout << "TS Time Slice : " << ts_time/1000 << "ms" << "\n";
+            }
         }
 
         if(WORKLOAD_MODE == 0) {
@@ -118,7 +122,19 @@ public:
                 for(int i = 0; i < 2; i++){
                     eager_local_page_lock_tables.emplace_back(new ERLocalPageLockTable());
                 }
-            }  else if(SYSTEM_MODE == 1) {
+
+                // BLink 用 lazy 来实现
+                lazy_local_page_lock_tables.reserve(6);
+                for (int i = 0 ; i < 6 ; i++){
+                    if (i < 2){
+                        lazy_local_page_lock_tables.emplace_back(nullptr);
+                    }else if (i < 4){
+                        lazy_local_page_lock_tables.emplace_back(nullptr);
+                    }else {
+                        lazy_local_page_lock_tables.emplace_back(new LRLocalPageLockTable());
+                    }
+                }
+            } else if(SYSTEM_MODE == 1) {
                 lazy_local_page_lock_tables.reserve(6);
                 local_page_lock_tables.reserve(6);
                 for(int i = 0; i < 6; i++){
@@ -129,6 +145,16 @@ public:
                 local_page_lock_tables.reserve(2);
                 for(int i = 0; i < 2; i++){
                     local_page_lock_tables.emplace_back(new LocalPageLockTable());
+                }
+                lazy_local_page_lock_tables.reserve(6);
+                for (int i = 0 ; i < 6 ; i++){
+                    if (i < 2){
+                        lazy_local_page_lock_tables.emplace_back(nullptr);
+                    }else if (i < 4){
+                        lazy_local_page_lock_tables.emplace_back(nullptr);
+                    }else {
+                        lazy_local_page_lock_tables.emplace_back(new LRLocalPageLockTable());
+                    }
                 }
             } else if(SYSTEM_MODE == 3){
                 local_page_lock_tables.reserve(2);
@@ -298,39 +324,21 @@ public:
 
     // 远程通知此节点释放数据页（不主动释放数据页策略下）
     int PendingPage(page_id_t page_id, bool xpending, table_id_t table_id) {
-      int unlock_remote;
-      if(SYSTEM_MODE == 1){ // lazy release
-        assert(lazy_local_page_lock_tables[table_id] != nullptr);
-        return lazy_local_page_lock_tables[table_id]->GetLock(page_id)->Pending(node_id, xpending);
-      }
-      else{
-        assert(false);
-      }
-      return unlock_remote;
+      int unlock_remote = 0;
+      assert(lazy_local_page_lock_tables[table_id] != nullptr);
+      return lazy_local_page_lock_tables[table_id]->GetLock(page_id)->Pending(node_id, xpending);
     }
 
     // 远程通知此节点获取页面控制权成功
     void NotifyPushPageSuccess(table_id_t table_id, page_id_t page_id) {
-      if(SYSTEM_MODE == 1){ // lazy release
         assert(lazy_local_page_lock_tables[table_id] != nullptr);
         lazy_local_page_lock_tables[table_id]->GetLock(page_id)->RemotePushPageSuccess();
-      }
-      else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
-        // 对于 TS SWITCH 来说，B+ 树也需要 lazy_lock_page
-        assert(lazy_local_page_lock_tables[table_id] != nullptr);
-        lazy_local_page_lock_tables[table_id]->GetLock(page_id)->RemotePushPageSuccess();
-      }
     }
 
     // 远程通知此节点获取页面控制权成功
     void NotifyLockPageSuccess(table_id_t table_id, page_id_t page_id, bool xlock , bool is_newest) {
-      if(SYSTEM_MODE == 1){ // lazy release
         assert(lazy_local_page_lock_tables[table_id] != nullptr);
         lazy_local_page_lock_tables[table_id]->GetLock(page_id)->RemoteNotifyLockSuccess(xlock, is_newest);
-      }
-      else{
-        assert(false);
-      }
     }
 
 

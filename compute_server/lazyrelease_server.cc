@@ -4,12 +4,13 @@
 #include "atomic"
 #include <iomanip>
 
-std::atomic<int> cnt{0};
+static std::atomic<int> cnt{0};
 
 Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_id, bool need_to_record) {
     assert(page_id < ComputeNodeBufferPageSize);
-    if (need_to_record && cnt++ % 10000 == 0){
-        std::cout << "lazy fetch cnt : " << cnt << "\n";
+    int k1 = cnt++;
+    if (need_to_record && k1 % 10000 == 0){
+        std::cout << "lazy fetch cnt : " << k1 << "\n";
     }
     
     // LOG(INFO) << "fetching S Page " << "table_id = " << table_id << " page_id = " << page_id;
@@ -32,7 +33,6 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
         if (need_to_record){
             node_->lock_remote_cnt++;
         }
-        brpc::Controller cntl;
         page_table_service::PSLockRequest request;
         page_table_service::PSLockResponse* response = new page_table_service::PSLockResponse();
         page_table_service::PageID *page_id_pb = new page_table_service::PageID();
@@ -47,6 +47,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
         } else{
             // LOG(INFO) << "Fetching S Page Remote , table_id = " << table_id << " page_id = " << page_id;
             // 如果是远程节点, 则通过RPC调用
+            brpc::Controller cntl;
             brpc::Channel* page_table_channel =  this->nodes_channel + page_belong_node;
             page_table_service::PageTableService_Stub pagetable_stub(page_table_channel);
             pagetable_stub.LRPSLock(&cntl, &request, response, NULL);
@@ -57,11 +58,6 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
         }
 
         bool need_storage = response->need_storage_fetch();
-
-        if(cntl.Failed()){
-            LOG(ERROR) << "Fail to lock page " << page_id << " in remote page table";
-            exit(0);
-        }
         // 如果不需要等待远程释放锁，也就是可以立刻获得锁，此时在远程已经加锁成功了
         // 只有两种情况不需要等待：
         // 1. 别的节点是读锁，我也加了个读锁，可以立刻拿到锁
@@ -76,7 +72,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
             if (need_storage){
                 // std::cout << "Fetch Page From Storage\n";
                 std::string data = rpc_fetch_page_from_storage(table_id , page_id , need_to_record);
-                page = put_page_into_local_buffer(table_id , page_id , data.c_str());
+                page = put_page_into_buffer(table_id , page_id , data.c_str() , 1);
             } else if(valid_node != -1){    
                 if (need_to_record){
                     node_->fetch_from_remote_cnt++;
@@ -126,8 +122,9 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
 Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_id, bool need_to_record) {
     // LOG(INFO) << "Fetching X , table_id = " << table_id << " page_id = " << page_id;
     assert(page_id < ComputeNodeBufferPageSize);
-    if (need_to_record && cnt++ % 10000 == 0){
-        std::cout << "lazy fetch cnt : " << cnt << "\n";
+    int k1 = cnt++;
+    if (need_to_record && k1 % 10000 == 0){
+        std::cout << "lazy fetch cnt : " << k1 << "\n";
     }
     
     // LOG(INFO) << "fetching X Page " << "table_id = " << table_id << " page_id = " << page_id;
@@ -198,7 +195,7 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
             // 如果valid是false, 则需要去远程取这个数据页
             if (need_fetch_from_storage){
                 std::string data = rpc_fetch_page_from_storage(table_id , page_id , need_to_record);
-                page = put_page_into_local_buffer(table_id , page_id , data.c_str());
+                page = put_page_into_buffer(table_id , page_id , data.c_str() , 1);
             } else if(valid_node != -1){
                 // LOG(INFO) << "Immediate Get Ownership , Waiting For Push , table_id = " << table_id << " page_id = " << page_id;
                 // 等待持有锁的节点把数据给推送过来
@@ -272,7 +269,7 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
 void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_id) {
     // LOG(INFO) << "Releasing S Page " << "table_id = " << table_id << " page_id = " << page_id;
     LRLocalPageLock *lr_lock = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id);
-    int unlock_remote = lr_lock->tryUnlockShared();
+    auto [unlock_remote, need_unpin] = lr_lock->tryUnlockShared();
 
     // 对于 S 锁来说，这里无论是否 immediate release，都需要去检查 DestNodeIDNoBlock 并推送
     // 比如我现在本地两个 s 锁，放掉一个的时候，判断还不能立刻释放，但是可以推送页面了
@@ -285,8 +282,9 @@ void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_
 
     if (unlock_remote == 0) {
         // 在这里 unpin，如果在后面 unpin 有 bug，可能 lock 减为 0 的时候会被 Replacer 锁定
-        // LOG(INFO) << "Lazy release S Page , table_id = " << table_id << " page_id = " << page_id;
-        node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
+        if (need_unpin){
+            node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
+        }
         lr_lock->UnlockShared();
         lr_lock->UnlockMtx();
         return;
@@ -339,6 +337,7 @@ void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_
         assert(lr_lock->getDestNodeIDNoBlock() == INVALID_PAGE_ID);
         // LOG(INFO) << "Lazy Release X , table_id = " << table_id << " page_id = " << page_id << " node_id = " << node_->getNodeID();
         assert(lr_lock->getLock() == 0);
+        // 对于写锁来说，一定是需要 unpin 的
         node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
         node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockExclusive();
         node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();

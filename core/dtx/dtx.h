@@ -128,7 +128,40 @@ class DTX {
   inline Rid GetRidFromIndexCache(table_id_t table_id, itemkey_t key) { return index_cache->Search(table_id, key); }
   inline Rid GetRidFromBLink(table_id_t table_id , itemkey_t key){
     Rid ret = compute_server->get_rid_from_blink(table_id , key);
+    // test_blink_concurrency(table_id);
     return ret;
+  }
+
+  void test_blink_concurrency(table_id_t table_id){
+      if (table_id == 0){
+          static std::atomic<int> cur_group{0};
+          int now_cnt = cur_group.fetch_add(1);
+
+          static std::mutex g_mtx;
+          static std::vector<itemkey_t> g_inserted_keys;
+          static std::unordered_map<itemkey_t , Rid> g_inserted_map;
+
+          int node_id = compute_server->get_node()->get_node_id();
+          int begin = node_id * 10000000 + now_cnt * 100 + 300000;
+          int end = begin + 100;
+          for (int i = begin ; i < end ; i++){
+              Rid insert_rid = { .page_no_ = i % 100, .slot_no_ = (i / 100) % 100 };
+              compute_server->insert_into_bltree(table_id, i, insert_rid);
+
+              {
+                  std::lock_guard<std::mutex> lk(g_mtx);
+                  g_inserted_keys.push_back(i);
+                  g_inserted_map[i] = insert_rid;
+              }
+              
+              auto res = compute_server->get_rid_from_blink(table_id, i);
+              assert(res != INDEX_NOT_FOUND);
+              assert(res.page_no_ == insert_rid.page_no_);
+              assert(res.slot_no_ == insert_rid.slot_no_);
+          }
+
+
+      }
   }
 
   inline Rid GetRidFromBTree(table_id_t table_id , itemkey_t key){

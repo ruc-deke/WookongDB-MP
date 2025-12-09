@@ -264,8 +264,9 @@ public:
         mutex.unlock();
     }
 
-    int tryUnlockShared(){
+    std::pair<int,bool> tryUnlockShared(){
         int unlock_remote = 0;
+        bool need_unpin = false;
         mutex.lock();
         assert(lock > 0);
         assert(lock != EXCLUSIVE_LOCKED);
@@ -274,8 +275,10 @@ public:
         if ((lock - 1) == 0 && is_pending){
             is_released = true;
             unlock_remote = (remote_mode == LockMode::SHARED) ? 1 : 2;
+        }else if ((lock - 1) == 0){
+            need_unpin = true;
         }
-        return unlock_remote;
+        return std::make_pair(unlock_remote , need_unpin);
     }
 
     int getLock() const {

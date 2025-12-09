@@ -82,8 +82,7 @@ public:
             mutex.lock();
             if(lock != 0 || is_evicting) {
                 mutex.unlock();
-            }
-            else {
+            } else {
                 lock = EXCLUSIVE_LOCKED;
                 // is_dirty = true;
                 if(newest_node != -1) {
@@ -101,16 +100,17 @@ public:
         mutex.unlock();
     }
 
-    bool UnlockShared() {
+    int UnlockShared() {
         mutex.lock();
+        assert(lock > 0);
         lock--;
-        return true;
+        return lock;
     }
 
-    bool UnlockExclusive() {
+    void UnlockExclusive() {
         mutex.lock();
+        assert(lock == EXCLUSIVE_LOCKED);
         lock = 0;
-        return true;
     }
 
     bool TryBeginEvict(){

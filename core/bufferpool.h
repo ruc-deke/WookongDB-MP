@@ -50,6 +50,7 @@ public:
         }
     }
 
+    // 强要求页面一定在缓冲池里
     Page *fetch_page(page_id_t page_id){
         std::lock_guard<std::mutex> lk(mtx);
 
@@ -58,6 +59,8 @@ public:
 
         frame_id_t frame_id = it->second;
         Page *page = pages[frame_id];
+        // pin_count 的作用不是 RUCBase 那样的，作用只有一个，就是减少 replacer->pin 的次数
+        // 它不负责回收 frame，因为页面一定是用完了才 unpin
         if (page->pin_count_++ == 0){
             replacer->pin(frame_id);
         }
@@ -65,6 +68,7 @@ public:
         return page;
     }
 
+    // 不要求页面在缓冲池里
     Page *try_fetch_page(page_id_t page_id){
         std::lock_guard<std::mutex> lk(mtx);
         auto it = page_table.find(page_id);
@@ -81,6 +85,8 @@ public:
 
         return page;
     }
+
+    
 
     const std::string try_fetch_page_ret_string(page_id_t page_id){
         std::lock_guard<std::mutex> lk(mtx);
@@ -142,10 +148,7 @@ public:
     bool checkIfDirectlyPutInBuffer(page_id_t page_id , frame_id_t &frame_id){
         std::lock_guard<std::mutex> lk(mtx);
         assert(page_table.find(page_id) == page_table.end());
-        // if (page_table.find(page_id) != page_table.end()){
-        //     frame_id = -2;
-        //     return true;
-        // }
+
         if (!free_lists.empty()){
             frame_id = free_lists.front();
             free_lists.pop_front();
@@ -161,6 +164,9 @@ public:
             return false;
         }
         frame_id_t frame_id = it->second;
+        assert(pages[frame_id]->pin_count_ == 0);
+        pages[frame_id]->pin_count_++;
+        replacer->pin(frame_id);
         memcpy(pages[frame_id]->get_data() , data , PAGE_SIZE);
         return true;
     }

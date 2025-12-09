@@ -112,7 +112,7 @@ void Handler::GenThreads(std::string bench_name) {
   auto client_conf = json_config.get("local_compute_node");
   node_id_t machine_num = (node_id_t)client_conf.get("machine_num").get_int64();
   node_id_t machine_id = (node_id_t)client_conf.get("machine_id").get_int64();
-  std::cout << "starting primary , machine id = " << machine_id << "\n";
+  std::cout << "starting primary , machine id = " << machine_id << " machine num = " << machine_num << "\n";
   t_id_t thread_num_per_machine = (t_id_t)client_conf.get("thread_num_per_machine").get_int64();
   if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
     thread_num_per_machine++;
@@ -223,8 +223,6 @@ void Handler::GenThreads(std::string bench_name) {
       }
     }
   }
-
-  
   
   if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3){
     for (t_id_t i = 0; i < thread_num_per_machine; i++) {

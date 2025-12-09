@@ -13,7 +13,7 @@
 
 static int cnt;
 
-// External declaration for bench_name
+
 extern std::string bench_name;
 
 Page *ComputeServer::rpc_ts_fetch_s_page(table_id_t table_id , page_id_t page_id){
@@ -33,7 +33,7 @@ Page *ComputeServer::rpc_ts_fetch_s_page(table_id_t table_id , page_id_t page_id
     if (valid_node != -1){               
         // 对于时间片页面所有权转移的过程中，如果去远程拿，远程没有，那一定是被远程淘汰了，所以直接去存储拿即可
         std::string str = UpdatePageFromRemoteCompute(table_id , page_id , valid_node , true);
-        page = put_page_into_local_buffer_without_remote(table_id , page_id , str.c_str());
+        page = put_page_into_buffer(table_id , page_id , str.c_str() , SYSTEM_MODE);
         node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
     }else {
         // 走到这里，valid_node == -1，有三种
@@ -44,7 +44,7 @@ Page *ComputeServer::rpc_ts_fetch_s_page(table_id_t table_id , page_id_t page_id
         if (page == nullptr){
             std::string data = rpc_fetch_page_from_storage(table_id , page_id , true);
             assert(data.size() == PAGE_SIZE);
-            page = put_page_into_local_buffer_without_remote(table_id , page_id , data.c_str());
+            page = put_page_into_buffer(table_id , page_id , data.c_str() , SYSTEM_MODE);
         } else {
             node_->fetch_from_local_cnt++;
         }
@@ -83,14 +83,14 @@ Page *ComputeServer::rpc_ts_fetch_x_page(table_id_t table_id , page_id_t page_id
 
     if (valid_node != -1){
         std::string str = UpdatePageFromRemoteCompute(table_id , page_id , valid_node , true);
-        page = put_page_into_local_buffer_without_remote(table_id , page_id , str.c_str());
+        page = put_page_into_buffer(table_id , page_id , str.c_str() , SYSTEM_MODE);
         node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
     }else {
         page = node_->try_fetch_page(table_id , page_id);
         if (page == nullptr){
             std::string data = rpc_fetch_page_from_storage(table_id , page_id , true);
             assert(data.size() == PAGE_SIZE);
-            page = put_page_into_local_buffer_without_remote(table_id , page_id , data.c_str());
+            page = put_page_into_buffer(table_id , page_id , data.c_str() , SYSTEM_MODE);
         } else {
             node_->fetch_from_local_cnt++;
         }
@@ -120,13 +120,16 @@ void ComputeServer::rpc_ts_release_s_page(table_id_t table_id , page_id_t page_i
     // }
 
     // 这里的 Unlock 应该是无条件的，因为可能在 SWITCHING 阶段放锁
-    node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockShared();
-    node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
+    int lock = node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockShared();
+    if (lock == 0){
+        node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
+    }
     node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
 }
 
 void ComputeServer::rpc_ts_release_x_page(table_id_t table_id , page_id_t page_id){
     node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockExclusive();
+    // 写锁一定 unpin
     node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
     node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
 }

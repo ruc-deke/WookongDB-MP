@@ -12,32 +12,25 @@ namespace twopc_service{
         int slot_id = request->item_id().slot_id();
         bool lock = request->item_id().lock_data();
 
+        // S 锁
         if(!lock){
             Page* page = server->local_fetch_s_page(table_id, page_id);
             char* data = page->get_data();
             response->set_data(data, PAGE_SIZE);
-            // char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-            // char *slots = bitmap + server->get_node()->getMetaManager()->GetTableMeta(table_id).bitmap_size_;
-            // char* tuple = slots + slot_id * (sizeof(DataItem) + sizeof(itemkey_t));
-            // char* ret = tuple + sizeof(itemkey_t);
-            // response->set_data(ret, sizeof(DataItem));
             server->local_release_s_page(table_id, page_id);
         }else{
-            // // LOG(INFO) << "Node " << server->get_node()->getNodeID() << " lock data item " << table_id << " " << page_id << " " << slot_id;
             Page* page = server->local_fetch_x_page(table_id, page_id);
             char* data = page->get_data();
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
             char *slots = bitmap + server->get_node()->getMetaManager()->GetTableMeta(table_id).bitmap_size_;
             char* tuple = slots + slot_id * (sizeof(DataItem) + sizeof(itemkey_t));
-            // lock the data
+
+            // 需要给这个元组加上排他锁
             DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
             if(item->lock == UNLOCKED){
                 item->lock = EXCLUSIVE_LOCKED;
-                // char* ret = tuple + sizeof(itemkey_t);
                 response->set_data(data, PAGE_SIZE);
-                // response->set_data(ret, sizeof(DataItem));
-            }
-            else {
+            } else {
                 // abort
                 response->set_abort(true);
             }
@@ -211,23 +204,45 @@ namespace twopc_service{
 };
 
 Page* ComputeServer::local_fetch_s_page(table_id_t table_id, page_id_t page_id){
-    Page* page = node_->local_buffer_pools[table_id]->fetch_page(page_id);
+    assert(is_partitioned_page_new(table_id , page_id));
     node_->local_page_lock_tables[table_id]->GetLock(page_id)->LockShared();
+    Page* page = node_->getBufferPoolByIndex(table_id)->try_fetch_page(page_id);
+    if (page == nullptr){
+        std::string data = rpc_fetch_page_from_storage(table_id , page_id , true);
+        page = put_page_into_buffer(table_id , page_id , data.c_str() , SYSTEM_MODE);
+    }
+    node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
+    assert(page);
+    assert(page->get_page_id().page_no == page_id && page->get_page_id().table_id == table_id);
     return page;
 }
 
 Page* ComputeServer::local_fetch_x_page(table_id_t table_id, page_id_t page_id){
-    Page* page = node_->local_buffer_pools[table_id]->fetch_page(page_id);
+    assert(is_partitioned_page_new(table_id , page_id));
     node_->local_page_lock_tables[table_id]->GetLock(page_id)->LockExclusive();
+    Page* page = node_->local_buffer_pools[table_id]->try_fetch_page(page_id);
+    if (page == nullptr){
+        std::string data = rpc_fetch_page_from_storage(table_id , page_id , true);
+        page = put_page_into_buffer(table_id , page_id , data.c_str() , SYSTEM_MODE);
+    }
+    node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
+    assert(page);
+    assert(page->get_page_id().page_no == page_id && page->get_page_id().table_id == table_id);
     return page;
 }
 
 void ComputeServer::local_release_s_page(table_id_t table_id, page_id_t page_id){
-    node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockShared();
+    int lock = node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockShared();
+    if (lock == 0){
+        node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
+    }
+    node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
     return;
 }
 
 void ComputeServer::local_release_x_page(table_id_t table_id, page_id_t page_id){
     node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockExclusive();
+    node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
+    node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
     return;
 }

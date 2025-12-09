@@ -1,7 +1,7 @@
 {
   "smallbank": {
     "num_accounts": 300000,
-    "num_hot_accounts": 1000000,
+    "num_hot_accounts": 10000,
     "attempted_num": 100000
   }
 }
