@@ -118,20 +118,14 @@ public:
 
         if(WORKLOAD_MODE == 0) {
             if (SYSTEM_MODE == 0) {
-                eager_local_page_lock_tables.reserve(2);
-                for(int i = 0; i < 2; i++){
-                    eager_local_page_lock_tables.emplace_back(new ERLocalPageLockTable());
-                }
-
-                // BLink 用 lazy 来实现
-                lazy_local_page_lock_tables.reserve(6);
-                for (int i = 0 ; i < 6 ; i++){
+                eager_local_page_lock_tables.reserve(6);
+                for(int i = 0; i < 6; i++){
                     if (i < 2){
-                        lazy_local_page_lock_tables.emplace_back(nullptr);
+                        eager_local_page_lock_tables.emplace_back(new ERLocalPageLockTable());
                     }else if (i < 4){
-                        lazy_local_page_lock_tables.emplace_back(nullptr);
+                        eager_local_page_lock_tables.emplace_back(nullptr);
                     }else {
-                        lazy_local_page_lock_tables.emplace_back(new LRLocalPageLockTable());
+                        eager_local_page_lock_tables.emplace_back(new ERLocalPageLockTable());
                     }
                 }
             } else if(SYSTEM_MODE == 1) {
@@ -189,7 +183,10 @@ public:
             std::vector<int> max_page_per_table;
             std::copy(meta_manager->max_page_num_per_tables.begin(), meta_manager->max_page_num_per_tables.end(),
                       std::back_inserter(max_page_per_table));
-            assert(meta_manager->max_page_num_per_tables.size() == 4);
+            assert(meta_manager->max_page_num_per_tables.size() == 6);
+            for (int i = 0 ; i < 6 ; i++){
+                std::cout << "Table ID = " << i << " Max Page Num Per Table = " << meta_manager->max_page_num_per_tables[i] << "\n";
+            }
 
             local_buffer_pools.reserve(6);
             local_buffer_pools.resize(6);
@@ -220,25 +217,42 @@ public:
         } else if(WORKLOAD_MODE == 1) {
             if(SYSTEM_MODE == 0) {
                 eager_local_page_lock_tables.reserve(11);
-                for(int i = 0; i < 11; i++){
-                    eager_local_page_lock_tables.emplace_back(new ERLocalPageLockTable());
+                for(int i = 0; i < 33; i++){
+                    if (i < 11){
+                        eager_local_page_lock_tables.emplace_back(new ERLocalPageLockTable());
+                    }else if (i < 22){
+                        eager_local_page_lock_tables.emplace_back(nullptr);
+                    }else{
+                        eager_local_page_lock_tables.emplace_back(new ERLocalPageLockTable());
+                    }
                 }
             }
             else if(SYSTEM_MODE == 1) {
                 lazy_local_page_lock_tables.reserve(33);
                 local_page_lock_tables.reserve(33);
                 for(int i = 0; i < 33; i++){
-                    lazy_local_page_lock_tables.emplace_back(new LRLocalPageLockTable());
-                    local_page_lock_tables.emplace_back(nullptr);
+                    if (i >= 11 && i < 22){
+                        lazy_local_page_lock_tables.emplace_back(nullptr);
+                    }else{
+                        lazy_local_page_lock_tables.emplace_back(new LRLocalPageLockTable());
+                    }
                 }
             }
             else if(SYSTEM_MODE == 2) {
                 local_page_lock_tables.reserve(11);
-                for(int i = 0; i < 11; i++){
-                    local_page_lock_tables.emplace_back(new LocalPageLockTable());
+                for(int i = 0; i < 33; i++){
+                    if (i < 11){
+                        local_page_lock_tables.emplace_back(new LocalPageLockTable());
+                        lazy_local_page_lock_tables.emplace_back(nullptr);
+                    }else if (i < 22){
+                        lazy_local_page_lock_tables.emplace_back(nullptr);
+                    }else{
+                        lazy_local_page_lock_tables.emplace_back(new LRLocalPageLockTable());
+                    }
                 }
             }
             else if(SYSTEM_MODE == 3) {
+                // TODO
                 local_page_lock_tables.reserve(11);
                 for(int i = 0; i < 11; i++){
                     local_page_lock_tables.emplace_back(new LocalPageLockTable());
@@ -265,7 +279,11 @@ public:
             std::vector<int> max_page_per_table;
             std::copy(meta_manager->max_page_num_per_tables.begin(), meta_manager->max_page_num_per_tables.end(),
                         std::back_inserter(max_page_per_table));;
-            assert(meta_manager->max_page_num_per_tables.size() == 22);
+            assert(meta_manager->max_page_num_per_tables.size() == 33);
+
+            for (int i = 0 ; i < 33 ; i++){
+                std::cout << "Table ID = " << i << " Max Page Num Per Table = " << meta_manager->max_page_num_per_tables[i] << "\n";
+            }
             local_buffer_pools.reserve(33);
             // 修复：在后续使用下标赋值之前，必须 resize 到目标大小
             local_buffer_pools.resize(33);

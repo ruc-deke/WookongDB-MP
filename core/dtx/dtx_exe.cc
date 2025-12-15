@@ -35,7 +35,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
         read_only_set.erase(read_only_set.begin() + i);
         i--; // Move back one step
         tx_status = TXStatus::TX_VAL_NOTFOUND; // Value not found
-        // // LOG(INFO) << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " not found ";
+        LOG(INFO) << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " not found ";
         continue;
       }
       ro_fetch_tasks.emplace_back(i, std::make_pair(rid, &read_only_set[i]));
@@ -53,7 +53,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
         read_write_set.erase(read_write_set.begin() + i);
         i--; // Move back one step
         tx_status = TXStatus::TX_VAL_NOTFOUND; // Value not found
-        // // LOG(INFO) << "Thread id:" << local_t_id << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " not found ";
+        LOG(INFO) << "Thread id:" << local_t_id << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " not found ";
         continue;
       }
       // // LOG(INFO) << "Thread id:" << local_t_id << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " found on page: " << rid.page_no_;
@@ -166,11 +166,14 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
           node_id_t node_id = compute_server->get_node_id_by_page_id(item.item_ptr->table_id, rid.page_no_);
           participants.emplace(node_id);
           char* data = nullptr;
-          if(node_id == compute_server->get_node()->getNodeID())
+          if(node_id == compute_server->get_node()->getNodeID()){
             compute_server->Get_2pc_Local_page(node_id, item.item_ptr->table_id, rid, true, data);
-          else
+          } else {
             compute_server->Get_2pc_Remote_page(node_id, item.item_ptr->table_id, rid, true, data);
-          std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
+          }
+          if (sleep_time != 0){
+            std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
+          }
           if(data == nullptr){
             // lock conflict
             tx_status = TXStatus::TX_ABORTING; // Transaction is aborting due to lock conflict
@@ -211,8 +214,7 @@ bool DTX::TxCommit(coro_yield_t& yield){
     bool commit_status = false;
   if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3 || SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
     commit_status = TxCommitSingle(yield);
-  }
-  else if(SYSTEM_MODE == 2){
+  } else if(SYSTEM_MODE == 2){
     commit_status = Tx2PCCommit(yield);
   }
   clock_gettime(CLOCK_REALTIME, &end_time);
@@ -233,9 +235,10 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
   tx_get_timestamp_time2 += (end_ts_time.tv_sec - start_time.tv_sec) + (double)(end_ts_time.tv_nsec - start_time.tv_nsec) / 1000000000;
 
   // 把事务提交的日志给刷到磁盘下去
-  // brpc::CallId* cid;
-  // AddLogToTxn();    // 构造事务日志
+  brpc::CallId* cid;
+  AddLogToTxn();    // 构造事务日志
   // Send log to storage pool
+  
   // 先注释掉刷日志的
   // cid = new brpc::CallId();
   // SendLogToStoragePool(tx_id, cid); // 异步地把事务日志刷新到存储里
@@ -337,20 +340,20 @@ bool DTX::Tx2PCCommit(coro_yield_t &yield){
   clock_gettime(CLOCK_REALTIME, &end_ts_time);
   tx_get_timestamp_time2 += (end_ts_time.tv_sec - start_time.tv_sec) + (double)(end_ts_time.tv_nsec - start_time.tv_nsec) / 1000000000;
 
-  // 2pc 方法的commit阶段
   if(participants.size() == 1){
     struct timespec start_time1, end_ts_time1;
       clock_gettime(CLOCK_REALTIME, &start_time1);
     this->single_txn++;
-    if(compute_server->get_node()->getNodeID() == *participants.begin())
+    // 在我本地提交
+    if(compute_server->get_node()->getNodeID() == *participants.begin()){
       Tx2PCCommitLocal(yield);
-    else
+    } else {
       Tx2PCCommitAll(yield);
+    }
     clock_gettime(CLOCK_REALTIME, &end_ts_time1);
         tx_write_commit_log_time += (end_ts_time1.tv_sec - start_time1.tv_sec) + (double)(end_ts_time1.tv_nsec - end_ts_time1.tv_nsec) / 1000000000;
     return true;
-  }
-  else{
+  } else{
     // 分布式Commit
     this->distribute_txn++;
     assert(participants.size() > 1);

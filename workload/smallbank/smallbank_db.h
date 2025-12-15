@@ -36,7 +36,7 @@
 #define FREQUENCY_TRANSACT_SAVINGS 20
 #define FREQUENCY_WRITE_CHECK 20
 
-#define TX_HOT 1 /* Percentage of txns that use accounts from hotspot */
+#define TX_HOT 60 /* Percentage of txns that use accounts from hotspot */
 
 // Smallbank table keys and values
 // All keys have been sized to 8 bytes
@@ -200,16 +200,17 @@ class SmallBank {
     int now_par_id = (SYSTEM_MODE == 12 || SYSTEM_MODE == 13) ? dtx->compute_server->get_node()->ts_cnt.load() : dtx->compute_server->get_node()->get_node_id();
     // int now_par_id = dtx->compute_server->get_node()->get_node_id();
     int page_num = dtx->page_cache->getPageCache().find(table_id)->second.size() + 1;
+    // 先在 0～分区大小的区间内，
     page_id_t page_id = zip_fan->next() + 1;
     if (is_partitioned){
-        
+        // random_id 表示生成一个目前不在我
         int random_id = -1;
         do {
             random_id = FastRand(seed) % ComputeNodeCount;
         }while(random_id == now_par_id);
 
         page_id = page_id + random_id * (page_num / ComputeNodeCount);
-    }else {
+    } else {
         page_id = page_id + now_par_id * (page_num / ComputeNodeCount);
     }
 
@@ -221,8 +222,9 @@ class SmallBank {
   void get_two_accounts(itemkey_t &acc1 , itemkey_t &acc2 , ZipFanGen *zip_fan , bool is_partitioned , const DTX *dtx , uint64_t *seed , table_id_t table_id){
     get_account(acc1 , zip_fan , is_partitioned , dtx , seed , table_id);
     do {
-        get_account(acc1 , zip_fan , is_partitioned , dtx , seed , table_id);
+        get_account(acc2 , zip_fan , is_partitioned , dtx , seed , table_id);
     }while(acc1 == acc2);
+    // assert(acc1 < 300000 && acc2 < 300000);
   }
 
   /*

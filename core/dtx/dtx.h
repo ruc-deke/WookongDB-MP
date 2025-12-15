@@ -160,7 +160,36 @@ class DTX {
               assert(res.slot_no_ == insert_rid.slot_no_);
           }
 
+          static thread_local std::mt19937_64 rng(std::random_device{}());
+          itemkey_t check_key = 0;
+          Rid expect_rid{};
+          while (true) {
+              std::lock_guard<std::mutex> lk(g_mtx);
+              if (g_inserted_keys.empty()) {
+                  // 没有可抽样的键，直接跳出（或根据需要继续下一批）
+                  break;
+              }
+              std::uniform_int_distribution<size_t> dist(0, g_inserted_keys.size() - 1);
+              check_key = g_inserted_keys[dist(rng)];
+              // 修正：不要在内层重新定义 expect_rid；直接赋值到外层
+              auto it = g_inserted_map.find(check_key);
+              if (it != g_inserted_map.end()){
+                  expect_rid = it->second;
+                  g_inserted_map.erase(it);
+                  break;
+              }
+          }
 
+          if (check_key == 0){
+            return;
+          }
+
+          auto res2 = compute_server->get_rid_from_blink(table_id , check_key);
+          assert(res2 != INDEX_NOT_FOUND);
+          if (check_key >= 300000){
+            assert(res2.page_no_ == expect_rid.page_no_);
+            assert(res2.slot_no_ == expect_rid.slot_no_);
+          }
       }
   }
 

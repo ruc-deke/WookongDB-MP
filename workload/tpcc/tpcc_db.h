@@ -18,6 +18,7 @@
 #include "index/index_manager.h"
 #include "dtx/dtx.h"
 #include "storage/bp_tree/bp_tree.h"
+#include "storage/blink_tree/blink_tree.h"
 
 // YYYY-MM-DD HH:MM:SS This is supposed to be a date/time field from Jan 1st 1900 -
 // Dec 31st 2100 with a resolution of 1 second. See TPC-C 5.11.0.
@@ -482,6 +483,7 @@ public:
 
     // 存储层用的，只负责插入初始化的那些数据
     std::vector<S_BPTreeIndexHandle*> bp_tree_indexes;
+    std::vector<S_BLinkIndexHandle*> bl_indexes;
 
 
 
@@ -492,6 +494,9 @@ public:
             // 11 颗 B+ 树
             for (int i = 0 ; i < 11 ; i++){
                 bp_tree_indexes.emplace_back(new S_BPTreeIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 11 , "tpcc"));
+            }
+            for (int i = 0 ; i < 11 ; i++){
+                bl_indexes.emplace_back(new S_BLinkIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 22 , "tpcc"));
             }
         }
         bench_name = "TPCC";

@@ -24,8 +24,10 @@ MetaManager::MetaManager(std::string bench_name, IndexCache* index_cache , PageC
 
     TableMeta meta;
     meta.record_size_ = sizeof(DataItem);
+    // std::cout << "Record Size = " << sizeof(DataItem) << "\n";
     meta.num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (meta.record_size_ + sizeof(itemkey_t)) * BITMAP_WIDTH);
     meta.bitmap_size_ = (meta.num_records_per_page_ + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
+    // std::cout << "Num Records Per Table = " << meta.num_records_per_page_ << "\n";
     
     table_meta_map[0] = meta;
     table_meta_map[1] = meta;
@@ -46,6 +48,8 @@ MetaManager::MetaManager(std::string bench_name, IndexCache* index_cache , PageC
     meta.record_size_ = sizeof(DataItem);
     meta.num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (meta.record_size_ + sizeof(itemkey_t)) * BITMAP_WIDTH);
     meta.bitmap_size_ = (meta.num_records_per_page_ + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
+    // std::cout << "Record Size = " << sizeof(DataItem) << "\n";
+    // std::cout << "Num Records Per Table = " << meta.num_records_per_page_ << "\n";
 
     table_meta_map[0] = meta;
     table_meta_map[1] = meta;
@@ -186,9 +190,6 @@ node_id_t MetaManager::GetRemoteStorageMeta(std::string& remote_ip, int remote_p
   
   for(int i = 0; i < table_num; i++) {
       max_page_num_per_tables.emplace_back(max_page_num_per_table[i]);
-  }
-  for (int i = table_num ; i < table_num * 2 ; i++){
-    max_page_num_per_tables.emplace_back(max_page_num_per_table[i - table_num]);
   }
   
   assert(*(uint64_t*)snooper == MEM_STORE_META_END);

@@ -51,10 +51,11 @@ void Server::SendMeta(node_id_t machine_id, size_t compute_node_num, std::string
 void Server::PrepareStorageMeta(node_id_t machine_id, std::string workload, char** storage_meta_buffer, size_t& total_meta_size) {
   // Get LockTable meta
   int table_num;
+
   if(workload == "SmallBank") {
-    table_num = 2;
+    table_num = 6;
   }else if(workload == "TPCC") {
-    table_num = 11;
+    table_num = 33;
   } else {
     LOG(ERROR) << "Unsupported workload: " << workload;
     assert(false);
@@ -66,42 +67,52 @@ void Server::PrepareStorageMeta(node_id_t machine_id, std::string workload, char
   char* storage_meta = new char[storage_meta_len];
 
   if(workload == "SmallBank") {
-    // SmallBank::LoadTable 按照此函数中的顺序创建表
-    std::unique_ptr<RmFileHandle> table_file = rm_manager_->open_file("smallbank_savings");
-    std::unique_ptr<RmFileHandle> table_file2 = rm_manager_->open_file("smallbank_checking");
-    max_page_num_per_table[0] = table_file->get_file_hdr().num_pages_;
-    max_page_num_per_table[1] = table_file2->get_file_hdr().num_pages_;
-    record_per_page = table_file->get_file_hdr().num_records_per_page_;
+    std::vector<std::string> sb_tables = {"smallbank_savings", "smallbank_checking"};
+    for(int i = 0; i < 2; ++i) {
+        // 1. Data Table (ID: i)
+        std::unique_ptr<RmFileHandle> table_file = rm_manager_->open_file(sb_tables[i]);
+        max_page_num_per_table[i] = table_file->get_file_hdr().num_pages_;
+        if(i == 0) record_per_page = table_file->get_file_hdr().num_records_per_page_;
+
+        // 2. B+ Tree (ID: i + 2)
+        std::string bp_name = sb_tables[i] + "_bp";
+        int bp_size = rm_manager_->get_diskmanager()->get_file_size(bp_name);
+        max_page_num_per_table[i + 2] = (bp_size == -1) ? 0 : (bp_size / PAGE_SIZE);
+
+        // 3. B-Link Tree (ID: i + 4)
+        std::string bl_name = sb_tables[i] + "_bl";
+        int bl_size = rm_manager_->get_diskmanager()->get_file_size(bl_name);
+        max_page_num_per_table[i + 4] = (bl_size == -1) ? 0 : (bl_size / PAGE_SIZE);
+    }
 
     // Fill storage meta
     memcpy(storage_meta, &table_num, sizeof(int));
     memcpy(storage_meta + sizeof(int), max_page_num_per_table, table_num * sizeof(int));
     memcpy(storage_meta + sizeof(int) + table_num * sizeof(int), &record_per_page, sizeof(int));
-  }else if(workload == "TPCC") {
-      std::unique_ptr<RmFileHandle> table_file = rm_manager_->open_file("TPCC_warehouse");
-      std::unique_ptr<RmFileHandle> table_file2 = rm_manager_->open_file("TPCC_district");
-      std::unique_ptr<RmFileHandle> table_file3 = rm_manager_->open_file("TPCC_customer");
-      std::unique_ptr<RmFileHandle> table_file4 = rm_manager_->open_file("TPCC_customerhistory");
-      std::unique_ptr<RmFileHandle> table_file5 = rm_manager_->open_file("TPCC_ordernew");
-      std::unique_ptr<RmFileHandle> table_file6 = rm_manager_->open_file("TPCC_order");
-      std::unique_ptr<RmFileHandle> table_file7 = rm_manager_->open_file("TPCC_orderline");
-      std::unique_ptr<RmFileHandle> table_file8 = rm_manager_->open_file("TPCC_item");
-      std::unique_ptr<RmFileHandle> table_file9 = rm_manager_->open_file("TPCC_stock");
-      std::unique_ptr<RmFileHandle> table_file10 = rm_manager_->open_file("TPCC_customerindex");
-      std::unique_ptr<RmFileHandle> table_file11 = rm_manager_->open_file("TPCC_orderindex");
 
-      max_page_num_per_table[0] = table_file->get_file_hdr().num_pages_;
-      max_page_num_per_table[1] = table_file2->get_file_hdr().num_pages_;
-      max_page_num_per_table[2] = table_file3->get_file_hdr().num_pages_;
-      max_page_num_per_table[3] = table_file4->get_file_hdr().num_pages_;
-      max_page_num_per_table[4] = table_file5->get_file_hdr().num_pages_;
-      max_page_num_per_table[5] = table_file6->get_file_hdr().num_pages_;
-      max_page_num_per_table[6] = table_file7->get_file_hdr().num_pages_;
-      max_page_num_per_table[7] = table_file8->get_file_hdr().num_pages_;
-      max_page_num_per_table[8] = table_file9->get_file_hdr().num_pages_;
-      max_page_num_per_table[9] = table_file10->get_file_hdr().num_pages_;
-      max_page_num_per_table[10] = table_file11->get_file_hdr().num_pages_;
-      record_per_page = table_file->get_file_hdr().num_records_per_page_;
+  }else if(workload == "TPCC") {
+      std::vector<std::string> tpcc_tables = {
+        "TPCC_warehouse", "TPCC_district", "TPCC_customer", "TPCC_customerhistory",
+        "TPCC_ordernew", "TPCC_order", "TPCC_orderline", "TPCC_item",
+        "TPCC_stock", "TPCC_customerindex", "TPCC_orderindex"
+      };
+
+      for(int i = 0; i < 11; ++i) {
+          // 1. Data Table (ID: i)
+          std::unique_ptr<RmFileHandle> table_file = rm_manager_->open_file(tpcc_tables[i]);
+          max_page_num_per_table[i] = table_file->get_file_hdr().num_pages_;
+          if(i == 0) record_per_page = table_file->get_file_hdr().num_records_per_page_;
+
+          // 2. B+ Tree (ID: i + 11)
+          std::string bp_name = tpcc_tables[i] + "_bp";
+          int bp_size = rm_manager_->get_diskmanager()->get_file_size(bp_name);
+          max_page_num_per_table[i + 11] = (bp_size == -1) ? 0 : (bp_size / PAGE_SIZE);
+
+          // 3. B-Link Tree (ID: i + 22)
+          std::string bl_name = tpcc_tables[i] + "_bl";
+          int bl_size = rm_manager_->get_diskmanager()->get_file_size(bl_name);
+          max_page_num_per_table[i + 22] = (bl_size == -1) ? 0 : (bl_size / PAGE_SIZE);
+      }
 
       // Fill storage meta
       memcpy(storage_meta, &table_num, sizeof(int));

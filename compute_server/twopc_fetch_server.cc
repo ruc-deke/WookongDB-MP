@@ -122,13 +122,13 @@ void ComputeServer::Get_2pc_Remote_page(node_id_t node_id, table_id_t table_id, 
     if(response.abort()){
         assert(lock == true);
         data = nullptr;
-    } else{
+    } else {
         char* page = (char*)response.data().c_str();
         char *bitmap = page + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
         char *slots = bitmap + node_->meta_manager_->GetTableMeta(table_id).bitmap_size_;
         char* tuple = slots + rid.slot_no_ * (sizeof(DataItem) + sizeof(itemkey_t));
         data = new char[sizeof(DataItem)];
-        memcpy(data, tuple+sizeof(itemkey_t), sizeof(DataItem));
+        memcpy(data, tuple + sizeof(itemkey_t), sizeof(DataItem));
     }
     return;
 }

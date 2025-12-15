@@ -260,7 +260,7 @@ class PageTableServiceImpl : public PageTableService {
             page_id_t page_id = request->page_id().page_no();
             table_id_t table_id = request->page_id().table_id();
             node_id_t node_id = request->node_id();
-
+            // std::cout << "LRPSLock , TableID = " << table_id << " Page ID = " << page_id << "\n";
             // LOG(INFO) << "LRPSLock Remote , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
 
             GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
@@ -305,7 +305,7 @@ class PageTableServiceImpl : public PageTableService {
             node_id_t node_id = request->node_id();
 
             // LOG(INFO) << "LRPSLock local , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
-
+            
             GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
             bool lock_success = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->LockShared(node_id,table_id, valid_info);
   

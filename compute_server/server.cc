@@ -466,7 +466,7 @@ std::string ComputeServer::rpc_fetch_page_from_storage(table_id_t table_id, page
     page_id_pb->set_page_no(page_id);
     page_id_pb->set_table_name(table_name_meta[table_id]);
     // std::cout << "Fetch Page From Storage , table_id = " << table_id << " table_name = " << table_name_meta[table_id] << "\n";
-    // LOG(INFO) << "Fetch Page From Storage , table_id = " << table_id << " page_id = " << page_id;
+    
     brpc::Controller cntl;
     storage_stub.GetPage(&cntl, &request, &response, NULL);
     if(cntl.Failed()){

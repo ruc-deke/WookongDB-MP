@@ -2,7 +2,7 @@
 
 static std::atomic<int> cnt{0};
 Page* ComputeServer::rpc_fetch_s_page(table_id_t table_id, page_id_t page_id) {
-    // LOG(INFO) << "Fetching S Page , table_id = " << table_id << " page_id = " << page_id;
+    // LOG(INFO)  << "Fetching S Page , table_id = " << table_id << " page_id = " << page_id;
     int k1 = cnt.fetch_add(1);
     if (k1 % 10000 == 0){
         std::cout << k1 << "\n";
@@ -43,13 +43,13 @@ Page* ComputeServer::rpc_fetch_s_page(table_id_t table_id, page_id_t page_id) {
         node_id_t valid_node = response->newest_node();
         bool need_from_storage = response->need_storage_fetch();
         if (need_from_storage){
-            // LOG(INFO) << "Fetching S From Storage , table_id = " << table_id << " page_id = " << page_id;
+            // LOG(INFO)  << "Fetching S From Storage , table_id = " << table_id << " page_id = " << page_id;
             assert(valid_node == -1);
             std::string data = rpc_fetch_page_from_storage(table_id , page_id , true);
             assert(data.size() == PAGE_SIZE);
             page = put_page_into_buffer(table_id , page_id , data.c_str() , 0);
         }else {
-            // LOG(INFO) << "Fetching S From Remote , table_id = " << table_id << " page_id = " << page_id << " node_id = " << valid_node;
+            // LOG(INFO)  << "Fetching S From Remote , table_id = " << table_id << " page_id = " << page_id << " node_id = " << valid_node;
             assert(valid_node != -1);
             std::string data = UpdatePageFromRemoteCompute(table_id , page_id , valid_node , true);
             assert(data.size() == PAGE_SIZE);
@@ -58,18 +58,18 @@ Page* ComputeServer::rpc_fetch_s_page(table_id_t table_id, page_id_t page_id) {
         node_->eager_local_page_lock_tables[table_id]->GetLock(page_id)->LockRemoteOK();
         delete response;
     }else {
-        // LOG(INFO) << "Fetching S Page From Local , table_id = " << table_id << " page_id = " << page_id;
+        // LOG(INFO)  << "Fetching S Page From Local , table_id = " << table_id << " page_id = " << page_id;
         page = node_->getBufferPoolByIndex(table_id)->fetch_page(page_id);
         node_->eager_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
     } 
     assert(page);
     assert(page->page_id_ == page_id && page->id_.table_id == table_id);
-    // LOG(INFO) << "Fetch S Success , table_id = " << table_id << " page_id = " << page_id;
+    // LOG(INFO)  << "Fetch S Success , table_id = " << table_id << " page_id = " << page_id;
     return page;
 }
 
 Page* ComputeServer::rpc_fetch_x_page(table_id_t table_id, page_id_t page_id) {
-    // LOG(INFO) << "Fetching X Page, table_id = " << table_id << " page_id = " << page_id;
+    // LOG(INFO)  << "Fetching X Page, table_id = " << table_id << " page_id = " << page_id;
     int k1 = cnt.fetch_add(1);
     if (k1 % 10000 == 0){
         std::cout << k1 << "\n";
@@ -111,14 +111,14 @@ Page* ComputeServer::rpc_fetch_x_page(table_id_t table_id, page_id_t page_id) {
         node_id_t valid_node = response->newest_node();
         bool need_from_storage = response->need_storage_fetch();
         if (need_from_storage){
-            // LOG(INFO) << "Fetch X From Storage , table_id = " << table_id << " page_id = " << page_id;
+            // LOG(INFO)  << "Fetch X From Storage , table_id = " << table_id << " page_id = " << page_id;
             assert(valid_node == -1);
             std::string data = rpc_fetch_page_from_storage(table_id , page_id , true);
             assert(data.size() == PAGE_SIZE);
             page = put_page_into_buffer(table_id , page_id , data.c_str() , 0);
         }else if(valid_node != -1){
             assert(valid_node != node_->node_id);
-            // LOG(INFO) << "Fetch X From Remote , table_id = " << table_id << " page_id = " << page_id;
+            // LOG(INFO)  << "Fetch X From Remote , table_id = " << table_id << " page_id = " << page_id;
             std::string data = UpdatePageFromRemoteCompute(table_id, page_id, valid_node , true);
             assert(data.size() == PAGE_SIZE);
             page = put_page_into_buffer(table_id , page_id , data.c_str() , 0);
@@ -129,12 +129,12 @@ Page* ComputeServer::rpc_fetch_x_page(table_id_t table_id, page_id_t page_id) {
     }
     assert(page);
     assert(page->page_id_ == page_id && page->id_.table_id == table_id);
-    // LOG(INFO) << "Fetching X Success , table_id = " << table_id << " page_id = " << page_id;
+    // LOG(INFO)  << "Fetching X Success , table_id = " << table_id << " page_id = " << page_id;
     return page;
 }
 
 void ComputeServer::rpc_release_s_page(table_id_t  table_id, page_id_t page_id) {
-    // LOG(INFO) << "Unlock S , table_id = " << table_id << " page_id = " << page_id;
+    // LOG(INFO)  << "Unlock S , table_id = " << table_id << " page_id = " << page_id;
     bool unlock_remote = node_->eager_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockShared();
     if(unlock_remote){
         page_table_service::PSUnlockRequest request;
@@ -160,11 +160,11 @@ void ComputeServer::rpc_release_s_page(table_id_t  table_id, page_id_t page_id) 
             }
         }
         node_->getBufferPoolByIndex(table_id)->releaseBufferPage(table_id , page_id);
-        // LOG(INFO) << "Unlock S Remote Success , table_id = " << table_id << " page_id = " << page_id;
+        // LOG(INFO)  << "Unlock S Remote Success , table_id = " << table_id << " page_id = " << page_id;
         node_->eager_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockRemoteOK();
         delete response;
     }else {
-        // LOG(INFO) << "Unlock S Directly , table_id = " << table_id << " page_id = " << page_id;
+        // LOG(INFO)  << "Unlock S Directly , table_id = " << table_id << " page_id = " << page_id;
         node_->eager_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
     }
     return;
@@ -172,11 +172,14 @@ void ComputeServer::rpc_release_s_page(table_id_t  table_id, page_id_t page_id) 
 
 
 void ComputeServer::rpc_release_x_page(table_id_t table_id, page_id_t page_id) {
-    // LOG(INFO) << "Unlock X , table_id = " << table_id << " page_id = " << page_id;
+    // LOG(INFO)  << "Unlock X , table_id = " << table_id << " page_id = " << page_id;
     // release page
     bool unlock_remote = node_->eager_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockExclusive();
     assert(unlock_remote);
     if(unlock_remote){
+        // 先刷盘
+        rpc_flush_page_to_storage(table_id , page_id);
+        
         // rpc release page
         page_table_service::PXUnlockRequest unlock_request;
         page_table_service::PXUnlockResponse* unlock_response = new page_table_service::PXUnlockResponse();
@@ -200,9 +203,8 @@ void ComputeServer::rpc_release_x_page(table_id_t table_id, page_id_t page_id) {
                 // LOG(ERROR) << "Fail to unlock page " << page_id << " in remote page table";
             }
         }
-        rpc_flush_page_to_storage(table_id , page_id);
         node_->getBufferPoolByIndex(table_id)->releaseBufferPage(table_id , page_id);
-        // LOG(INFO) << "Unlock X Remote Success , table_id = " << table_id << " page_id = " << page_id;
+        // LOG(INFO)  << "Unlock X Remote Success , table_id = " << table_id << " page_id = " << page_id;
         node_->eager_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockRemoteOK();
         delete unlock_response;
     }

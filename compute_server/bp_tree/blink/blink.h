@@ -192,7 +192,8 @@ public:
     void destroy_node(page_id_t page_id);
 
     itemkey_t get_subtree_min_key(BLinkNodeHandle *node);
-    BLinkNodeHandle* find_leaf_for_search(const itemkey_t * key);
+    BLinkNodeHandle* find_leaf_for_search(const itemkey_t *key);
+    void find_leaf_for_search_with_print(const itemkey_t *key , std::stringstream &ss);
     BLinkNodeHandle* find_leaf_for_insert(const itemkey_t * key , std::vector<page_id_t> &path);
     BLinkNodeHandle* find_leaf_for_delete(const itemkey_t * key);
 

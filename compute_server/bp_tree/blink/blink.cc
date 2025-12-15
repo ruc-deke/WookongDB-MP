@@ -136,29 +136,58 @@ void BLinkIndexHandle::destroy_node(page_id_t page_id){
 }
 
 void BLinkIndexHandle::s_get_file_hdr(){
-    Page *page = server->rpc_lazy_fetch_s_page(table_id , BL_HEAD_PAGE_ID);
+    Page *page;
+    if (SYSTEM_MODE == 0){
+        page = server->rpc_fetch_s_page(table_id , BL_HEAD_PAGE_ID);
+    }else {
+        page = server->rpc_lazy_fetch_s_page(table_id , BL_HEAD_PAGE_ID);
+    }
     file_hdr->deserialize(page->get_data());
 }
 Page* BLinkIndexHandle::x_get_file_hdr(){
-    Page *page = server->rpc_lazy_fetch_x_page(table_id , BL_HEAD_PAGE_ID);
+    Page *page;
+    if (SYSTEM_MODE == 0){
+        page = server->rpc_fetch_x_page(table_id , BL_HEAD_PAGE_ID);
+    }else {
+        page = server->rpc_lazy_fetch_x_page(table_id , BL_HEAD_PAGE_ID);
+    }
     file_hdr->deserialize(page->get_data());
     return page;
 }
 void BLinkIndexHandle::s_release_file_hdr(){
-    server->rpc_lazy_release_s_page(table_id , BL_HEAD_PAGE_ID);
+    if (SYSTEM_MODE == 0){
+        server->rpc_release_s_page(table_id , BL_HEAD_PAGE_ID);
+    }else {
+        server->rpc_lazy_release_s_page(table_id , BL_HEAD_PAGE_ID);
+    }
 }
 void BLinkIndexHandle::x_release_file_hdr(Page *page){
+    assert(page->get_page_id().page_no == BL_HEAD_PAGE_ID);
     file_hdr->serialize(page->get_data());
-    server->rpc_lazy_release_x_page(table_id , BL_HEAD_PAGE_ID);
+    if (SYSTEM_MODE == 0){
+        server->rpc_release_x_page(table_id , BL_HEAD_PAGE_ID);
+    }else {
+        server->rpc_lazy_release_x_page(table_id , BL_HEAD_PAGE_ID);
+    }
 }
 
 BLinkNodeHandle *BLinkIndexHandle::fetch_node(page_id_t page_id , BPOperation opera){
     BLinkNodeHandle *ret = nullptr;
     if (opera == BPOperation::SEARCH_OPERA){
-        Page *page = server->rpc_lazy_fetch_s_page(table_id , page_id);
+        Page *page;
+        if (SYSTEM_MODE == 0){
+            page = server->rpc_fetch_s_page(table_id , page_id);
+        }else {
+            page = server->rpc_lazy_fetch_s_page(table_id , page_id);
+        }
         ret = new BLinkNodeHandle(page);
     }else{
-        Page *page = server->rpc_lazy_fetch_x_page(table_id , page_id);
+        Page *page;
+        if (SYSTEM_MODE == 0){
+            page = server->rpc_fetch_x_page(table_id , page_id);
+        }else{
+            page = server->rpc_lazy_fetch_x_page(table_id , page_id);
+        }
         ret = new BLinkNodeHandle(page);
     }
     return ret;
@@ -166,12 +195,19 @@ BLinkNodeHandle *BLinkIndexHandle::fetch_node(page_id_t page_id , BPOperation op
 
 void BLinkIndexHandle::release_node(page_id_t page_id , BPOperation opera){
     if (opera == BPOperation::SEARCH_OPERA){
-        server->rpc_lazy_release_s_page(table_id , page_id);
+        if (SYSTEM_MODE == 0){
+            server->rpc_release_s_page(table_id , page_id);
+        }else {
+            server->rpc_lazy_release_s_page(table_id , page_id);
+        }
     }else {
-        server->rpc_lazy_release_x_page(table_id , page_id);
+        if (SYSTEM_MODE == 0){
+            server->rpc_release_x_page(table_id , page_id);
+        }else {
+            server->rpc_lazy_release_x_page(table_id , page_id);
+        }
     }
 }
-
 
 BLinkNodeHandle* BLinkIndexHandle::find_leaf_for_search(const itemkey_t * key){
     BLinkNodeHandle *node = nullptr;
@@ -182,6 +218,7 @@ BLinkNodeHandle* BLinkIndexHandle::find_leaf_for_search(const itemkey_t * key){
         s_release_file_hdr();
 
         node = fetch_node(root_page_id , BPOperation::SEARCH_OPERA);
+        // 可能在我获取到根节点的这段时间里面，根节点变了，那就需要去找到新的根节点
         if (node->is_root()){
             break;
         }else {
@@ -191,23 +228,11 @@ BLinkNodeHandle* BLinkIndexHandle::find_leaf_for_search(const itemkey_t * key){
 
     while (!node->is_leaf()){
         while (node->need_to_right(*key)){
-            // ss << "Need To Right Sibling , page_id = " << node->get_page_no() << " node_size = " << node->get_size() << "\n";
-            // for (int i = 0 ; i < node->get_size() ; i++){
-            //     ss << *node->get_key(i) << " ";
-            // }
-            // ss << "\n\n";
-
             page_id_t sib = node->get_right_sibling();
             release_node(node->get_page_no() , BPOperation::SEARCH_OPERA);
             delete node; // 先删旧句柄
             node = fetch_node(sib , BPOperation::SEARCH_OPERA); // 再取兄弟
         }
-
-        // ss << "Internal Look Up , page_id = " << node->get_page_no() << " Node Size = " << node->get_size() << "\n";
-        // for (int i = 0 ; i < node->get_size() ; i++){
-        //     ss << *node->get_key(i) << " ";
-        // }
-        // ss << "\n\n";
 
         int pos = node->upper_bound(key);
         page_id_t child_page_no = node->value_at(pos - 1);
@@ -217,11 +242,65 @@ BLinkNodeHandle* BLinkIndexHandle::find_leaf_for_search(const itemkey_t * key){
     }
 
     while (node->need_to_right(*key)){
-        // ss << "Leaf Need To Right Sibling , page_id = " << node->get_page_no() << " node_size = " << node->get_size() << "\n";
-        // for (int i = 0 ; i < node->get_size() ; i++){
-        //     ss << *node->get_key(i) << " ";
-        // }
-        // ss << "\n\n";
+        page_id_t sib = node->get_right_sibling();
+        release_node(node->get_page_no() , BPOperation::SEARCH_OPERA);
+        delete node; // 先删旧句柄
+        node = fetch_node(sib , BPOperation::SEARCH_OPERA); // 再取兄弟
+    }
+
+    return node;
+}
+
+void BLinkIndexHandle::find_leaf_for_search_with_print(const itemkey_t *key , std::stringstream &ss){
+    BLinkNodeHandle *node = nullptr;
+    page_id_t root_page_id = INVALID_PAGE_ID;
+    while (true){
+        s_get_file_hdr();
+        root_page_id = file_hdr->root_page_id;
+        s_release_file_hdr();
+
+        node = fetch_node(root_page_id , BPOperation::SEARCH_OPERA);
+        // 可能在我获取到根节点的这段时间里面，根节点变了，那就需要去找到新的根节点
+        if (node->is_root()){
+            break;
+        }else {
+            release_node(root_page_id , BPOperation::SEARCH_OPERA);
+        }
+    }
+
+    while (!node->is_leaf()){
+        while (node->need_to_right(*key)){
+            ss << "Need To Right Sibling , page_id = " << node->get_page_no() << " node_size = " << node->get_size() << "\n";
+            for (int i = 0 ; i < node->get_size() ; i++){
+                ss << *node->get_key(i) << " ";
+            }
+            ss << "\n\n";
+
+            page_id_t sib = node->get_right_sibling();
+            release_node(node->get_page_no() , BPOperation::SEARCH_OPERA);
+            delete node; // 先删旧句柄
+            node = fetch_node(sib , BPOperation::SEARCH_OPERA); // 再取兄弟
+        }
+
+        ss << "Internal Look Up , page_id = " << node->get_page_no() << " Node Size = " << node->get_size() << "\n";
+        for (int i = 0 ; i < node->get_size() ; i++){
+            ss << *node->get_key(i) << " ";
+        }
+        ss << "\n\n";
+
+        int pos = node->upper_bound(key);
+        page_id_t child_page_no = node->value_at(pos - 1);
+        release_node(node->get_page_no() , BPOperation::SEARCH_OPERA);
+        delete node;
+        node = fetch_node(child_page_no , BPOperation::SEARCH_OPERA);
+    }
+
+    while (node->need_to_right(*key)){
+        ss << "Leaf Need To Right Sibling , page_id = " << node->get_page_no() << " node_size = " << node->get_size() << "\n";
+        for (int i = 0 ; i < node->get_size() ; i++){
+            ss << *node->get_key(i) << " ";
+        }
+        ss << "\n\n";
 
         page_id_t sib = node->get_right_sibling();
         release_node(node->get_page_no() , BPOperation::SEARCH_OPERA);
@@ -229,13 +308,11 @@ BLinkNodeHandle* BLinkIndexHandle::find_leaf_for_search(const itemkey_t * key){
         node = fetch_node(sib , BPOperation::SEARCH_OPERA); // 再取兄弟
     }
 
-    // ss << "Leaf Look Up , page_id = " << node->get_page_no() << " Node Size = " << node->get_size() << "\n";
-    // for (int i = 0 ; i < node->get_size() ; i++){
-    //     ss << *node->get_key(i) << " ";
-    // }
-    // ss << "\n\n";
-
-    return node;
+    ss << "Leaf Look Up , page_id = " << node->get_page_no() << " Node Size = " << node->get_size() << "\n";
+    for (int i = 0 ; i < node->get_size() ; i++){
+        ss << *node->get_key(i) << " ";
+    }
+    ss << "\n\n";
 }
 
 BLinkNodeHandle* BLinkIndexHandle::find_leaf_for_insert(const itemkey_t * key , std::vector<page_id_t>& trace){
@@ -502,6 +579,15 @@ bool BLinkIndexHandle::search(const itemkey_t *key , Rid &result){
         key2leaf[*key] = leaf->get_page_no();
         key2leaf_mtx.unlock();
         result = *rid;
+    }else {
+        // SmallBank 的每个都存在，TPCC 不一定
+        if (WORKLOAD_MODE == 0){
+            assert(false);
+        }
+        // release_node(leaf->get_page_no() , BPOperation::SEARCH_OPERA);
+        // std::stringstream ss;
+        // find_leaf_for_search_with_print(key , ss);
+        // std::cout << ss.str() << "\n";
     }
     release_node(leaf->get_page_no() , BPOperation::SEARCH_OPERA);
     delete leaf;

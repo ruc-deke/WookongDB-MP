@@ -248,7 +248,7 @@ int main(int argc, char* argv[]) {
     auto bufferpool = std::make_unique<BufferPool>(BufferFusionSize , 10000);
     auto global_page_lock_table_list = std::make_unique<std::vector<GlobalLockTable*>>();
     auto global_valid_table_list = std::make_unique<std::vector<GlobalValidTable*>>();
-    for(int i=0; i < 15; i++){
+    for(int i=0; i < 33; i++){
         global_page_lock_table_list->push_back(new GlobalLockTable());
         global_valid_table_list->push_back(new GlobalValidTable());
     }

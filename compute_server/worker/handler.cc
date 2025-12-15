@@ -89,7 +89,7 @@ void Handler::ConfigureComputeNode(int argc, char* argv[]) {
     txn_system_value = 13;
   } else if (system_name.find("ts_sep") != std::string::npos) {
     txn_system_value = 12;
-  }else {
+  } else {
     LOG(FATAL) << "Unsupported system name: " << system_name;
   }
   SYSTEM_MODE = txn_system_value;
@@ -107,6 +107,7 @@ void Handler::GenThreads(std::string bench_name) {
     } else {
         LOG(FATAL) << "Unsupported benchmark name: " << bench_name;
     }
+    std::cout << "WORKLOAD_MODE = " << WORKLOAD_MODE << "\n";
   std::string config_filepath = "../../config/compute_node_config.json";
   auto json_config = JsonConfig::load_file(config_filepath);
   auto client_conf = json_config.get("local_compute_node");
@@ -148,9 +149,13 @@ void Handler::GenThreads(std::string bench_name) {
 
   auto* compute_server = new ComputeServer(compute_node, compute_ips, compute_ports);
 
-  std::this_thread::sleep_for(std::chrono::seconds(5));  // Wait for 3s to ensure that the compute node server has started
+  // ComputeServer 启动是用另外一个线程启动的， 这里等待一下启动
+  if (WORKLOAD_MODE == 0){
+    std::this_thread::sleep_for(std::chrono::seconds(5)); 
+  }else {
+    std::this_thread::sleep_for(std::chrono::seconds(15)); 
+  }
 
-  // sleep(10);
 
   // Send TCP requests to remote servers here, and the remote server establishes a connection with the compute node
   socket_start_client(global_meta_man->remote_server_nodes[0].ip, global_meta_man->remote_server_meta_port);

@@ -11,3 +11,4 @@ third_party/brpc
 result/
 perf*
 cmake-build-debug/
+flamegraph.svg

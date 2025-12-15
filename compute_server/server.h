@@ -192,26 +192,9 @@ public:
             global_page_lock_table_list_ = new std::vector<GlobalLockTable*>();
             global_valid_table_list_ = new std::vector<GlobalValidTable*>();
 
-            // SmallBank 2 张表，TPCC 22 张表
-            int table_cnt = (WORKLOAD_MODE == 0) ? 6 : 33;
-            for(int i=0; i < table_cnt; i++){
-                global_page_lock_table_list_->push_back(new GlobalLockTable());
-                global_valid_table_list_->push_back(new GlobalValidTable());
-            }
-            page_table_service_impl_ = new page_table_service::PageTableServiceImpl(global_page_lock_table_list_, global_valid_table_list_);
-            if (server.AddService(page_table_service_impl_, brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
-                LOG(ERROR) << "Fail to add page_table_service";
-                return;
-            }
-            // 初始化Meta Server
-            for(size_t i = 0; i < global_page_lock_table_list_->size(); i++){
-                global_page_lock_table_list_->at(i)->Reset();
-                global_valid_table_list_->at(i)->Reset();
-                global_page_lock_table_list_->at(i)->BuildRPCConnection(compute_ips, compute_ports);
-            }
-
             // 初始化 B+ 树
             if (WORKLOAD_MODE == 0){
+                std::cout << "SmallBank Initilize BLink\n";
                 bp_tree_indexes.resize(2);
                 bl_indexes.resize(2);
                 for (int i = 0 ; i < 2 ; i++){
@@ -220,8 +203,8 @@ public:
                 for (int i = 0 ; i < 2 ; i++){
                     bl_indexes[i] = new BLinkIndexHandle(this , i + 4);
                 }
-
             }else if (WORKLOAD_MODE == 1){
+                std::cout << "TPCC Initilize BLink\n";
                 bp_tree_indexes.resize(11);
                 bl_indexes.resize(11);
                 for (int i = 0 ; i < 11 ; i++){
@@ -234,12 +217,56 @@ public:
                 assert(false);
             }
 
+            // SmallBank 2 张表，TPCC 22 张表
+            if (WORKLOAD_MODE == 0){
+                for (int i = 0 ; i < 6 ; i++){
+                    if (i < 2){
+                        global_page_lock_table_list_->push_back(new GlobalLockTable());
+                        global_valid_table_list_->push_back(new GlobalValidTable());
+                    }else if (i < 4){
+                        global_page_lock_table_list_->push_back(nullptr);
+                        global_valid_table_list_->push_back(nullptr);
+                    }else {
+                        global_page_lock_table_list_->push_back(new GlobalLockTable());
+                        global_valid_table_list_->push_back(new GlobalValidTable());
+                    }
+                }
+            }else if (WORKLOAD_MODE == 1){
+                for (int i = 0 ; i < 33 ; i++){
+                    if (i < 11){
+                        global_page_lock_table_list_->push_back(new GlobalLockTable());
+                        global_valid_table_list_->push_back(new GlobalValidTable());
+                    }else if (i < 22){
+                        global_page_lock_table_list_->push_back(nullptr);
+                        global_valid_table_list_->push_back(nullptr);
+                    }else {
+                        global_page_lock_table_list_->push_back(new GlobalLockTable());
+                        global_valid_table_list_->push_back(new GlobalValidTable());
+                    }
+                }
+            }
+            page_table_service_impl_ = new page_table_service::PageTableServiceImpl(global_page_lock_table_list_, global_valid_table_list_);
+            if (server.AddService(page_table_service_impl_, brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
+                LOG(ERROR) << "Fail to add page_table_service";
+                return;
+            }
+            int table_cnt = (WORKLOAD_MODE == 0) ? 2 : 11;
+            // 初始化Meta Server
+            for(size_t i = 0; i < global_page_lock_table_list_->size(); i++){
+                if (i < table_cnt || i >= table_cnt * 2){
+                    global_page_lock_table_list_->at(i)->Reset();
+                    global_valid_table_list_->at(i)->Reset();
+                    global_page_lock_table_list_->at(i)->BuildRPCConnection(compute_ips, compute_ports);
+                }
+            }
+
             butil::EndPoint point;
             point = butil::EndPoint(butil::IP_ANY, compute_ports[node_->getNodeID()]);
             brpc::ServerOptions server_options;
             server_options.num_threads = 8;
             server_options.use_rdma = use_rdma;
-            // std::cout << "finish build endpoint\n";
+
+            std::cout << "Server Start Over\n";
 
             if (server.Start(point,&server_options) != 0) {
                 LOG(ERROR) << "Fail to start Server";
@@ -253,7 +280,6 @@ public:
             exit(1);
         });
         t.detach();
-
     }
 
     Rid get_rid_from_blink(table_id_t table_id , itemkey_t key){
@@ -484,8 +510,9 @@ public:
             // 2pc
             return put_page_into_buffer_2pc(table_id , page_id , data);
         }else if (type == 3){
-            // TODO
+            // single，TODO
         }else if (type == 12 || type == 13){
+            // 时间片
             return put_page_into_buffer_ts(table_id , page_id , data);
         }
     }
@@ -880,7 +907,13 @@ public:
     inline node_id_t get_node_id_by_page_id(table_id_t table_id, page_id_t page_id){
         auto max_pages_this_table = node_->meta_manager_->GetMaxPageNumPerTable(table_id);
         auto partition_size = max_pages_this_table / ComputeNodeCount;
+        assert(max_pages_this_table != 0 && partition_size != 0);
         int node_id = (page_id - 1) / partition_size;
+        // 比如 20 个页面，3 个主节点，那 18~20 号页面也归 3 号节点管理
+        if (node_id == ComputeNodeCount){
+            node_id = ComputeNodeCount - 1;
+        }
+        assert(node_id < ComputeNodeCount);
         return node_id >= ComputeNodeCount ? ComputeNodeCount - 1 : node_id;
     }
 
