@@ -181,35 +181,35 @@ public:
     void table2name(table_id_t table_id , std::string bench_name){
         // 将 table_id 映射为索引名，然后打开   
         if (bench_name == "smallbank"){
-            if (table_id == 4){
+            if (table_id == 10000){
                 index_path = "smallbank_savings_bl";
-            } else if (table_id == 5){
+            } else if (table_id == 10001){
                 index_path = "smallbank_checking_bl";
             } else { 
                 assert(false); 
             }
         }else if (bench_name == "tpcc"){
-            if (table_id == 22){
+            if (table_id == 10000){
                 index_path = "TPCC_warehouse_bl";
-            }else if (table_id == 23){
+            }else if (table_id == 10001){
                 index_path = "TPCC_district_bl";
-            }else if (table_id == 24){
+            }else if (table_id == 10002){
                 index_path = "TPCC_customer_bl";
-            }else if (table_id == 25){
+            }else if (table_id == 10003){
                 index_path = "TPCC_customerhistory_bl";
-            }else if (table_id == 26){
+            }else if (table_id == 10004){
                 index_path = "TPCC_ordernew_bl";
-            }else if (table_id == 27){
+            }else if (table_id == 10005){
                 index_path = "TPCC_order_bl";
-            }else if (table_id == 28){
+            }else if (table_id == 10006){
                 index_path = "TPCC_orderline_bl";
-            }else if (table_id == 29){
+            }else if (table_id == 10007){
                 index_path = "TPCC_item_bl";
-            }else if (table_id == 30){
+            }else if (table_id == 10008){
                 index_path = "TPCC_stock_bl";
-            }else if (table_id == 31){
+            }else if (table_id == 10009){
                 index_path = "TPCC_customerindex_bl";
-            }else if (table_id == 32){
+            }else if (table_id == 10010){
                 index_path = "TPCC_orderindex_bl";
             }else {
                 assert(false);

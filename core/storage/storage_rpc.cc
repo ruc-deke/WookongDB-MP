@@ -132,12 +132,6 @@ namespace storage_service{
                 fd = table_fd_map[table_name];
             }
         
-            // char abs_path[PATH_MAX];
-            // if (realpath(table_name.c_str() , abs_path) != nullptr){
-            //     std::cout << "Absolute path: " << abs_path << "\n";
-            // }else {
-            //     assert(false);
-            // }
         
             page_id_t page_no = request->page_id()[i].page_no();
             // std::cout << "Getting Page " << "table_name = " << table_name << " page_id = " << page_no << "\n";

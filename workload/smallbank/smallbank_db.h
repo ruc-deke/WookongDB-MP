@@ -131,12 +131,12 @@ class SmallBank {
     if (rm_manager){
         index_manager = new IndexManager(rm_manager->get_diskmanager());
         // 2颗 B+ 树
+        // for (int i = 0 ; i < 2 ; i++){
+        //     bp_tree_indexes.emplace_back(new S_BPTreeIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 2 , "smallbank"));
+        // }
+        // 两张 BLink ,B+树的存储空间从 10000 开始的
         for (int i = 0 ; i < 2 ; i++){
-            bp_tree_indexes.emplace_back(new S_BPTreeIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 2 , "smallbank"));
-        }
-        // 两张 BLink 表
-        for (int i = 0 ; i < 2 ; i++){
-            bl_indexes.emplace_back(new S_BLinkIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 4 , "smallbank"));
+            bl_indexes.emplace_back(new S_BLinkIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 10000 , "smallbank"));
         }
     }
     bench_name = "smallbank";

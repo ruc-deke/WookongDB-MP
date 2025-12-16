@@ -492,11 +492,11 @@ public:
         if (rm_manager){
             index_manager = new IndexManager(rm_manager->get_diskmanager());
             // 11 颗 B+ 树
+            // for (int i = 0 ; i < 11 ; i++){
+            //     bp_tree_indexes.emplace_back(new S_BPTreeIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 11 , "tpcc"));
+            // }
             for (int i = 0 ; i < 11 ; i++){
-                bp_tree_indexes.emplace_back(new S_BPTreeIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 11 , "tpcc"));
-            }
-            for (int i = 0 ; i < 11 ; i++){
-                bl_indexes.emplace_back(new S_BLinkIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 22 , "tpcc"));
+                bl_indexes.emplace_back(new S_BLinkIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 10000 , "tpcc"));
             }
         }
         bench_name = "TPCC";

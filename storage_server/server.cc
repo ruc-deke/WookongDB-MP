@@ -72,17 +72,18 @@ void Server::PrepareStorageMeta(node_id_t machine_id, std::string workload, char
         // 1. Data Table (ID: i)
         std::unique_ptr<RmFileHandle> table_file = rm_manager_->open_file(sb_tables[i]);
         max_page_num_per_table[i] = table_file->get_file_hdr().num_pages_;
+        // std::cout << "File Size = " << max_page_num_per_table[i] << "\n";
         if(i == 0) record_per_page = table_file->get_file_hdr().num_records_per_page_;
 
-        // 2. B+ Tree (ID: i + 2)
-        std::string bp_name = sb_tables[i] + "_bp";
-        int bp_size = rm_manager_->get_diskmanager()->get_file_size(bp_name);
-        max_page_num_per_table[i + 2] = (bp_size == -1) ? 0 : (bp_size / PAGE_SIZE);
-
-        // 3. B-Link Tree (ID: i + 4)
+        // 2. B-Link Tree (ID: i + 4)
         std::string bl_name = sb_tables[i] + "_bl";
         int bl_size = rm_manager_->get_diskmanager()->get_file_size(bl_name);
-        max_page_num_per_table[i + 4] = (bl_size == -1) ? 0 : (bl_size / PAGE_SIZE);
+        max_page_num_per_table[i + 2] = (bl_size == -1) ? 0 : (bl_size / PAGE_SIZE);
+
+        // 3. FSM
+        std::string fsm_name = sb_tables[i] + "_fsm";
+        int fsm_size = rm_manager_->get_diskmanager()->get_file_size(fsm_name);
+        max_page_num_per_table[i + 4] = (fsm_size == -1) ? 0 : (fsm_size / PAGE_SIZE);
     }
 
     // Fill storage meta
@@ -103,15 +104,15 @@ void Server::PrepareStorageMeta(node_id_t machine_id, std::string workload, char
           max_page_num_per_table[i] = table_file->get_file_hdr().num_pages_;
           if(i == 0) record_per_page = table_file->get_file_hdr().num_records_per_page_;
 
-          // 2. B+ Tree (ID: i + 11)
-          std::string bp_name = tpcc_tables[i] + "_bp";
-          int bp_size = rm_manager_->get_diskmanager()->get_file_size(bp_name);
-          max_page_num_per_table[i + 11] = (bp_size == -1) ? 0 : (bp_size / PAGE_SIZE);
-
-          // 3. B-Link Tree (ID: i + 22)
+          // 2. B-Link Tree (ID: i + 22)
           std::string bl_name = tpcc_tables[i] + "_bl";
           int bl_size = rm_manager_->get_diskmanager()->get_file_size(bl_name);
-          max_page_num_per_table[i + 22] = (bl_size == -1) ? 0 : (bl_size / PAGE_SIZE);
+          max_page_num_per_table[i + 11] = (bl_size == -1) ? 0 : (bl_size / PAGE_SIZE);
+
+          // 3. FSM
+          std::string fsm_name = tpcc_tables[i] + "bl";
+          int fsm_size = rm_manager_->get_diskmanager()->get_file_size(fsm_name);
+          max_page_num_per_table[i + 22] = (fsm_size == -1) ? 0 : (fsm_size / PAGE_SIZE);
       }
 
       // Fill storage meta

@@ -409,18 +409,20 @@ std::string ComputeServer:: UpdatePageFromRemoteCompute(table_id_t table_id, pag
 }
 
 void ComputeServer::InitTableNameMeta(){
+    /*
+        目前的想法是，10000~20000存 Blink，20000到 30000 存 FSM
+    */
+    table_name_meta.resize(30000);
     if(WORKLOAD_MODE == 0){
-        table_name_meta.resize(6);
         table_name_meta[0] = "../storage_server/smallbank_savings";
         table_name_meta[1] = "../storage_server/smallbank_checking";
-        table_name_meta[2] = "../storage_server/smallbank_savings_bp";
-        table_name_meta[3] = "../storage_server/smallbank_checking_bp";
-        table_name_meta[4] = "../storage_server/smallbank_savings_bl";
-        table_name_meta[5] = "../storage_server/smallbank_checking_bl";
+        table_name_meta[10000] = "../storage_server/smallbank_savings_bl";
+        table_name_meta[10001] = "../storage_server/smallbank_checking_bl";
+        table_name_meta[20000] = "../storage_server/smallbank_savings_fsm";
+        table_name_meta[20001] = "../storage_server/smallbank_checking_fsm";
     }
     else if(WORKLOAD_MODE == 1){
         // 11 张原始表，11 张 B+ 树楔形协议表，11 张 BLink 表
-        table_name_meta.resize(33);
         table_name_meta[0] = "../storage_server/TPCC_warehouse";
         table_name_meta[1] = "../storage_server/TPCC_district";
         table_name_meta[2] = "../storage_server/TPCC_customer";
@@ -432,28 +434,28 @@ void ComputeServer::InitTableNameMeta(){
         table_name_meta[8] = "../storage_server/TPCC_stock";
         table_name_meta[9] = "../storage_server/TPCC_customerindex";
         table_name_meta[10] = "../storage_server/TPCC_orderindex";
-        table_name_meta[11] = "../storage_server/TPCC_warehouse_bp";
-        table_name_meta[12] = "../storage_server/TPCC_district_bp";
-        table_name_meta[13] = "../storage_server/TPCC_customer_bp";
-        table_name_meta[14] = "../storage_server/TPCC_customerhistory_bp";
-        table_name_meta[15] = "../storage_server/TPCC_ordernew_bp";
-        table_name_meta[16] = "../storage_server/TPCC_order_bp";
-        table_name_meta[17] = "../storage_server/TPCC_orderline_bp";
-        table_name_meta[18] = "../storage_server/TPCC_item_bp";
-        table_name_meta[19] = "../storage_server/TPCC_stock_bp";
-        table_name_meta[20] = "../storage_server/TPCC_customerindex_bp";
-        table_name_meta[21] = "../storage_server/TPCC_orderindex_bp";
-        table_name_meta[22] = "../storage_server/TPCC_warehouse_bl";
-        table_name_meta[23] = "../storage_server/TPCC_district_bl";
-        table_name_meta[24] = "../storage_server/TPCC_customer_bl";
-        table_name_meta[25] = "../storage_server/TPCC_customerhistory_bl";
-        table_name_meta[26] = "../storage_server/TPCC_ordernew_bl";
-        table_name_meta[27] = "../storage_server/TPCC_order_bl";
-        table_name_meta[28] = "../storage_server/TPCC_orderline_bl";
-        table_name_meta[29] = "../storage_server/TPCC_item_bl";
-        table_name_meta[30] = "../storage_server/TPCC_stock_bl";
-        table_name_meta[31] = "../storage_server/TPCC_customerindex_bl";
-        table_name_meta[32] = "../storage_server/TPCC_orderindex_bl";
+        table_name_meta[10000] = "../storage_server/TPCC_warehouse_bl";
+        table_name_meta[10001] = "../storage_server/TPCC_district_bl";
+        table_name_meta[10002] = "../storage_server/TPCC_customer_bl";
+        table_name_meta[10003] = "../storage_server/TPCC_customerhistory_bl";
+        table_name_meta[10004] = "../storage_server/TPCC_ordernew_bl";
+        table_name_meta[10005] = "../storage_server/TPCC_order_bl";
+        table_name_meta[10006] = "../storage_server/TPCC_orderline_bl";
+        table_name_meta[10007] = "../storage_server/TPCC_item_bl";
+        table_name_meta[10008] = "../storage_server/TPCC_stock_bl";
+        table_name_meta[10009] = "../storage_server/TPCC_customerindex_bl";
+        table_name_meta[10010] = "../storage_server/TPCC_orderindex_bl";
+        table_name_meta[20000] = "../storage_server/TPCC_warehouse_fsm";
+        table_name_meta[20001] = "../storage_server/TPCC_district_fsm";
+        table_name_meta[20002] = "../storage_server/TPCC_customer_fsm";
+        table_name_meta[20003] = "../storage_server/TPCC_customerhistory_fsm";
+        table_name_meta[20004] = "../storage_server/TPCC_ordernew_fsm";
+        table_name_meta[20005] = "../storage_server/TPCC_order_fsm";
+        table_name_meta[20006] = "../storage_server/TPCC_orderline_fsm";
+        table_name_meta[20007] = "../storage_server/TPCC_item_fsm";
+        table_name_meta[20008] = "../storage_server/TPCC_stock_fsm";
+        table_name_meta[20009] = "../storage_server/TPCC_customerindex_fsm";
+        table_name_meta[20010] = "../storage_server/TPCC_orderindex_fsm";
     }
 }
 

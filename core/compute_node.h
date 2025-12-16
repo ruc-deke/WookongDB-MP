@@ -92,12 +92,14 @@ public:
         // 每个表分配一段固定长度的缓冲池
         size_t table_pool_size_cfg = 0; 
         size_t index_pool_size_cfg = 0;
+        size_t fsm_pool_size_cfg = 0;
         bool has_table_pool_size_cfg = false;
         {
             std::string config_filepath = "../../config/compute_node_config.json";
             auto json_config = JsonConfig::load_file(config_filepath);
-            auto pool_size_node = json_config.get("table_buffer_pool_size");
-            auto index_pool_size = json_config.get("index_buffer_pool_size");
+            auto pool_size_node = json_config.get("table_buffer_pool_size_per_table");
+            auto index_pool_size = json_config.get("index_buffer_pool_size_per_table");
+            auto fsm_pool_size = json_config.get("fsm_buffer_pool_size_per_table");
             auto ts_time_node = json_config.get("ts_time");
             if (pool_size_node.exists() && pool_size_node.is_int64()) {
                 table_pool_size_cfg = (size_t)pool_size_node.get_int64();
@@ -105,6 +107,9 @@ public:
             }
             if (index_pool_size.exists() && index_pool_size.is_int64()){
                 index_pool_size_cfg = (size_t)index_pool_size.get_int64();
+            }
+            if (fsm_pool_size.exists() && fsm_pool_size.is_int64()){
+                fsm_pool_size_cfg = (size_t)fsm_pool_size.get_int64();
             }
             if (ts_time_node.exists() && ts_time_node.is_int64()){
                 ts_time = (int)ts_time_node.get_int64();
@@ -118,62 +123,47 @@ public:
 
         if(WORKLOAD_MODE == 0) {
             if (SYSTEM_MODE == 0) {
-                eager_local_page_lock_tables.reserve(6);
-                for(int i = 0; i < 6; i++){
-                    if (i < 2){
-                        eager_local_page_lock_tables.emplace_back(new ERLocalPageLockTable());
-                    }else if (i < 4){
-                        eager_local_page_lock_tables.emplace_back(nullptr);
-                    }else {
-                        eager_local_page_lock_tables.emplace_back(new ERLocalPageLockTable());
-                    }
+                eager_local_page_lock_tables.resize(30000);
+                for(int i = 0; i < 2 ; i++){
+                    eager_local_page_lock_tables[i] = new ERLocalPageLockTable();
+                    eager_local_page_lock_tables[i + 10000] = new ERLocalPageLockTable();
+                    eager_local_page_lock_tables[i + 20000] = new ERLocalPageLockTable();
                 }
             } else if(SYSTEM_MODE == 1) {
-                lazy_local_page_lock_tables.reserve(6);
-                local_page_lock_tables.reserve(6);
-                for(int i = 0; i < 6; i++){
-                    lazy_local_page_lock_tables.emplace_back(new LRLocalPageLockTable());
-                    local_page_lock_tables.emplace_back(nullptr);
+                lazy_local_page_lock_tables.resize(30000);
+                for(int i = 0; i < 2; i++){
+                    lazy_local_page_lock_tables[i] = new LRLocalPageLockTable();
+                    lazy_local_page_lock_tables[i + 10000] = new LRLocalPageLockTable();
+                    lazy_local_page_lock_tables[i + 20000] = new LRLocalPageLockTable();
                 }
             }  else if(SYSTEM_MODE == 2) {
+                // 2pc
                 local_page_lock_tables.reserve(2);
                 for(int i = 0; i < 2; i++){
                     local_page_lock_tables.emplace_back(new LocalPageLockTable());
                 }
-                lazy_local_page_lock_tables.reserve(6);
-                for (int i = 0 ; i < 6 ; i++){
-                    if (i < 2){
-                        lazy_local_page_lock_tables.emplace_back(nullptr);
-                    }else if (i < 4){
-                        lazy_local_page_lock_tables.emplace_back(nullptr);
-                    }else {
-                        lazy_local_page_lock_tables.emplace_back(new LRLocalPageLockTable());
-                    }
+                lazy_local_page_lock_tables.resize(30000);
+                for (int i = 0 ; i < 2 ; i++){
+                    lazy_local_page_lock_tables[i + 10000] = new LRLocalPageLockTable();
+                    lazy_local_page_lock_tables[i + 20000] = new LRLocalPageLockTable();
                 }
             } else if(SYSTEM_MODE == 3){
+                assert(false);
+                // TODO
                 local_page_lock_tables.reserve(2);
                 for(int i = 0; i < 2; i++){
                     local_page_lock_tables.emplace_back(new LocalPageLockTable());
                 }
-            } 
-            else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
+            } else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
                 local_page_lock_tables.reserve(2);
-                // B+ 树还是需要用到 lazy_local_page_lock_tables 的
-                // 之前写的代码其实有问题，B+ 树固定到 2，3,4,5 几个表里了
-                // 现在只用 BLinl，所以只需要初始化 5,6 两个表就行
-                lazy_local_page_lock_tables.reserve(6);
+                lazy_local_page_lock_tables.reserve(30000);
                 for (int i = 0 ; i < 2 ; i++){
                     local_page_lock_tables.emplace_back(new LocalPageLockTable());
                 }
 
-                for (int i = 0 ; i < 6 ; i++){
-                    if (i < 2){
-                        lazy_local_page_lock_tables.emplace_back(nullptr);
-                    }else if (i < 4){
-                        lazy_local_page_lock_tables.emplace_back(nullptr);
-                    }else {
-                        lazy_local_page_lock_tables.emplace_back(new LRLocalPageLockTable());
-                    }
+                for (int i = 0 ; i < 2 ; i++){
+                    lazy_local_page_lock_tables[i + 10000] = new LRLocalPageLockTable();
+                    lazy_local_page_lock_tables[i + 20000] = new LRLocalPageLockTable();
                 }
             }else {
                 assert(false);
@@ -183,94 +173,69 @@ public:
             std::vector<int> max_page_per_table;
             std::copy(meta_manager->max_page_num_per_tables.begin(), meta_manager->max_page_num_per_tables.end(),
                       std::back_inserter(max_page_per_table));
-            assert(meta_manager->max_page_num_per_tables.size() == 6);
-            for (int i = 0 ; i < 6 ; i++){
-                std::cout << "Table ID = " << i << " Max Page Num Per Table = " << meta_manager->max_page_num_per_tables[i] << "\n";
+            for (int i = 0 ; i < 2 ; i++){
+                std::cout << "Table ID = " << i << " Page Num This Table = " << meta_manager->max_page_num_per_tables[i] << "\n";
+                std::cout << "BLink Page Num This Table = " << meta_manager->max_page_num_per_tables[i + 10000] << "\n";
+                std::cout << "FSM Page Num This Table = " << meta_manager->max_page_num_per_tables[i + 20000] << "\n\n";
             }
 
-            local_buffer_pools.reserve(6);
-            local_buffer_pools.resize(6);
-            std::vector<std::string> table_name;
-            table_name.resize(6);
-            table_name[0] = "../storage_server/smallbank_savings";
-            table_name[1] = "../storage_server/smallbank_checking";
-            table_name[2] = "../storage_server/smallbank_savings_bp";
-            table_name[3] = "../storage_server/smallbank_checking_bp";
-            table_name[4] = "../storage_server/smallbank_savings_bl";
-            table_name[5] = "../storage_server/smallbank_checking_bl";
-            // 因为要测试 primary <-> buffer <-> storage 交互的功能，所以这里就不预加载了
-            for(int table_id = 0; table_id < 2;table_id++) {
+            local_buffer_pools = std::vector<BufferPool*>(30000 , nullptr);
+
+            for(int table_id = 0; table_id < 2 ; table_id++) {
                 size_t pool_sz = has_table_pool_size_cfg ? table_pool_size_cfg : (size_t)(max_page_per_table[table_id] / 5);
                 // pool_sz = max_page_per_table[table_id];
                 local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id]);
             }
-            // 不用蟹行协议了，所以 3,4 号表暂停
-            // for (int table_id = 2 ; table_id < 4 ; table_id++){
-            //     size_t pool_sz = index_pool_size_cfg;
-            //     // 每个 B+ 树的页面数量暂时设置的和表一样大
-            //     local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id - 2]);
-            // }
-            for (int table_id = 4 ; table_id < 6 ; table_id++){
+
+            for (int table_id = 0 ; table_id < 2 ; table_id++){
                 size_t pool_sz = index_pool_size_cfg;
-                local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id  - 2]);
+                local_buffer_pools[table_id + 10000] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id + 10000]);
+            }
+
+            // fsm
+            for (int table_id = 0 ; table_id < 2 ; table_id++){
+                size_t pool_size = fsm_pool_size_cfg;
+                local_buffer_pools[table_id + 20000] = new BufferPool(pool_size , 5000);
             }
         } else if(WORKLOAD_MODE == 1) {
             if(SYSTEM_MODE == 0) {
-                eager_local_page_lock_tables.reserve(11);
-                for(int i = 0; i < 33; i++){
-                    if (i < 11){
-                        eager_local_page_lock_tables.emplace_back(new ERLocalPageLockTable());
-                    }else if (i < 22){
-                        eager_local_page_lock_tables.emplace_back(nullptr);
-                    }else{
-                        eager_local_page_lock_tables.emplace_back(new ERLocalPageLockTable());
-                    }
+                eager_local_page_lock_tables.resize(30000);
+                for(int i = 0; i < 11; i++){
+                    eager_local_page_lock_tables[i] = new ERLocalPageLockTable();
+                    eager_local_page_lock_tables[i + 10000] = new ERLocalPageLockTable();
+                    eager_local_page_lock_tables[i + 20000] = new ERLocalPageLockTable();
                 }
-            }
-            else if(SYSTEM_MODE == 1) {
-                lazy_local_page_lock_tables.reserve(33);
-                local_page_lock_tables.reserve(33);
-                for(int i = 0; i < 33; i++){
-                    if (i >= 11 && i < 22){
-                        lazy_local_page_lock_tables.emplace_back(nullptr);
-                    }else{
-                        lazy_local_page_lock_tables.emplace_back(new LRLocalPageLockTable());
-                    }
+            } else if(SYSTEM_MODE == 1) {
+                // lazy
+                lazy_local_page_lock_tables.resize(30000);
+                for (int i = 0 ; i < 11 ; i++){
+                    lazy_local_page_lock_tables[i] = new LRLocalPageLockTable();
+                    lazy_local_page_lock_tables[i + 10000] = new LRLocalPageLockTable();
+                    lazy_local_page_lock_tables[i + 20000] = new LRLocalPageLockTable();
                 }
-            }
-            else if(SYSTEM_MODE == 2) {
+            } else if(SYSTEM_MODE == 2) {
                 local_page_lock_tables.reserve(11);
-                for(int i = 0; i < 33; i++){
-                    if (i < 11){
-                        local_page_lock_tables.emplace_back(new LocalPageLockTable());
-                        lazy_local_page_lock_tables.emplace_back(nullptr);
-                    }else if (i < 22){
-                        lazy_local_page_lock_tables.emplace_back(nullptr);
-                    }else{
-                        lazy_local_page_lock_tables.emplace_back(new LRLocalPageLockTable());
-                    }
+                lazy_local_page_lock_tables.resize(30000);
+                for (int i = 0 ; i < 11 ; i++){
+                    local_page_lock_tables.emplace_back(new LocalPageLockTable());
+                    lazy_local_page_lock_tables[i + 10000] = new LRLocalPageLockTable();
+                    lazy_local_page_lock_tables[i + 20000] = new LRLocalPageLockTable();
                 }
-            }
-            else if(SYSTEM_MODE == 3) {
+            } else if(SYSTEM_MODE == 3) {
                 // TODO
+                assert(false);
                 local_page_lock_tables.reserve(11);
                 for(int i = 0; i < 11; i++){
                     local_page_lock_tables.emplace_back(new LocalPageLockTable());
                 }
-            }
-            else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
+            } else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
                 local_page_lock_tables.reserve(11);
-                lazy_local_page_lock_tables.reserve(33);
-                for (int i = 0 ; i < 11 ; i++){
-                    local_page_lock_tables.reserve(11);
-                }
+                lazy_local_page_lock_tables.resize(30000);
 
-                for (int i = 0 ; i < 33 ; i++){
-                    if (i < 22){
-                        lazy_local_page_lock_tables.emplace_back(nullptr);
-                    }else {
-                        local_page_lock_tables.emplace_back(new LocalPageLockTable());
-                    }
+                for (int i = 0 ; i < 11 ; i++){
+                    local_page_lock_tables.emplace_back(new LocalPageLockTable());
+                    lazy_local_page_lock_tables[i + 10000] = new LRLocalPageLockTable();
+                    lazy_local_page_lock_tables[i + 20000] = new LRLocalPageLockTable();
                 }
             } else {
                 assert(false);
@@ -279,27 +244,26 @@ public:
             std::vector<int> max_page_per_table;
             std::copy(meta_manager->max_page_num_per_tables.begin(), meta_manager->max_page_num_per_tables.end(),
                         std::back_inserter(max_page_per_table));;
-            assert(meta_manager->max_page_num_per_tables.size() == 33);
 
-            for (int i = 0 ; i < 33 ; i++){
-                std::cout << "Table ID = " << i << " Max Page Num Per Table = " << meta_manager->max_page_num_per_tables[i] << "\n";
+            for (int i = 0 ; i < 11 ; i++){
+                std::cout << "Table ID = " << i << " Init Page Num = " << meta_manager->max_page_num_per_tables[i] << "\n";
+                std::cout << "BLink Page Num This Table = " << meta_manager->max_page_num_per_tables[i + 10000] << "\n";
+                std::cout << "FSM Page Num This Table = " << meta_manager->max_page_num_per_tables[i + 20000] << "\n\n";
             }
-            local_buffer_pools.reserve(33);
-            // 修复：在后续使用下标赋值之前，必须 resize 到目标大小
-            local_buffer_pools.resize(33);
-            std::vector<std::string> table_name;
+
+            local_buffer_pools.resize(30000);
+
             for(int table_id = 0; table_id < 11 ;table_id++) {
                 size_t pool_sz = has_table_pool_size_cfg ? table_pool_size_cfg : (size_t)(max_page_per_table[table_id] / 5);
                 local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id]);
             }
-            // 蟹行协议的不用了
-            // for (int table_id = 11 ; table_id < 22 ; table_id++) {
-            //     size_t pool_sz = index_pool_size_cfg;
-            //     local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id - 11]);
-            // }
-            for (int table_id = 22 ; table_id < 33 ; table_id++){
+            for (int table_id = 0 ; table_id < 11 ; table_id++){
                 size_t pool_sz = index_pool_size_cfg;
-                local_buffer_pools[table_id] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id - 11]);
+                local_buffer_pools[table_id + 10000] = new BufferPool(pool_sz , (size_t)max_page_per_table[table_id - 11]);
+            }
+            for (int table_id = 0 ; table_id < 11 ; table_id++){
+                size_t pool_size = fsm_pool_size_cfg;
+                local_buffer_pools[table_id + 20000] = new BufferPool(pool_size , 5000);
             }
         }
 

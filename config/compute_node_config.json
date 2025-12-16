@@ -4,11 +4,12 @@
 "machine_id": 2,
 "thread_num_per_machine": 8,
 "coroutine_num": 5000,
-"txn_system": 12,
+"txn_system": 2,
     "batch_size": 400
   },
-  "table_buffer_pool_size": 6000,  
-  "index_buffer_pool_size": 3000,   
+  "table_buffer_pool_size_per_table": 6000,  
+  "index_buffer_pool_size_per_table": 3000,   
+  "fsm_buffer_pool_size_per_table": 500,
   "ts_time": 100000,  
   "remote_compute_nodes": {
     "remote_compute_node_ips": [
