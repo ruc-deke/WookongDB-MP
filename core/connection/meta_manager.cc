@@ -183,19 +183,19 @@ node_id_t MetaManager::GetRemoteStorageMeta(std::string& remote_ip, int remote_p
 
   int table_num = *((int*)snooper);
   snooper += sizeof(int);
-  int* max_page_num_per_table = (int*)snooper;
+  int* init_page_num_per_table = (int*)snooper;
   snooper += table_num * sizeof(int);
   int record_per_page = *((int*)snooper);
   snooper += sizeof(int);
-  max_page_num_per_tables = std::vector<int>(30000 , 0);
+  page_num_per_table = std::vector<int>(30000 , 0);
   std::cout << "Table Num = " << table_num << "\n";
   assert(table_num % 3 == 0);
   assert(table_num > 0);
   int real_table = table_num / 3;
   for(int i = 0; i < real_table ; i++) {
-      max_page_num_per_tables[i] = max_page_num_per_table[i];
-      max_page_num_per_tables[i + 10000] = max_page_num_per_table[i + real_table];
-      max_page_num_per_tables[i + 20000] = max_page_num_per_table[i + real_table * 2];
+      page_num_per_table[i] = init_page_num_per_table[i];
+      page_num_per_table[i + 10000] = init_page_num_per_table[i + real_table];
+      page_num_per_table[i + 20000] = init_page_num_per_table[i + real_table * 2];
   }
   
   assert(*(uint64_t*)snooper == MEM_STORE_META_END);

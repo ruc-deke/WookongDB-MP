@@ -56,7 +56,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
         page_id_pb->set_table_id(table_id);
         request.set_allocated_page_id(page_id_pb);
         request.set_node_id(node_->node_id);
-        node_id_t page_belong_node = get_node_id_by_page_id(table_id, page_id);
+        node_id_t page_belong_node = get_node_id_by_page_id(page_id);
         if(page_belong_node == node_->node_id) {
             this->page_table_service_impl_->LRPSLock_Localcall(&request, response);
         } else {
@@ -179,7 +179,7 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
         page_id_pb->set_table_id(table_id);
         request.set_allocated_page_id(page_id_pb);
         request.set_node_id(node_->node_id);
-        node_id_t page_belong_node = get_node_id_by_page_id(table_id, page_id);
+        node_id_t page_belong_node = get_node_id_by_page_id(page_id);
         if( page_belong_node == node_->node_id) {
             // 如果是本地节点, 则直接调用
             // LOG(INFO) << "Fetching X Page Local , table_id = " << table_id << " page_id = " << page_id;
@@ -330,7 +330,7 @@ void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_
     request.set_allocated_page_id(page_id_pb);
     request.set_node_id(node_->node_id);
 
-    node_id_t page_belong_node = get_node_id_by_page_id(table_id, page_id);
+    node_id_t page_belong_node = get_node_id_by_page_id(page_id);
     if( page_belong_node == node_->node_id) {
         // LOG(INFO) << "SRelease in local , table_id = " << table_id << " page_id = " << page_id;
         // 如果是本地节点, 则直接调用
@@ -389,7 +389,7 @@ void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_
     unlock_request.set_allocated_page_id(page_id_pb);
     unlock_request.set_node_id(node_->node_id);
 
-    node_id_t page_belong_node = get_node_id_by_page_id(table_id, page_id);
+    node_id_t page_belong_node = get_node_id_by_page_id(page_id);
     if( page_belong_node == node_->node_id) {
         // LOG(INFO) << "XRelease in local , table_id = " << table_id << " page_id = " << page_id;
         // 如果是本地节点, 则直接调用
@@ -457,60 +457,60 @@ void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_
 
 // 这里用异步的方法实现释放所有数据页
 void ComputeServer::rpc_lazy_release_all_page_async() {
-    std::vector<std::pair<brpc::CallId, page_id_t>> unlock_cids;
-    for(int page_id=0; page_id<ComputeNodeBufferPageSize; page_id++){
-        int unlock_remote = node_->lazy_local_page_lock_table->GetLock(page_id)->UnlockAny();
-        if(unlock_remote == 0) continue;
-        // 这里可以直接释放远程锁
-        page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
-        page_table_service::PAnyUnLockRequest unlock_request;
-        page_table_service::PAnyUnLockResponse* unlock_response = new page_table_service::PAnyUnLockResponse();
-        page_table_service::PageID* page_id_pb = new page_table_service::PageID();
-        page_id_pb->set_page_no(page_id);
-        unlock_request.set_allocated_page_id(page_id_pb);
-        unlock_request.set_node_id(node_->node_id);
-        brpc::Controller* unlock_cntl = new brpc::Controller();
-        unlock_cids.push_back(std::make_pair(unlock_cntl->call_id(), page_id));
-        pagetable_stub.LRPAnyUnLock(unlock_cntl, &unlock_request, unlock_response,
-                                    brpc::NewCallback(LazyReleaseRPCDone, unlock_response, unlock_cntl));
-    }
-    for(auto cids : unlock_cids){
-        brpc::Join(cids.first);
-        //! unlock remote ok and unlatch local
-        node_->lazy_local_page_lock_table->GetLock(cids.second)->UnlockRemoteOK();
-    }
-    return;
+    // std::vector<std::pair<brpc::CallId, page_id_t>> unlock_cids;
+    // for(int page_id=0; page_id<ComputeNodeBufferPageSize; page_id++){
+    //     int unlock_remote = node_->lazy_local_page_lock_table->GetLock(page_id)->UnlockAny();
+    //     if(unlock_remote == 0) continue;
+    //     // 这里可以直接释放远程锁
+    //     page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
+    //     page_table_service::PAnyUnLockRequest unlock_request;
+    //     page_table_service::PAnyUnLockResponse* unlock_response = new page_table_service::PAnyUnLockResponse();
+    //     page_table_service::PageID* page_id_pb = new page_table_service::PageID();
+    //     page_id_pb->set_page_no(page_id);
+    //     unlock_request.set_allocated_page_id(page_id_pb);
+    //     unlock_request.set_node_id(node_->node_id);
+    //     brpc::Controller* unlock_cntl = new brpc::Controller();
+    //     unlock_cids.push_back(std::make_pair(unlock_cntl->call_id(), page_id));
+    //     pagetable_stub.LRPAnyUnLock(unlock_cntl, &unlock_request, unlock_response,
+    //                                 brpc::NewCallback(LazyReleaseRPCDone, unlock_response, unlock_cntl));
+    // }
+    // for(auto cids : unlock_cids){
+    //     brpc::Join(cids.first);
+    //     //! unlock remote ok and unlatch local
+    //     node_->lazy_local_page_lock_table->GetLock(cids.second)->UnlockRemoteOK();
+    // }
+    // return;
 }
 
 // 这里用异步的方法实现释放所有数据页
 void ComputeServer::rpc_lazy_release_all_page_async_new() {
-    std::vector<std::vector<std::pair<brpc::CallId, page_id_t>>> unlock_cids(node_->lazy_local_page_lock_tables.size());
-    for(int i = 0; i < node_->lazy_local_page_lock_tables.size(); i++) {
-        auto max_page_id = node_->meta_manager_->GetMaxPageNumPerTable(i);
-        for (int page_id = 0; page_id <= max_page_id; page_id++) {
-            int unlock_remote = node_->lazy_local_page_lock_tables[i]->GetLock(page_id)->UnlockAny();
-            if (unlock_remote == 0) continue;
-            // 这里可以直接释放远程锁
-            page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
-            page_table_service::PAnyUnLockRequest unlock_request;
-            page_table_service::PAnyUnLockResponse *unlock_response = new page_table_service::PAnyUnLockResponse();
-            page_table_service::PageID *page_id_pb = new page_table_service::PageID();
-            page_id_pb->set_page_no(page_id);
-            page_id_pb->set_table_id(i);
-            unlock_request.set_allocated_page_id(page_id_pb);
-            unlock_request.set_node_id(node_->node_id);
-            brpc::Controller *unlock_cntl = new brpc::Controller();
-            unlock_cids[i].push_back(std::make_pair(unlock_cntl->call_id(), page_id));
-            pagetable_stub.LRPAnyUnLock(unlock_cntl, &unlock_request, unlock_response,
-                                        brpc::NewCallback(LazyReleaseRPCDone, unlock_response, unlock_cntl));
-        }
-    }
-    for(size_t i = 0; i < node_->lazy_local_page_lock_tables.size(); i++) {
-        for (auto cids: unlock_cids[i]) {
-            brpc::Join(cids.first);
-            //! unlock remote ok and unlatch local
-            node_->lazy_local_page_lock_tables[i]->GetLock(cids.second)->UnlockRemoteOK();
-        }
-    }
-    return;
+    // std::vector<std::vector<std::pair<brpc::CallId, page_id_t>>> unlock_cids(node_->lazy_local_page_lock_tables.size());
+    // for(int i = 0; i < node_->lazy_local_page_lock_tables.size(); i++) {
+    //     auto max_page_id = node_->meta_manager_->GetMaxPageNumPerTable(i);
+    //     for (int page_id = 0; page_id <= max_page_id; page_id++) {
+    //         int unlock_remote = node_->lazy_local_page_lock_tables[i]->GetLock(page_id)->UnlockAny();
+    //         if (unlock_remote == 0) continue;
+    //         // 这里可以直接释放远程锁
+    //         page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
+    //         page_table_service::PAnyUnLockRequest unlock_request;
+    //         page_table_service::PAnyUnLockResponse *unlock_response = new page_table_service::PAnyUnLockResponse();
+    //         page_table_service::PageID *page_id_pb = new page_table_service::PageID();
+    //         page_id_pb->set_page_no(page_id);
+    //         page_id_pb->set_table_id(i);
+    //         unlock_request.set_allocated_page_id(page_id_pb);
+    //         unlock_request.set_node_id(node_->node_id);
+    //         brpc::Controller *unlock_cntl = new brpc::Controller();
+    //         unlock_cids[i].push_back(std::make_pair(unlock_cntl->call_id(), page_id));
+    //         pagetable_stub.LRPAnyUnLock(unlock_cntl, &unlock_request, unlock_response,
+    //                                     brpc::NewCallback(LazyReleaseRPCDone, unlock_response, unlock_cntl));
+    //     }
+    // }
+    // for(size_t i = 0; i < node_->lazy_local_page_lock_tables.size(); i++) {
+    //     for (auto cids: unlock_cids[i]) {
+    //         brpc::Join(cids.first);
+    //         //! unlock remote ok and unlatch local
+    //         node_->lazy_local_page_lock_tables[i]->GetLock(cids.second)->UnlockRemoteOK();
+    //     }
+    // }
+    // return;
 }

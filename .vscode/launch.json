@@ -54,7 +54,7 @@
             // eager
             // ts_sep
             // ts_sep_hot
-            "args": ["tpcc", "2pc", "8", "5000", "0", "0.7" , "0"],
+            "args": ["smallbank", "lazy", "8", "5000", "0", "0.3" , "0"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
@@ -74,7 +74,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",
             // ts_sep
-            "args": ["tpcc", "2pc", "8", "5000", "0", "0.7" , "1"],
+            "args": ["smallbank", "lazy", "8", "5000", "0", "0.3" , "1"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
@@ -93,7 +93,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",
-            "args": ["tpcc", "2pc", "8", "5000", "0", "0.7" , "2"],
+            "args": ["smallbank", "lazy", "8", "5000", "0", "0.3" , "2"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],

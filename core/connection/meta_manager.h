@@ -52,8 +52,11 @@ class MetaManager {
   const TableMeta& GetTableMeta(const table_id_t table_id) const {
     return table_meta_map[table_id];
   }
-  int GetMaxPageNumPerTable(const table_id_t table_id) const {
-    return max_page_num_per_tables[table_id];
+  int GetTablePageNum(const table_id_t table_id) const {
+    return page_num_per_table[table_id];
+  }
+  int GetPartitionSizePerTable() const {
+    return par_size_per_table;
   }
   int GetTableNum() const {
     return table_name_map.size();
@@ -86,7 +89,8 @@ class MetaManager {
   std::vector<RemoteNode> remote_server_nodes; // remote server nodes
   int remote_server_meta_port; // remote server meta port
   std::vector<RemoteNode> remote_storage_nodes; // remote storage nodes
-  std::vector<int> max_page_num_per_tables;
+  std::vector<int> page_num_per_table;    // 每张表的当前持有页面的数量
+  int par_size_per_table = 1000;                 // 每张表的分区大小
   // Below are some parameteres from json file
   int64_t txn_system;
 };

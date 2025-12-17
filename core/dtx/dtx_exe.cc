@@ -89,7 +89,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
         } else if (SYSTEM_MODE == 2){
           // 2PC
           // 1. 先获取到页面所在的节点 ID
-          node_id_t node_id = compute_server->get_node_id_by_page_id(item.item_ptr->table_id, rid.page_no_); 
+          node_id_t node_id = compute_server->get_node_id_by_page_id(rid.page_no_); 
           participants.emplace(node_id);
           char* data = nullptr;
           if(node_id == compute_server->get_node()->getNodeID()){
@@ -163,7 +163,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
           item.is_fetched = true;
         } else if(SYSTEM_MODE == 2){
           // this is coordinator
-          node_id_t node_id = compute_server->get_node_id_by_page_id(item.item_ptr->table_id, rid.page_no_);
+          node_id_t node_id = compute_server->get_node_id_by_page_id(rid.page_no_);
           participants.emplace(node_id);
           char* data = nullptr;
           if(node_id == compute_server->get_node()->getNodeID()){
@@ -412,7 +412,7 @@ void DTX::Tx2PCCommitLocal(coro_yield_t &yield){
       // Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
       Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , data_item.item_ptr->key);
       // assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
-      node_id_t node_id = compute_server->get_node_id_by_page_id(data_item.item_ptr->table_id, rid.page_no_);
+      node_id_t node_id = compute_server->get_node_id_by_page_id(rid.page_no_);
       assert(node_id == compute_server->get_node()->getNodeID());
 
       Page* page = compute_server->local_fetch_x_page(data_item.item_ptr->table_id, rid.page_no_);
@@ -441,7 +441,7 @@ void DTX::Tx2PCCommitAll(coro_yield_t &yield){
       // Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
       Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , data_item.item_ptr->key);
       // assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
-      node_id_t node_id = compute_server->get_node_id_by_page_id(data_item.item_ptr->table_id, rid.page_no_);
+      node_id_t node_id = compute_server->get_node_id_by_page_id(rid.page_no_);
       if(node_data_map.find(node_id) == node_data_map.end()){
         node_data_map[node_id] = std::vector<std::pair<std::pair<table_id_t, Rid>, char*>>();
       }
@@ -476,7 +476,7 @@ void DTX::Tx2PCAbortLocal(coro_yield_t &yield){
       // this data item is fetched and locked
       // Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
       Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , data_item.item_ptr->key);
-      node_id_t node_id = compute_server->get_node_id_by_page_id(data_item.item_ptr->table_id, rid.page_no_);
+      node_id_t node_id = compute_server->get_node_id_by_page_id(rid.page_no_);
       assert(node_id == compute_server->get_node()->getNodeID()); 
 
       Page* page = compute_server->local_fetch_x_page(data_item.item_ptr->table_id, rid.page_no_);
@@ -504,7 +504,7 @@ void DTX::Tx2PCAbortAll(coro_yield_t &yield){
       // Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
       Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , data_item.item_ptr->key);
       // assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
-      node_id_t node_id = compute_server->get_node_id_by_page_id(data_item.item_ptr->table_id, rid.page_no_);
+      node_id_t node_id = compute_server->get_node_id_by_page_id(rid.page_no_);
       // LOG(INFO) <<  "Remote release data item " << data_item.item_ptr->table_id << " " << rid.page_no_ << " " << rid.slot_no_;
       // remote page
       if(node_data_map.find(node_id) == node_data_map.end()){

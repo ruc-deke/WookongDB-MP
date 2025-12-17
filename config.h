@@ -15,7 +15,7 @@
 // 40: tatp
 // 664: tpcc
 // 40: micro-benchmark
-#define MAX_ITEM_SIZE 664
+#define MAX_ITEM_SIZE 8
 
 enum class TsPhase{
     BEGIN = 0,          // 初始化

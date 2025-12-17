@@ -350,9 +350,11 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
       clock_gettime(CLOCK_REALTIME, &msr_start_global);
     }
   }
+  zipfan_gen = nullptr;
   // run_seed = seed;
   SmallBankDTX* bench_dtx = new SmallBankDTX();
   bench_dtx->dtx = dtx;
+
   while (true) {
     // 如果本节点已经完成了全部的事务，那就退出
     if (stat_attempted_tx_total >= ATTEMPTED_NUM || stat_enter_commit_tx_total >= ATTEMPTED_NUM) {
@@ -370,8 +372,6 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
     
     Txn_request_info txn_meta;
     clock_gettime(CLOCK_REALTIME, &txn_meta.start_time);
-    // tx_type = SmallBankTxType::kBalance;
-    tx_type = SmallBankTxType::kTransactSaving;
     switch (tx_type) {
       case SmallBankTxType::kAmalgamate: {
           thread_local_try_times[uint64_t(tx_type)]++;
@@ -640,8 +640,8 @@ void initThread(thread_params* params,
     uint64_t zipf_seed = 2 * thread_gid * GetCPUCycle();
     uint64_t zipf_seed_mask = (uint64_t(1) << 48) - 1;
     // SmallBank 只有两个表，而且两个表的大小是一样的
-    int page_num = meta_man->GetMaxPageNumPerTable(0);
-    zipfan_gen = new ZipFanGen(page_num / ComputeNodeCount , 0.50 , zipf_seed & zipf_seed_mask);
+    int par_size = meta_man->GetPartitionSizePerTable();
+    zipfan_gen = new ZipFanGen(par_size, 0.50 , zipf_seed & zipf_seed_mask);
     
     data_channel = new brpc::Channel();
     log_channel = new brpc::Channel();
@@ -769,8 +769,8 @@ void run_thread(thread_params* params,
     uint64_t zipf_seed = 2 * thread_gid * GetCPUCycle();
     uint64_t zipf_seed_mask = (uint64_t(1) << 48) - 1;
     // SmallBank 只有两个表，而且两个表的大小是一样的
-    int page_num = meta_man->GetMaxPageNumPerTable(0);
-    zipfan_gen = new ZipFanGen(page_num / ComputeNodeCount , 0.50 , zipf_seed & zipf_seed_mask);
+    int par_size = meta_man->GetPartitionSizePerTable();
+    zipfan_gen = new ZipFanGen(par_size , 0.50 , zipf_seed & zipf_seed_mask);
   data_channel = new brpc::Channel();
   log_channel = new brpc::Channel();
   remote_server_channel = new brpc::Channel();

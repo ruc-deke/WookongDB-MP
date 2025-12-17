@@ -210,7 +210,7 @@ Page* ComputeServer::local_fetch_s_page(table_id_t table_id, page_id_t page_id){
     if (k1 % 10000 == 0){
         std::cout << k1 << "\n";
     }
-    assert(is_partitioned_page_new(table_id , page_id));
+    assert(is_partitioned_page(page_id));
     node_->local_page_lock_tables[table_id]->GetLock(page_id)->LockShared();
     Page* page = node_->getBufferPoolByIndex(table_id)->try_fetch_page(page_id);
     if (page == nullptr){
@@ -228,7 +228,7 @@ Page* ComputeServer::local_fetch_x_page(table_id_t table_id, page_id_t page_id){
     if (k1 % 10000 == 0){
         std::cout << k1 << "\n";
     }
-    assert(is_partitioned_page_new(table_id , page_id));
+    assert(is_partitioned_page(page_id));
     node_->local_page_lock_tables[table_id]->GetLock(page_id)->LockExclusive();
     Page* page = node_->local_buffer_pools[table_id]->try_fetch_page(page_id);
     if (page == nullptr){

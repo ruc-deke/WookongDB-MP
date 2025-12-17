@@ -199,7 +199,7 @@ public:
             for (int i = 0 ; i < table_cnt ; i++){
                 bl_indexes[i] = new BLinkIndexHandle(this , i + 10000);
             }
-            
+
 
             for (int i = 0 ; i < table_cnt ; i++){
                 (*global_page_lock_table_list_)[i] = new GlobalLockTable();
@@ -354,18 +354,17 @@ public:
     Page_request_info generate_random_pageid(std::mt19937& gen, std::uniform_real_distribution<>& dis);
 
     inline bool is_ts_par_page(table_id_t table_id , page_id_t page_id , int now_ts_cnt){
-        auto max_pages_this_table = node_->meta_manager_->GetMaxPageNumPerTable(table_id);
-        auto partition_size = (max_pages_this_table) / ComputeNodeCount;
-        
-        page_id_t page_begin = now_ts_cnt * partition_size + 1;
-        page_id_t page_end = (now_ts_cnt + 1) * partition_size;
-        return page_id >= page_begin && page_id <= page_end;
+        auto partition_size = node_->meta_manager_->GetPartitionSizePerTable();
+        assert(partition_size > 0);        
+        int page_belong_par = (page_id / partition_size) % ComputeNodeCount;
+        return page_belong_par == now_ts_cnt;
     }
 
     int get_ts_belong_par(table_id_t table_id , page_id_t page_id){
-        auto max_pages_this_table = node_->meta_manager_->GetMaxPageNumPerTable(table_id);
-        auto partition_size = (max_pages_this_table) / ComputeNodeCount;
-        return (page_id - 1) / partition_size;
+        auto partition_size = node_->meta_manager_->GetPartitionSizePerTable();
+        assert(partition_size > 0);        
+        int page_belong_par = (page_id / partition_size) % ComputeNodeCount;
+        return page_belong_par;
     }
 
     // void tryLockTs2(table_id_t table_id , page_id_t page_id){
@@ -580,7 +579,7 @@ public:
             request->set_allocated_page_id(pid);
             request->set_node_id(node_->node_id);
 
-            node_id_t page_belong_node = get_node_id_by_page_id(table_id , replaced_page_id);
+            node_id_t page_belong_node = get_node_id_by_page_id(replaced_page_id);
             if (page_belong_node == node_->node_id){
                 this->page_table_service_impl_->BufferReleaseUnlock_LocalCall(request , response);
             }else{
@@ -828,18 +827,14 @@ public:
     void InitTableNameMeta();
     std::string rpc_fetch_page_from_storage(table_id_t table_id, page_id_t page_id , bool need_to_record);
 
-    inline bool is_partitioned_page(page_id_t page_id){
-        return page_id >= node_->getNodeID() * PartitionDataSize && page_id < (node_->getNodeID() + 1) * PartitionDataSize;
-    }
-
     inline uint64_t get_partitioned_size(table_id_t table_id){
-        return node_->meta_manager_->GetMaxPageNumPerTable(table_id) / ComputeNodeCount;
+        return node_->meta_manager_->GetPartitionSizePerTable();
     }
     
-    inline bool is_partitioned_page_new(table_id_t table_id, page_id_t page_id){
-        auto max_pages_this_table = node_->meta_manager_->GetMaxPageNumPerTable(table_id);
-        auto partition_size = (max_pages_this_table) / ComputeNodeCount;
-        return page_id >= (node_->getNodeID() * partition_size + 1) && page_id < ((node_->getNodeID() + 1) * partition_size + 1);
+    inline bool is_partitioned_page(page_id_t page_id){
+        auto partition_size = node_->meta_manager_->GetPartitionSizePerTable();
+        int belong_par = ((page_id - 1) / partition_size) % ComputeNodeCount;
+        return (node_->getNodeID() == belong_par);
     }
 
     inline uint64_t make_page_key(table_id_t table_id, page_id_t page_id) const {
@@ -855,18 +850,18 @@ public:
         double hot_rate = (double)hot_account / (double)tot_account;
 
         hot_page_set.clear();
-        auto table_size = node_->meta_manager_->GetTableNum();
+        auto table_size = (WORKLOAD_MODE == 0) ? 2 : 11;
+
         for (int t = 0; t < table_size; ++t){
-            auto max_pages = node_->meta_manager_->GetMaxPageNumPerTable(t);
-            auto partition_size = max_pages / ComputeNodeCount;
+            auto partition_size = node_->meta_manager_->GetPartitionSizePerTable();
 
             // 每个分区中，热点页面分区在前面，每个分区的热点页面长度是下面这个计算方法
             uint64_t hot_len = static_cast<uint64_t>(partition_size * hot_rate);
             std::cout << "Hot Page Len = " << hot_len << "\n";
             assert(hot_len <= partition_size);
 
-            // 分区数量是 ComputeNodeCount
-            for (int p = 0; p < ComputeNodeCount; ++p){
+            // 这里先简化下，假设最多 50 个分区，后面再改改
+            for (int p = 0; p < 50; ++p){
                 uint64_t start = static_cast<uint64_t>(p) * partition_size + 1;
                 uint64_t end = start + hot_len;
                 std::cout << "start : " << start << " end : " << end << "\n";
@@ -881,17 +876,13 @@ public:
         return hot_page_set.find(make_page_key(table_id, page_id)) != hot_page_set.end();
     }
 
-    inline node_id_t get_node_id_by_page_id(table_id_t table_id, page_id_t page_id){
-        auto max_pages_this_table = node_->meta_manager_->GetMaxPageNumPerTable(table_id);
-        auto partition_size = max_pages_this_table / ComputeNodeCount;
-        assert(max_pages_this_table != 0 && partition_size != 0);
-        int node_id = (page_id - 1) / partition_size;
-        // 比如 20 个页面，3 个主节点，那 18~20 号页面也归 3 号节点管理
-        if (node_id == ComputeNodeCount){
-            node_id = ComputeNodeCount - 1;
-        }
+    // 获取到 page_id 所在的分区对应的节点
+    inline node_id_t get_node_id_by_page_id(page_id_t page_id){
+        auto partition_size = node_->meta_manager_->GetPartitionSizePerTable();
+        assert(partition_size != 0);
+        int node_id = ((page_id - 1) / partition_size) % ComputeNodeCount;
         assert(node_id < ComputeNodeCount);
-        return node_id >= ComputeNodeCount ? ComputeNodeCount - 1 : node_id;
+        return node_id;
     }
 
     // 生成一个随机的数据页ID

@@ -197,24 +197,41 @@ class SmallBank {
   }
 
   inline void get_account(itemkey_t &acc1 , ZipFanGen *zip_fan , bool is_partitioned , const DTX *dtx , uint64_t *seed , table_id_t table_id){
-    int now_par_id = (SYSTEM_MODE == 12 || SYSTEM_MODE == 13) ? dtx->compute_server->get_node()->ts_cnt.load() : dtx->compute_server->get_node()->get_node_id();
-    // int now_par_id = dtx->compute_server->get_node()->get_node_id();
-    int page_num = dtx->page_cache->getPageCache().find(table_id)->second.size() + 1;
-    // 先在 0～分区大小的区间内，
+    int belong_node_id = (SYSTEM_MODE == 12 || SYSTEM_MODE == 13) ? dtx->compute_server->get_node()->ts_cnt.load() : dtx->compute_server->get_node()->get_node_id();
+    int target_node_id;
+    // 这里得到的 page_id 所在区间是 0~分区大小，需要再把这个值映射到别的区间的某个页面上
     page_id_t page_id = zip_fan->next() + 1;
-    if (is_partitioned){
-        // random_id 表示生成一个目前不在我
-        int random_id = -1;
-        do {
-            random_id = FastRand(seed) % ComputeNodeCount;
-        }while(random_id == now_par_id);
 
-        page_id = page_id + random_id * (page_num / ComputeNodeCount);
+    if (is_partitioned){
+        do {
+            target_node_id = FastRand(seed) % ComputeNodeCount;
+        }while(target_node_id == belong_node_id);
+
     } else {
-        page_id = page_id + now_par_id * (page_num / ComputeNodeCount);
+        target_node_id = belong_node_id;
     }
 
-    assert(page_id < page_num);
+    int partition_size = dtx->compute_server->get_node()->getMetaManager()->GetPartitionSizePerTable();
+    int now_page_num = dtx->compute_server->get_node()->getMetaManager()->GetTablePageNum(table_id);
+    int par_cnt = now_page_num / partition_size + 1;
+    // target_node_id 拥有的分区数量，例如 par_cnt = 4，那 0 号节点有两个分区，2，3 都只有一个分区
+    bool exceed = (target_node_id + 1 <= par_cnt % ComputeNodeCount);          // 是否溢出了一个分区
+    int max_k = (par_cnt / ComputeNodeCount);
+    if (exceed){
+        max_k++;
+    }
+
+    int target_par_id = ComputeNodeCount * (FastRand(seed) % max_k) + target_node_id;
+    page_id = target_par_id * partition_size + page_id;
+
+    assert(page_id > 0);
+    if (page_id >= now_page_num){
+        page_id = now_page_num - 1;
+    }
+
+    // LOG(INFO) << "target node id = " << target_node_id << " target par id = " << target_par_id << " chosen page id = " << page_id
+    //     << " par cnt = " << par_cnt << " max_k = " << max_k
+    //     << " is_par = " << is_partitioned << " region node ID = " << belong_node_id;
 
     acc1 = dtx->page_cache->SearchRandom(seed , table_id , page_id);
   }
@@ -224,7 +241,6 @@ class SmallBank {
     do {
         get_account(acc2 , zip_fan , is_partitioned , dtx , seed , table_id);
     }while(acc1 == acc2);
-    // assert(acc1 < 300000 && acc2 < 300000);
   }
 
   /*
@@ -232,77 +248,55 @@ class SmallBank {
    * we need to decide hot-or-not per transaction, not per account.
    */
   inline void get_account(uint64_t* seed, uint64_t* acct_id,const DTX* dtx, bool is_partitioned, node_id_t gen_node_id, table_id_t table_id = 0) const {
-      double global_conflict = 100;
-      if(ComputeNodeCount == 1) {
-        // 是热点页面
-        if (FastRand(seed) % 100 < TX_HOT) {
-            // 
-            *acct_id = FastRand(seed) % num_hot_global;
+        double global_conflict = 100;
+        if(ComputeNodeCount == 1) {
+            // 是热点页面
+            if (FastRand(seed) % 100 < TX_HOT) {
+                // 
+                *acct_id = FastRand(seed) % num_hot_global;
+            } else {
+                *acct_id = FastRand(seed) % num_accounts_global;
+            }
+            return;
+        } 
+        
+        page_id_t page_id;
+        int belonged_node_id = (SYSTEM_MODE == 12 || SYSTEM_MODE == 13) ? dtx->compute_server->get_node()->get_ts_cnt() : gen_node_id;
+        node_id_t target_node_id = -1;
+        if (!is_partitioned){
+            target_node_id = belonged_node_id;
+        }else{
+            do {
+                target_node_id = FastRand(seed) % ComputeNodeCount;
+            }while(target_node_id == belonged_node_id);
         }
-        else {
-            *acct_id = FastRand(seed) % num_accounts_global;
+        
+        int partition_size = dtx->compute_server->get_node()->getMetaManager()->GetPartitionSizePerTable();
+        int now_page_num = dtx->compute_server->get_node()->getMetaManager()->GetTablePageNum(table_id);
+        int par_cnt = now_page_num / partition_size + 1;
+        int max_k = (par_cnt / ComputeNodeCount);
+        bool exceed = (target_node_id + 1 <= par_cnt % ComputeNodeCount);
+        if (exceed){
+            max_k++;
         }
-      }
-      else if(is_partitioned) { 
-          int node_id = (SYSTEM_MODE == 12 || SYSTEM_MODE == 13) ? dtx->compute_server->get_node()->get_ts_cnt() : gen_node_id;
-        //   int node_id = gen_node_id;
-          int page_num = dtx->page_cache->getPageCache().find(table_id)->second.size() + 1;
-          page_id_t page_id;
-          if(FastRand(seed) % 100 < TX_HOT){ 
-              page_id = FastRand(seed) % (int) ((page_num / ComputeNodeCount) * hot_rate);
-              if(FastRand(seed) % 100 < global_conflict) {
-                  page_id = page_id  + 1 + node_id * (page_num / ComputeNodeCount);
-              } else {
-                  page_id = page_id % (page_num / ComputeNodeCount / ComputeNodeCount) + node_id * (page_num / ComputeNodeCount / ComputeNodeCount) + node_id * (page_num / ComputeNodeCount) + 1;
-              }
-          } else { //如果是非热点事务
-              page_id = FastRand(seed) % (page_num / ComputeNodeCount);
-              if(FastRand(seed) % 100 < global_conflict) {
-                  page_id = page_id + 1 + node_id * (page_num / ComputeNodeCount);
-              } else {
-                  page_id = page_id % (page_num / ComputeNodeCount / ComputeNodeCount) + node_id * (page_num / ComputeNodeCount / ComputeNodeCount) + node_id * (page_num / ComputeNodeCount) + 1;
-                  if(page_id >= page_num ){
-                      page_id--;
-                  }
-              }
-              // LOG(INFO) << "NOT HOT PAGE ID = " << page_id << " Now Epoch = " << dtx->compute_server->get_node()->ts_cnt;
-          }
-          *acct_id = dtx->page_cache->SearchRandom(seed, table_id, page_id);
-      } else { 
-          // SYSTEM_MODE == 12: 使用时间片分区，用 ts_cnt 代替固定的 node_id
-          int node_id = (SYSTEM_MODE == 12 || SYSTEM_MODE == 13) ? dtx->compute_server->get_node()->get_ts_cnt() : gen_node_id;
-        //   int node_id = gen_node_id;
-          int page_num = dtx->page_cache->getPageCache().find(table_id)->second.size() + 1;
-          page_id_t page_id;
-          if(FastRand(seed) % 100 < TX_HOT) { // 如果是热点事务
-              int random = FastRand(seed) % (ComputeNodeCount - 1);
-//              page_id = FastRand(seed) % (int)((page_num / ComputeNodeCount) * hot_rate) +
-//                      (random < node_id ? random : random + 1) * (page_num / ComputeNodeCount) + 1;
-              page_id = FastRand(seed) % (int)((page_num / ComputeNodeCount) * hot_rate);
-              if(FastRand(seed) % 100 < global_conflict) {
-                  page_id = page_id + 1 + (random < node_id ? random : random + 1) * (page_num / ComputeNodeCount) ;
-              } else {
-                  page_id = page_id % (page_num / ComputeNodeCount / ComputeNodeCount) +
-                          node_id * (page_num / ComputeNodeCount / ComputeNodeCount) +
-                          (random < node_id ? random : random + 1)  * (page_num / ComputeNodeCount) + 1;
-              }
-              // LOG(INFO) << "HOT PAGE ID = " << page_id << " Now Epoch = " << dtx->compute_server->get_node()->ts_cnt;
-          } else { //如果是非热点事务
-            int random = FastRand(seed) % (ComputeNodeCount - 1);
-//              page_id = FastRand(seed) % (page_num / ComputeNodeCount) +
-//                      (random < node_id ? random :  random + 1) * (page_num / ComputeNodeCount) + 1;
-              page_id = FastRand(seed) % (page_num / ComputeNodeCount);
-              if(FastRand(seed) % 100 < global_conflict) {
-                  page_id = page_id + 1 + (random < node_id ? random : random + 1) * (page_num / ComputeNodeCount) ;
-              } else {
-                  page_id = page_id % (page_num / ComputeNodeCount / ComputeNodeCount) +
-                          node_id * (page_num / ComputeNodeCount / ComputeNodeCount) +
-                          (random < node_id ? random : random + 1)  * (page_num / ComputeNodeCount) + 1;
-              }
-              // LOG(INFO) << "NOT HOT PAGE ID = " << page_id << " Now Epoch = " << dtx->compute_server->get_node()->ts_cnt;
-          }
-          *acct_id = dtx->page_cache->SearchRandom(seed, table_id, page_id);
-      }
+        // max_k = 4 , % = 3 * = 9 + 
+        int target_par_id = ComputeNodeCount * (FastRand(seed) % max_k) + target_node_id;
+
+        if(FastRand(seed) % 100 < TX_HOT){ 
+            page_id = target_par_id * partition_size + ((FastRand(seed) % partition_size) * hot_rate) + 1;
+        } else { //如果是非热点事务
+            int hot = partition_size * hot_rate;
+            page_id = target_par_id * partition_size + ((FastRand(seed) % (partition_size - hot)) + hot) + 1;
+        }
+        assert(page_id > 0);
+        if (page_id >= now_page_num){
+            page_id = now_page_num - 1;
+        }
+        *acct_id = dtx->page_cache->SearchRandom(seed, table_id, page_id);
+
+        // LOG(INFO) << "target node id = " << target_node_id << " target par id = " << target_par_id << " chosen page id = " << page_id
+        //     << " par cnt = " << par_cnt << " max_k = " << max_k
+        //     << " is_par = " << is_partitioned << " key = " << *acct_id;
   }
 
   inline void get_two_accounts(uint64_t* seed, uint64_t* acct_id_0, uint64_t* acct_id_1, const DTX* dtx, node_id_t gen_node_id, bool is_partitioned, table_id_t table_id = 0) const {
@@ -320,19 +314,12 @@ class SmallBank {
                   *acct_id_1 = FastRand(seed) % num_accounts_global;
               }
           }
-      }else if(is_partitioned) {
-          get_account(seed, acct_id_0, dtx, is_partitioned, gen_node_id, table_id);
-          get_account(seed, acct_id_1, dtx, is_partitioned, gen_node_id, table_id);
-          while (*acct_id_0 == *acct_id_1) {
-              get_account(seed, acct_id_1, dtx, is_partitioned, gen_node_id, table_id);
-          }
-      } else {
-          int node_id = gen_node_id;
-          get_account(seed, acct_id_0, dtx, true, node_id, table_id);
-          get_account(seed, acct_id_1, dtx, is_partitioned, node_id, table_id);
-          while (*acct_id_0 == *acct_id_1) {
-              get_account(seed, acct_id_1, dtx, is_partitioned, node_id, table_id);
-          }
+      }else {
+        get_account(seed, acct_id_0, dtx, is_partitioned, gen_node_id, table_id);
+        get_account(seed, acct_id_1, dtx, is_partitioned, gen_node_id, table_id);
+        while (*acct_id_0 == *acct_id_1) {
+            get_account(seed, acct_id_1, dtx, is_partitioned, gen_node_id, table_id);
+        }
       }
   }
 
