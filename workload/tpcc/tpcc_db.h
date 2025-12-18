@@ -15,7 +15,6 @@
 #include "record/rm_manager.h"
 #include "record/rm_file_handle.h"
 #include "cache/index_cache.h"
-#include "index/index_manager.h"
 #include "dtx/dtx.h"
 #include "storage/bp_tree/bp_tree.h"
 #include "storage/blink_tree/blink_tree.h"
@@ -479,8 +478,6 @@ public:
     RmManager* rm_manager;
     IndexCache* index_cache;
 
-    IndexManager *index_manager;
-
     // 存储层用的，只负责插入初始化的那些数据
     std::vector<S_BPTreeIndexHandle*> bp_tree_indexes;
     std::vector<S_BLinkIndexHandle*> bl_indexes;
@@ -490,7 +487,6 @@ public:
     // For server and client usage: Provide interfaces to servers for loading tables
     TPCC(RmManager* rm_manager): rm_manager(rm_manager) {
         if (rm_manager){
-            index_manager = new IndexManager(rm_manager->get_diskmanager());
             // 11 颗 B+ 树
             // for (int i = 0 ; i < 11 ; i++){
             //     bp_tree_indexes.emplace_back(new S_BPTreeIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 11 , "tpcc"));
@@ -621,7 +617,7 @@ public:
     ALWAYS_INLINE
     unsigned PickWarehouseId(FastRandom& r, unsigned start, unsigned end, const DTX* dtx = nullptr, bool is_partitioned = true, node_id_t gen_node_id = -1) {
         assert(start < end);
-
+        
         const unsigned diff = end + 1;
         int node_id;
         if(dtx != nullptr && gen_node_id == -1) {

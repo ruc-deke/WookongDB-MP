@@ -62,8 +62,6 @@ bool TxNewOrder(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& y
 
     for (int i = 0; i < num_items; i++) {
         int64_t item_id = tpcc_client->GetItemId(random_generator[dtx->coro_id]);
-//        if (tpcc_client->num_warehouse == 1 ||
-//            tpcc_client->RandomNumber(random_generator[dtx->coro_id], 1, 100) > g_new_order_remote_item_pct)
         if (tpcc_client->num_warehouse == 1 || is_partitioned) {
             // local stock case
             uint32_t supplier_warehouse_id = warehouse_id;
@@ -507,7 +505,7 @@ bool TxDelivery(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& y
         int min_o_id = tpcc_client->num_customer_per_district * tpcc_new_order_val_t::SCALE_CONSTANT_BETWEEN_NEWORDER_ORDER + 1;
         int max_o_id = tpcc_client->num_customer_per_district;
         int o_id = tpcc_client->RandomNumber(random_generator[dtx->coro_id], min_o_id, max_o_id);
-
+        
         int64_t no_key = tpcc_client->MakeNewOrderKey(warehouse_id, d_id, o_id);
         tpcc_new_order_key_t norder_key;
         norder_key.no_id = no_key;

@@ -37,6 +37,7 @@ int SmallBank::LoadRecord(RmFileHandle* file_handle,
   // bp_tree_indexes[table_id]->write_file_hdr_to_page();
 
   bl_indexes[table_id]->insert_entry(&item_key , rid);
+  // bl_indexes[table_id]->write_file_hdr_to_page();
   // Rid result;
   // auto res = bl_indexes[table_id]->search(&item_key , result);
   // assert(res);
@@ -54,11 +55,6 @@ int SmallBank::LoadRecord(RmFileHandle* file_handle,
 }
 
 void SmallBank::PopulateSavingsTable() {
-  // 创建 B+ 树索引文件，初始化前 3 个页
-  // std::string index_name = bench_name + "_savings";
-  // // std::cout << "Createing BPTreeIndex : " << index_name << "\n";
-  // index_manager->create_primary(bench_name + "_savings");
-
   // 创建文件
   rm_manager->create_file(bench_name + "_savings", sizeof(DataItem));
   std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(bench_name + "_savings");
@@ -88,10 +84,6 @@ void SmallBank::PopulateSavingsTable() {
 }
 
 void SmallBank::PopulateCheckingTable( ) {
-  // std::string index_name = bench_name + "_checking";
-  // // std::cout << "Createing BPTreeIndex : " << index_name << "\n";
-  // index_manager->create_primary(bench_name + "_checking");
-
   rm_manager->create_file(bench_name + "_checking", sizeof(DataItem));
   std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(bench_name + "_checking");
   std::ofstream indexfile;

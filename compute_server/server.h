@@ -193,13 +193,21 @@ public:
             // 初始化 30000 个，0 到 10000 存表，10000 到 20000 存B+树，20000 到 30000 存FSM
             global_page_lock_table_list_ = new std::vector<GlobalLockTable*>(30000 , nullptr);
             global_valid_table_list_ = new std::vector<GlobalValidTable*>(30000 , nullptr);
-            int table_cnt = (WORKLOAD_MODE == 0) ? 2 : 11;
+            int table_cnt;
+            if (WORKLOAD_MODE == 0){
+                table_cnt = 2;
+            }else if (WORKLOAD_MODE == 1){
+                table_cnt = 11;
+            }else if (WORKLOAD_MODE == 2){
+                table_cnt = 1;
+            }else {
+                assert(false);
+            }
             bl_indexes.resize(table_cnt);
             // B+ 树存在 10000 到 20000 之间
             for (int i = 0 ; i < table_cnt ; i++){
                 bl_indexes[i] = new BLinkIndexHandle(this , i + 10000);
             }
-
 
             for (int i = 0 ; i < table_cnt ; i++){
                 (*global_page_lock_table_list_)[i] = new GlobalLockTable();
@@ -354,14 +362,14 @@ public:
     Page_request_info generate_random_pageid(std::mt19937& gen, std::uniform_real_distribution<>& dis);
 
     inline bool is_ts_par_page(table_id_t table_id , page_id_t page_id , int now_ts_cnt){
-        auto partition_size = node_->meta_manager_->GetPartitionSizePerTable();
+        auto partition_size = node_->meta_manager_->GetPartitionSizePerTable(table_id);
         assert(partition_size > 0);        
         int page_belong_par = (page_id / partition_size) % ComputeNodeCount;
         return page_belong_par == now_ts_cnt;
     }
 
     int get_ts_belong_par(table_id_t table_id , page_id_t page_id){
-        auto partition_size = node_->meta_manager_->GetPartitionSizePerTable();
+        auto partition_size = node_->meta_manager_->GetPartitionSizePerTable(table_id);
         assert(partition_size > 0);        
         int page_belong_par = (page_id / partition_size) % ComputeNodeCount;
         return page_belong_par;
@@ -579,7 +587,7 @@ public:
             request->set_allocated_page_id(pid);
             request->set_node_id(node_->node_id);
 
-            node_id_t page_belong_node = get_node_id_by_page_id(replaced_page_id);
+            node_id_t page_belong_node = get_node_id_by_page_id(table_id , replaced_page_id);
             if (page_belong_node == node_->node_id){
                 this->page_table_service_impl_->BufferReleaseUnlock_LocalCall(request , response);
             }else{
@@ -828,11 +836,11 @@ public:
     std::string rpc_fetch_page_from_storage(table_id_t table_id, page_id_t page_id , bool need_to_record);
 
     inline uint64_t get_partitioned_size(table_id_t table_id){
-        return node_->meta_manager_->GetPartitionSizePerTable();
+        return node_->meta_manager_->GetPartitionSizePerTable(table_id);
     }
     
-    inline bool is_partitioned_page(page_id_t page_id){
-        auto partition_size = node_->meta_manager_->GetPartitionSizePerTable();
+    inline bool is_partitioned_page(table_id_t table_id , page_id_t page_id){
+        auto partition_size = node_->meta_manager_->GetPartitionSizePerTable(table_id);
         int belong_par = ((page_id - 1) / partition_size) % ComputeNodeCount;
         return (node_->getNodeID() == belong_par);
     }
@@ -853,7 +861,7 @@ public:
         auto table_size = (WORKLOAD_MODE == 0) ? 2 : 11;
 
         for (int t = 0; t < table_size; ++t){
-            auto partition_size = node_->meta_manager_->GetPartitionSizePerTable();
+            auto partition_size = node_->meta_manager_->GetPartitionSizePerTable(t);
 
             // 每个分区中，热点页面分区在前面，每个分区的热点页面长度是下面这个计算方法
             uint64_t hot_len = static_cast<uint64_t>(partition_size * hot_rate);
@@ -877,8 +885,8 @@ public:
     }
 
     // 获取到 page_id 所在的分区对应的节点
-    inline node_id_t get_node_id_by_page_id(page_id_t page_id){
-        auto partition_size = node_->meta_manager_->GetPartitionSizePerTable();
+    inline node_id_t get_node_id_by_page_id(table_id_t table_id , page_id_t page_id){
+        auto partition_size = node_->meta_manager_->GetPartitionSizePerTable(table_id);
         assert(partition_size != 0);
         int node_id = ((page_id - 1) / partition_size) % ComputeNodeCount;
         assert(node_id < ComputeNodeCount);

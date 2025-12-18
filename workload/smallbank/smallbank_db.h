@@ -15,7 +15,6 @@
 #include "util/json_config.h"
 #include "record/rm_manager.h"
 #include "record/rm_file_handle.h"
-#include "index/index_manager.h"
 #include "dtx/dtx.h"
 #include "storage/bp_tree/bp_tree.h"
 #include "storage/blink_tree/blink_tree.h"
@@ -119,17 +118,15 @@ class SmallBank {
   double hot_rate;
 
   RmManager* rm_manager;
-  IndexManager *index_manager;
 
   // 存储层用的，只负责插入初始化的那些数据
-  std::vector<S_BPTreeIndexHandle*> bp_tree_indexes;
+//   std::vector<S_BPTreeIndexHandle*> bp_tree_indexes;
   std::vector<S_BLinkIndexHandle*> bl_indexes;
 
   // For server usage: Provide interfaces to servers for loading tables
   // Also for client usage: Provide interfaces to clients for generating ids during tests
   SmallBank(RmManager* rm_manager): rm_manager(rm_manager) {
     if (rm_manager){
-        index_manager = new IndexManager(rm_manager->get_diskmanager());
         // 2颗 B+ 树
         // for (int i = 0 ; i < 2 ; i++){
         //     bp_tree_indexes.emplace_back(new S_BPTreeIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 2 , "smallbank"));
@@ -206,34 +203,32 @@ class SmallBank {
         do {
             target_node_id = FastRand(seed) % ComputeNodeCount;
         }while(target_node_id == belong_node_id);
-
     } else {
         target_node_id = belong_node_id;
     }
 
-    int partition_size = dtx->compute_server->get_node()->getMetaManager()->GetPartitionSizePerTable();
-    int now_page_num = dtx->compute_server->get_node()->getMetaManager()->GetTablePageNum(table_id);
-    int par_cnt = now_page_num / partition_size + 1;
-    // target_node_id 拥有的分区数量，例如 par_cnt = 4，那 0 号节点有两个分区，2，3 都只有一个分区
-    bool exceed = (target_node_id + 1 <= par_cnt % ComputeNodeCount);          // 是否溢出了一个分区
-    int max_k = (par_cnt / ComputeNodeCount);
-    if (exceed){
-        max_k++;
-    }
+    int partition_size = dtx->compute_server->get_node()->getMetaManager()->GetPartitionSizePerTable(table_id);     // 分区大小
+    int now_page_num = dtx->compute_server->get_node()->getMetaManager()->GetTablePageNum(table_id);                // 该表页面数量
+    int par_cnt = now_page_num / partition_size + 1;        
 
-    int target_par_id = ComputeNodeCount * (FastRand(seed) % max_k) + target_node_id;
-    page_id = target_par_id * partition_size + page_id;
+    page_id = (page_id / partition_size) * (ComputeNodeCount * partition_size) 
+            + (target_node_id * partition_size)
+            + page_id % partition_size
+            + 1;
 
     assert(page_id > 0);
-    if (page_id >= now_page_num){
+    assert(page_id <= now_page_num);
+    if (page_id == now_page_num){
         page_id = now_page_num - 1;
     }
 
-    // LOG(INFO) << "target node id = " << target_node_id << " target par id = " << target_par_id << " chosen page id = " << page_id
-    //     << " par cnt = " << par_cnt << " max_k = " << max_k
-    //     << " is_par = " << is_partitioned << " region node ID = " << belong_node_id;
+    
 
     acc1 = dtx->page_cache->SearchRandom(seed , table_id , page_id);
+
+    // LOG(INFO) << "target node id = " << target_node_id  << " chosen page id = " << page_id
+    //         << " par cnt = " << par_cnt
+    //         << " is_par = " << is_partitioned << " key = " << acc1;
   }
 
   void get_two_accounts(itemkey_t &acc1 , itemkey_t &acc2 , ZipFanGen *zip_fan , bool is_partitioned , const DTX *dtx , uint64_t *seed , table_id_t table_id){
@@ -271,31 +266,46 @@ class SmallBank {
             }while(target_node_id == belonged_node_id);
         }
         
-        int partition_size = dtx->compute_server->get_node()->getMetaManager()->GetPartitionSizePerTable();
-        int now_page_num = dtx->compute_server->get_node()->getMetaManager()->GetTablePageNum(table_id);
-        int par_cnt = now_page_num / partition_size + 1;
-        int max_k = (par_cnt / ComputeNodeCount);
-        bool exceed = (target_node_id + 1 <= par_cnt % ComputeNodeCount);
-        if (exceed){
-            max_k++;
-        }
-        // max_k = 4 , % = 3 * = 9 + 
-        int target_par_id = ComputeNodeCount * (FastRand(seed) % max_k) + target_node_id;
+        int partition_size = dtx->compute_server->get_node()->getMetaManager()->GetPartitionSizePerTable(table_id);     // 分区大小
+        int now_page_num = dtx->compute_server->get_node()->getMetaManager()->GetTablePageNum(table_id);                // 该表页面数量
+        int par_cnt = now_page_num / partition_size + 1;                                                                // 总分区数量
+        
 
-        if(FastRand(seed) % 100 < TX_HOT){ 
-            page_id = target_par_id * partition_size + ((FastRand(seed) % partition_size) * hot_rate) + 1;
-        } else { //如果是非热点事务
-            int hot = partition_size * hot_rate;
-            page_id = target_par_id * partition_size + ((FastRand(seed) % (partition_size - hot)) + hot) + 1;
+        // 本节点管理的全部页面数量
+        int node_page_cnt = 0;
+        node_page_cnt += (par_cnt / ComputeNodeCount) * partition_size;
+        if (target_node_id + 1 < par_cnt % ComputeNodeCount){
+            node_page_cnt += partition_size;
+        }else if (target_node_id + 1 == par_cnt % ComputeNodeCount){
+            node_page_cnt += now_page_num % partition_size;
         }
+
+        bool is_hot;
+        if (FastRand(seed) % 100 < TX_HOT){
+            is_hot = true;
+            page_id = (FastRand(seed) % node_page_cnt) * hot_rate;
+        }else {
+            is_hot = false;
+            int hot = node_page_cnt * hot_rate;
+            page_id = ((FastRand(seed) % (node_page_cnt - hot)) + hot);
+        }
+
+        int debug_page_id = page_id;
+
+        page_id = (page_id / partition_size) * (ComputeNodeCount * partition_size) 
+                + (target_node_id * partition_size)
+                + page_id % partition_size
+                + 1;
+
         assert(page_id > 0);
-        if (page_id >= now_page_num){
+        assert(page_id <= now_page_num);
+        if (page_id == now_page_num){
             page_id = now_page_num - 1;
         }
         *acct_id = dtx->page_cache->SearchRandom(seed, table_id, page_id);
 
-        // LOG(INFO) << "target node id = " << target_node_id << " target par id = " << target_par_id << " chosen page id = " << page_id
-        //     << " par cnt = " << par_cnt << " max_k = " << max_k
+        // LOG(INFO) << "target node id = " << target_node_id << " node page cnt = " << node_page_cnt << " chosen page id = " << page_id
+        //     << " par cnt = " << par_cnt << " is hot = " << is_hot
         //     << " is_par = " << is_partitioned << " key = " << *acct_id;
   }
 

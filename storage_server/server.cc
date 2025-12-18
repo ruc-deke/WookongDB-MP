@@ -25,8 +25,14 @@ void LoadData(node_id_t machine_id,
   } else if (workload == "TPCC") {
       TPCC* tpcc_server = new TPCC(rm_manager);
       tpcc_server->LoadTable(machine_id, machine_num);
-  }
-  else{
+  } else if (workload == "YCSB"){
+      std::string config_path = "../../config/ycsb_config.json";
+      auto config = JsonConfig::load_file(config_path);
+      int record_cnt = config.get("ycsb").get("num_record").get_int64();
+      YCSB *ycsb_server = new YCSB(rm_manager , record_cnt , 0);
+      ycsb_server->LoadTable();
+      ycsb_server->VerifyData();
+  } else{
     LOG(ERROR) << "Unsupported workload: " << workload;
     assert(false);
   }
@@ -56,8 +62,9 @@ void Server::PrepareStorageMeta(node_id_t machine_id, std::string workload, char
     table_num = 6;
   }else if(workload == "TPCC") {
     table_num = 33;
-  } else {
-    LOG(ERROR) << "Unsupported workload: " << workload;
+  } else if (workload == "YCSB"){
+    table_num = 3;
+  }else {
     assert(false);
   }
   
@@ -82,8 +89,8 @@ void Server::PrepareStorageMeta(node_id_t machine_id, std::string workload, char
 
         // 3. FSM
         std::string fsm_name = sb_tables[i] + "_fsm";
-        int fsm_size = rm_manager_->get_diskmanager()->get_file_size(fsm_name);
-        max_page_num_per_table[i + 4] = (fsm_size == -1) ? 0 : (fsm_size / PAGE_SIZE);
+        // int fsm_size = rm_manager_->get_diskmanager()->get_file_size(fsm_name);
+        // max_page_num_per_table[i + 4] = (fsm_size == -1) ? 0 : (fsm_size / PAGE_SIZE);
     }
 
     // Fill storage meta
@@ -110,15 +117,35 @@ void Server::PrepareStorageMeta(node_id_t machine_id, std::string workload, char
           max_page_num_per_table[i + 11] = (bl_size == -1) ? 0 : (bl_size / PAGE_SIZE);
 
           // 3. FSM
-          std::string fsm_name = tpcc_tables[i] + "bl";
-          int fsm_size = rm_manager_->get_diskmanager()->get_file_size(fsm_name);
-          max_page_num_per_table[i + 22] = (fsm_size == -1) ? 0 : (fsm_size / PAGE_SIZE);
+          std::string fsm_name = tpcc_tables[i] + "fsm";
+          // int fsm_size = rm_manager_->get_diskmanager()->get_file_size(fsm_name);
+          // max_page_num_per_table[i + 22] = (fsm_size == -1) ? 0 : (fsm_size / PAGE_SIZE);
       }
 
       // Fill storage meta
       memcpy(storage_meta, &table_num, sizeof(int));
       memcpy(storage_meta + sizeof(int), max_page_num_per_table, table_num * sizeof(int));
       memcpy(storage_meta + sizeof(int) + table_num * sizeof(int), &record_per_page, sizeof(int));
+  } else if (workload == "YCSB"){
+    std::string ycsb_table = "ycsb_user_table";
+    for (int i = 0 ; i < 3 ; i++){
+        std::unique_ptr<RmFileHandle> table_file = rm_manager_->open_file(ycsb_table);
+        max_page_num_per_table[i] = table_file->get_file_hdr().num_pages_;
+        if(i == 0) record_per_page = table_file->get_file_hdr().num_records_per_page_;
+
+        // 2. B-Link Tree (ID: i + 22)
+        std::string bl_name = ycsb_table + "_bl";
+        int bl_size = rm_manager_->get_diskmanager()->get_file_size(bl_name);
+        max_page_num_per_table[i + 11] = (bl_size == -1) ? 0 : (bl_size / PAGE_SIZE);
+
+        // 3. FSM
+        std::string fsm_name = ycsb_table + "fsm";
+        // int fsm_size = rm_manager_->get_diskmanager()->get_file_size(fsm_name);
+        // max_page_num_per_table[i + 22] = (fsm_size == -1) ? 0 : (fsm_size / PAGE_SIZE);
+    }
+    memcpy(storage_meta, &table_num, sizeof(int));
+    memcpy(storage_meta + sizeof(int), max_page_num_per_table, table_num * sizeof(int));
+    memcpy(storage_meta + sizeof(int) + table_num * sizeof(int), &record_per_page, sizeof(int));
   } else {
     LOG(ERROR) << "Unsupported workload: " << workload;
     assert(false);
@@ -259,6 +286,7 @@ int main(int argc, char* argv[]) {
     // Init table in disk
     auto buffer_mgr = std::make_shared<StorageBufferPoolManager>(RM_BUFFER_POOL_SIZE, disk_manager.get());
     auto rm_manager = std::make_shared<RmManager>(disk_manager.get(), buffer_mgr.get());
+
     LoadData(machine_id, machine_num, workload, rm_manager.get());
     // std::unique_ptr<RmFileHandle> table_file1 = rm_manager->open_file("smallbank_savings");
     buffer_mgr->flush_all_pages();

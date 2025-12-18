@@ -192,7 +192,9 @@ node_id_t MetaManager::GetRemoteStorageMeta(std::string& remote_ip, int remote_p
   assert(table_num % 3 == 0);
   assert(table_num > 0);
   int real_table = table_num / 3;
+
   for(int i = 0; i < real_table ; i++) {
+      // std::cout << "Page Num = " << init_page_num_per_table[i];
       page_num_per_table[i] = init_page_num_per_table[i];
       page_num_per_table[i + 10000] = init_page_num_per_table[i + real_table];
       page_num_per_table[i + 20000] = init_page_num_per_table[i + real_table * 2];

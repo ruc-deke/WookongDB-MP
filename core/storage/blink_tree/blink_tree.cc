@@ -227,7 +227,7 @@ void S_BLinkIndexHandle::insert_into_parent(S_BLinkNodeHandle *old_node , const 
         new_root->set_size(0);
         new_root->init_internal_node(); // 第一个 key = NEG_KEY
         new_root->set_rid(0 , {.page_no_ = old_node->get_page_no() , .slot_no_ = -1});
-
+        
         Rid rid1 = {.page_no_ = new_node->get_page_no() , -1};
         new_root->insert_pair(1 , &sep_key , &rid1);
 
@@ -320,6 +320,7 @@ page_id_t S_BLinkIndexHandle::insert_entry(const itemkey_t *key , const Rid &val
             memset(page_buf , 0 , PAGE_SIZE);
             file_hdr->serialize(page_buf);
             disk_manager->write_page(table_id , BP_HEAD_PAGE_ID , page_buf , PAGE_SIZE);
+            write_file_hdr_to_page();
         }
 
         insert_into_parent(leaf , *bro->get_key(0) , bro , trace);

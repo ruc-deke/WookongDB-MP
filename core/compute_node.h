@@ -101,7 +101,7 @@ public:
             auto pool_size_node = json_config.get("table_buffer_pool_size_per_table");
             auto index_pool_size = json_config.get("index_buffer_pool_size_per_table");
             auto fsm_pool_size = json_config.get("fsm_buffer_pool_size_per_table");
-            auto partition_size = json_config.get("partition_size_per_table");
+            // auto partition_size = json_config.get("partition_size_per_table");
             auto ts_time_node = json_config.get("ts_time");
             if (pool_size_node.exists() && pool_size_node.is_int64()) {
                 table_pool_size_cfg = (size_t)pool_size_node.get_int64();
@@ -113,9 +113,9 @@ public:
             if (fsm_pool_size.exists() && fsm_pool_size.is_int64()){
                 fsm_pool_size_cfg = (size_t)fsm_pool_size.get_int64();
             }
-            if (partition_size.exists() && partition_size.is_int64()){
-                partition_size_cfg = (size_t)partition_size.get_int64();
-            }
+            // if (partition_size.exists() && partition_size.is_int64()){
+            //     partition_size_cfg = (size_t)partition_size.get_int64();
+            // }
             if (ts_time_node.exists() && ts_time_node.is_int64()){
                 ts_time = (int)ts_time_node.get_int64();
             }
@@ -126,8 +126,7 @@ public:
             }
         }
 
-        meta_manager_->par_size_per_table = partition_size_cfg;
-        std::cout << "Partition Size : " << meta_manager_->par_size_per_table << "\n";
+        meta_manager_->initParSize();
 
         if(WORKLOAD_MODE == 0) {
             if (SYSTEM_MODE == 0) {
@@ -182,9 +181,12 @@ public:
             std::copy(meta_manager->page_num_per_table.begin(), meta_manager->page_num_per_table.end(),
                       std::back_inserter(max_page_per_table));
             for (int i = 0 ; i < 2 ; i++){
-                std::cout << "Table ID = " << i << " Page Num This Table = " << meta_manager->page_num_per_table[i] << "\n";
-                std::cout << "BLink Page Num This Table = " << meta_manager->page_num_per_table[i + 10000] << "\n";
-                std::cout << "FSM Page Num This Table = " << meta_manager->page_num_per_table[i + 20000] << "\n\n";
+                meta_manager_->par_size_per_table[i] = meta_manager_->page_num_per_table[i] / ComputeNodeCount;
+                meta_manager_->par_size_per_table[i + 10000] = meta_manager_->page_num_per_table[i + 10000] / ComputeNodeCount;
+                meta_manager_->par_size_per_table[i + 20000] = meta_manager_->page_num_per_table[i + 20000] / ComputeNodeCount;
+                std::cout << "\n Table ID = " << i << " Page Num This Table = " << meta_manager->page_num_per_table[i] << " partition size = " << meta_manager_->par_size_per_table[i] << "\n";
+                LOG(INFO) << "BLink Page Num This Table = " << meta_manager->page_num_per_table[i + 10000] << " partition size = " << meta_manager_->par_size_per_table[i + 10000] << "\n";
+                std::cout << "FSM Page Num This Table = " << meta_manager->page_num_per_table[i + 20000] << " partition size = " << meta_manager_->par_size_per_table[i + 20000] << "\n";
             }
 
             local_buffer_pools = std::vector<BufferPool*>(30000 , nullptr);
@@ -254,9 +256,12 @@ public:
                         std::back_inserter(max_page_per_table));;
 
             for (int i = 0 ; i < 11 ; i++){
-                std::cout << "Table ID = " << i << " Init Page Num = " << meta_manager->page_num_per_table[i] << "\n";
+                meta_manager_->par_size_per_table[i] = meta_manager_->page_num_per_table[i] / ComputeNodeCount;
+                meta_manager_->par_size_per_table[i + 10000] = meta_manager_->page_num_per_table[i + 10000] / ComputeNodeCount;
+                meta_manager_->par_size_per_table[i + 20000] = meta_manager_->page_num_per_table[i + 20000] / ComputeNodeCount;
+                std::cout << "\nTable ID = " << i << " Init Page Num = " << meta_manager->page_num_per_table[i] << "\n";
                 std::cout << "BLink Page Num This Table = " << meta_manager->page_num_per_table[i + 10000] << "\n";
-                std::cout << "FSM Page Num This Table = " << meta_manager->page_num_per_table[i + 20000] << "\n\n";
+                std::cout << "FSM Page Num This Table = " << meta_manager->page_num_per_table[i + 20000] << "\n";
             }
 
             local_buffer_pools.resize(30000);

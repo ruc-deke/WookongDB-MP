@@ -12,10 +12,9 @@
 // ! pay attention: need modify this when use different workload
 // Max data item size.
 // 8: smallbank
-// 40: tatp
 // 664: tpcc
-// 40: micro-benchmark
-#define MAX_ITEM_SIZE 8
+// 1056: yscb
+#define MAX_ITEM_SIZE 1000
 
 enum class TsPhase{
     BEGIN = 0,          // 初始化

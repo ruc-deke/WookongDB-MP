@@ -214,8 +214,10 @@ public:
             }else {
                 assert(false);
             }
-        }else {
-            assert(false);
+        }else if (bench_name == "ycsb"){
+            if (table_id == 10000){
+                index_path = "user_table_bl";
+            }
         }
     }
 

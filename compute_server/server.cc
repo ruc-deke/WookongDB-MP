@@ -190,7 +190,7 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
             // LOG(INFO) << "Pending Release Page , table_id = " << table_id << " page_id = " << page_id;
             server->get_node()->getBufferPoolByIndex(table_id)->releaseBufferPage(table_id , page_id);
 
-            brpc::Channel* page_table_channel =  server->get_compute_channel() + server->get_node_id_by_page_id(page_id);
+            brpc::Channel* page_table_channel =  server->get_compute_channel() + server->get_node_id_by_page_id(table_id , page_id);
             page_table_service::PageTableService_Stub pagetable_stub(page_table_channel);
             page_table_service::PAnyUnLockRequest unlock_request;
             page_table_service::PAnyUnLockResponse* unlock_response = new page_table_service::PAnyUnLockResponse();

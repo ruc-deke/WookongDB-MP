@@ -22,7 +22,7 @@ Page* ComputeServer::rpc_fetch_s_page(table_id_t table_id, page_id_t page_id) {
         page_id_pb->set_table_id(table_id);
         request.set_allocated_page_id(page_id_pb);
         request.set_node_id(node_->node_id);
-        node_id_t page_belong_node = get_node_id_by_page_id(page_id);
+        node_id_t page_belong_node = get_node_id_by_page_id(table_id , page_id);
         if(page_belong_node == node_->node_id){
             // 如果是本地节点, 则直接调用
             this->page_table_service_impl_->PSLock_Localcall(&request, response);
@@ -90,7 +90,7 @@ Page* ComputeServer::rpc_fetch_x_page(table_id_t table_id, page_id_t page_id) {
         page_id_pb->set_table_id(table_id);
         request.set_allocated_page_id(page_id_pb);
         request.set_node_id(node_->node_id);
-        node_id_t page_belong_node = get_node_id_by_page_id(page_id);
+        node_id_t page_belong_node = get_node_id_by_page_id(table_id , page_id);
         if(page_belong_node == node_->node_id){
             // 如果是本地节点, 则直接调用
             this->page_table_service_impl_->PXLock_Localcall(&request, response);
@@ -144,7 +144,7 @@ void ComputeServer::rpc_release_s_page(table_id_t  table_id, page_id_t page_id) 
         page_id_pb->set_table_id(table_id);
         request.set_allocated_page_id(page_id_pb);
         request.set_node_id(node_->node_id);
-        node_id_t page_belong_node = get_node_id_by_page_id(page_id);
+        node_id_t page_belong_node = get_node_id_by_page_id(table_id , page_id);
         if(page_belong_node == node_->node_id){
             // 如果是本地节点, 则直接调用
             this->page_table_service_impl_->PSUnlock_Localcall(&request, response);
@@ -188,7 +188,7 @@ void ComputeServer::rpc_release_x_page(table_id_t table_id, page_id_t page_id) {
         page_id_pb->set_table_id(table_id);
         unlock_request.set_allocated_page_id(page_id_pb);
         unlock_request.set_node_id(node_->node_id);
-        node_id_t page_belong_node = get_node_id_by_page_id(page_id);
+        node_id_t page_belong_node = get_node_id_by_page_id(table_id , page_id);
         if(page_belong_node == node_->node_id){
             // 如果是本地节点, 则直接调用
             this->page_table_service_impl_->PXUnlock_Localcall(&unlock_request, unlock_response);

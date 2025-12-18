@@ -56,7 +56,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
         page_id_pb->set_table_id(table_id);
         request.set_allocated_page_id(page_id_pb);
         request.set_node_id(node_->node_id);
-        node_id_t page_belong_node = get_node_id_by_page_id(page_id);
+        node_id_t page_belong_node = get_node_id_by_page_id(table_id , page_id);
         if(page_belong_node == node_->node_id) {
             this->page_table_service_impl_->LRPSLock_Localcall(&request, response);
         } else {
@@ -179,7 +179,7 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
         page_id_pb->set_table_id(table_id);
         request.set_allocated_page_id(page_id_pb);
         request.set_node_id(node_->node_id);
-        node_id_t page_belong_node = get_node_id_by_page_id(page_id);
+        node_id_t page_belong_node = get_node_id_by_page_id(table_id , page_id);
         if( page_belong_node == node_->node_id) {
             // 如果是本地节点, 则直接调用
             // LOG(INFO) << "Fetching X Page Local , table_id = " << table_id << " page_id = " << page_id;
@@ -330,7 +330,7 @@ void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_
     request.set_allocated_page_id(page_id_pb);
     request.set_node_id(node_->node_id);
 
-    node_id_t page_belong_node = get_node_id_by_page_id(page_id);
+    node_id_t page_belong_node = get_node_id_by_page_id(table_id , page_id);
     if( page_belong_node == node_->node_id) {
         // LOG(INFO) << "SRelease in local , table_id = " << table_id << " page_id = " << page_id;
         // 如果是本地节点, 则直接调用
@@ -389,7 +389,7 @@ void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_
     unlock_request.set_allocated_page_id(page_id_pb);
     unlock_request.set_node_id(node_->node_id);
 
-    node_id_t page_belong_node = get_node_id_by_page_id(page_id);
+    node_id_t page_belong_node = get_node_id_by_page_id(table_id , page_id);
     if( page_belong_node == node_->node_id) {
         // LOG(INFO) << "XRelease in local , table_id = " << table_id << " page_id = " << page_id;
         // 如果是本地节点, 则直接调用

@@ -239,7 +239,7 @@ void StorageBufferPoolManager::flush_all_pages(int fd) {
 
     for (size_t i = 0; i < pool_size_; i++) {
         Page *page = &pages_[i];
-        if (page->get_page_id().table_id == fd && page->get_page_id().page_no != INVALID_PAGE_ID) {
+        if (page->get_page_id().table_id == fd && page->get_page_id().page_no != INVALID_PAGE_ID && page->is_dirty_) {
             disk_manager_->write_page(page->get_page_id().table_id, page->get_page_id().page_no, page->get_data(), PAGE_SIZE);
             page->is_dirty_ = false;
         }
@@ -255,7 +255,7 @@ void StorageBufferPoolManager::flush_all_pages() {
 
     for (size_t i = 0; i < pool_size_; i++) {
         Page *page = &pages_[i];
-        if (page->get_page_id().page_no != INVALID_PAGE_ID) {
+        if (page->get_page_id().page_no != INVALID_PAGE_ID && page->is_dirty_) {
             disk_manager_->write_page(page->get_page_id().table_id, page->get_page_id().page_no, page->get_data(), PAGE_SIZE);
             page->is_dirty_ = false;
         }

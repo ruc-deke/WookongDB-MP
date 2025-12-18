@@ -19,6 +19,7 @@
 #include "cache/index_cache.h"
 #include "util/json_config.h"
 #include "worker.h"
+#include "workload/ycsb/ycsb_db.h"
 
 std::atomic<uint64_t> tx_id_generator;
 
@@ -104,7 +105,9 @@ void Handler::GenThreads(std::string bench_name) {
         WORKLOAD_MODE = 0;
     } else if(bench_name == "tpcc") {
         WORKLOAD_MODE = 1;
-    } else {
+    } else if (bench_name == "ycsb"){
+        WORKLOAD_MODE = 2;
+    }else {
         LOG(FATAL) << "Unsupported benchmark name: " << bench_name;
     }
     std::cout << "WORKLOAD_MODE = " << WORKLOAD_MODE << "\n";
@@ -152,8 +155,12 @@ void Handler::GenThreads(std::string bench_name) {
   // ComputeServer 启动是用另外一个线程启动的， 这里等待一下启动
   if (WORKLOAD_MODE == 0){
     std::this_thread::sleep_for(std::chrono::seconds(5)); 
-  }else {
+  }else if (WORKLOAD_MODE == 1){
     std::this_thread::sleep_for(std::chrono::seconds(15)); 
+  }else if (WORKLOAD_MODE == 2){
+    std::this_thread::sleep_for(std::chrono::seconds(5)); 
+  }else {
+    assert(false);
   }
 
 
@@ -165,24 +172,25 @@ void Handler::GenThreads(std::string bench_name) {
 
   SmallBank* smallbank_client = nullptr;
   TPCC* tpcc_client = nullptr;
+  YCSB *ycsb_client = nullptr;
 
   if (bench_name == "smallbank") {
     smallbank_client = new SmallBank(nullptr);
-# if UniformHot 
-    uint64_t u_seed = 0xcafebabe;
-    smallbank_client->GenerateHotAccounts(&u_seed);
-# endif
     total_try_times.resize(SmallBank_TX_TYPES, 0);
     total_commit_times.resize(SmallBank_TX_TYPES, 0);
   } else if(bench_name == "tpcc") {
     tpcc_client = new TPCC(nullptr);
     total_try_times.resize(TPCC_TX_TYPES, 0);
     total_commit_times.resize(TPCC_TX_TYPES, 0);
-  } else {
+  } else if (bench_name == "ycsb"){
+    std::string config_path = "../../config/ycsb_config.json";
+    auto config = JsonConfig::load_file(config_path);
+    int record_cnt = config.get("ycsb").get("num_record").get_int64();
+    ycsb_client = new YCSB(nullptr , record_cnt , 0);
+  }else {
     LOG(FATAL) << "Unsupported benchmark name: " << bench_name;
   }
 
-  // std::cout << "Got Here1\n";
 
   // LOG(INFO) << "Spawn threads to execute...";
   std::atomic<int> init_finish_cnt(0);
@@ -200,7 +208,7 @@ void Handler::GenThreads(std::string bench_name) {
     param_arr[i].compute_server = compute_server;
     param_arr[i].thread_num_per_machine = thread_num_per_machine;
     param_arr[i].total_thread_num = thread_num_per_machine * machine_num;
-    if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
+    if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){x
       std::vector<int> thread_ids = compute_node->getSchedulerThreadIds();
       if (i < thread_ids.size()) {
           // 先初始化一下调度器里面的每一个线程

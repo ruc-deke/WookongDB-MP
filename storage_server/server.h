@@ -14,6 +14,7 @@
 // Load DB
 #include "smallbank/smallbank_db.h"
 #include "tpcc/tpcc_db.h"
+#include "ycsb/ycsb_db.h"
 // #include "tpcc/tpcc_db.h"
 // #include "ycsb/ycsb_db.h"
 

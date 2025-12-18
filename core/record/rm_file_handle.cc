@@ -20,7 +20,7 @@ std::unique_ptr<RmRecord> RmFileHandle::get_record(const Rid& rid, TxnLog* txn) 
         // context->lock_mgr_->lock_shared_on_record(context->txn_, rid, fd_);
 
     RmPageHandle page_handle = fetch_page_handle(rid.page_no_);
-    if (!Bitmap::is_set(page_handle.bitmap, page_handle.get_slot_no(rid.slot_no_))) {
+    if (!Bitmap::is_set(page_handle.bitmap, rid.slot_no_)) {
         // throw RecordNotFoundError(rid.page_no_, rid.slot_no_);
     }
     char *slot = page_handle.get_slot(rid.slot_no_);  // record对应的地址

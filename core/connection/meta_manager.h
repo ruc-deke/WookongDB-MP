@@ -55,8 +55,28 @@ class MetaManager {
   int GetTablePageNum(const table_id_t table_id) const {
     return page_num_per_table[table_id];
   }
-  int GetPartitionSizePerTable() const {
-    return par_size_per_table;
+  void initParSize(){
+    par_size_per_table = std::vector<int>(30000 , 0);
+  }
+  int GetPartitionSizePerTable(table_id_t table_id) const {
+    return par_size_per_table[table_id];
+  }
+  // 获取到 table_id 对应的表中，node_id 管理的页面数量
+  int GetPageNumPerNode(node_id_t node_id , table_id_t table_id , int node_cnt){
+    int partition_size = GetPartitionSizePerTable(table_id);     // 分区大小
+    int now_page_num = GetTablePageNum(table_id);                // 该表页面数量
+    int par_cnt = now_page_num / partition_size + 1;                                                                // 总分区数量
+
+    // 本节点管理的全部页面数量
+    int node_page_cnt = 0;
+    node_page_cnt += (par_cnt / node_cnt) * partition_size;
+    if (node_id + 1 < par_cnt % node_cnt){
+        node_page_cnt += partition_size;
+    }else if (node_id + 1 == par_cnt % node_cnt){
+        node_page_cnt += now_page_num % partition_size;
+    }
+
+    return node_page_cnt;
   }
   int GetTableNum() const {
     return table_name_map.size();
@@ -90,7 +110,7 @@ class MetaManager {
   int remote_server_meta_port; // remote server meta port
   std::vector<RemoteNode> remote_storage_nodes; // remote storage nodes
   std::vector<int> page_num_per_table;    // 每张表的当前持有页面的数量
-  int par_size_per_table = 1000;                 // 每张表的分区大小
+  std::vector<int> par_size_per_table;               // 每张表的分区大小
   // Below are some parameteres from json file
   int64_t txn_system;
 };

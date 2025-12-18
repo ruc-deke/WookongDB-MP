@@ -27,6 +27,7 @@
 #include "cache/index_cache.h"
 
 #include "smallbank/smallbank_txn.h"
+#include "ycsb/ycsb_db.h"
 #include "tpcc/tpcc_txn.h"
 #include "thread_pool.h"
 #include "util/json_config.h"
@@ -85,6 +86,7 @@ std::string bench_name;
 
 thread_local SmallBank* smallbank_client = nullptr;
 thread_local TPCC* tpcc_client = nullptr;
+thread_local YCSB *ycsb_client = nullptr;
 
 thread_local IndexCache* index_cache;
 thread_local PageCache* page_cache;
@@ -100,7 +102,7 @@ thread_local CoroutineScheduler* coro_sched;  // Each transaction thread has a c
 thread_local CoroutineScheduler* coro_sched_0; // Coroutine 0, use a single sheduler to manage it, only use in long transactions evaluation
 thread_local int* using_which_coro_sched; // 0=>coro_sched_0, 1=>coro_sched
 
-thread_local ZipFanGen *zipfan_gen = nullptr;
+thread_local std::vector<ZipFanGen*>* zipfan_gens;
 
 // Performance measurement (thread granularity)
 thread_local struct timespec msr_start, msr_end;
@@ -350,7 +352,6 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
       clock_gettime(CLOCK_REALTIME, &msr_start_global);
     }
   }
-  zipfan_gen = nullptr;
   // run_seed = seed;
   SmallBankDTX* bench_dtx = new SmallBankDTX();
   bench_dtx->dtx = dtx;
@@ -360,8 +361,8 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
     if (stat_attempted_tx_total >= ATTEMPTED_NUM || stat_enter_commit_tx_total >= ATTEMPTED_NUM) {
       break;
     }
-    // 根据跨分区事务的比例，来决定本事务是否有跨分区访问的页面
-    bool is_partitioned = FastRand(&run_seed) % 100 < (LOCAL_TRASACTION_RATE * 100); 
+
+    bool is_partitioned = FastRand(&run_seed) % 100 > (LOCAL_TRASACTION_RATE * 100); 
     // 随机生成一个事务类型
     SmallBankTxType tx_type = smallbank_workgen_arr[FastRand(&run_seed) % 100];
 
@@ -375,37 +376,37 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
     switch (tx_type) {
       case SmallBankTxType::kAmalgamate: {
           thread_local_try_times[uint64_t(tx_type)]++;
-          tx_committed = bench_dtx->TxAmalgamate(smallbank_client, &run_seed, yield, iter, dtx, is_partitioned , zipfan_gen);
+          tx_committed = bench_dtx->TxAmalgamate(smallbank_client, &run_seed, yield, iter, dtx, is_partitioned , zipfan_gens);
           if (tx_committed) thread_local_commit_times[uint64_t(tx_type)]++;
         break;
       }
       case SmallBankTxType::kBalance: {
           thread_local_try_times[uint64_t(tx_type)]++;
-          tx_committed = bench_dtx->TxBalance(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , zipfan_gen);
+          tx_committed = bench_dtx->TxBalance(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , zipfan_gens);
           if (tx_committed) thread_local_commit_times[uint64_t(tx_type)]++;
         break;
       }
       case SmallBankTxType::kDepositChecking: {
           thread_local_try_times[uint64_t(tx_type)]++;
-          tx_committed = bench_dtx->TxDepositChecking(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , zipfan_gen);
+          tx_committed = bench_dtx->TxDepositChecking(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , zipfan_gens);
           if (tx_committed) thread_local_commit_times[uint64_t(tx_type)]++;
         break;
       }
       case SmallBankTxType::kSendPayment: {
           thread_local_try_times[uint64_t(tx_type)]++;
-          tx_committed = bench_dtx->TxSendPayment(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , zipfan_gen);
+          tx_committed = bench_dtx->TxSendPayment(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , zipfan_gens);
           if (tx_committed) thread_local_commit_times[uint64_t(tx_type)]++;
         break;
       }
       case SmallBankTxType::kTransactSaving: {
           thread_local_try_times[uint64_t(tx_type)]++;
-          tx_committed = bench_dtx->TxTransactSaving(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , zipfan_gen);
+          tx_committed = bench_dtx->TxTransactSaving(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , zipfan_gens);
           if (tx_committed) thread_local_commit_times[uint64_t(tx_type)]++;
         break;
       }
       case SmallBankTxType::kWriteCheck: {
           thread_local_try_times[uint64_t(tx_type)]++;
-          tx_committed = bench_dtx->TxWriteCheck(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , zipfan_gen);
+          tx_committed = bench_dtx->TxWriteCheck(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , zipfan_gens);
           if (tx_committed) thread_local_commit_times[uint64_t(tx_type)]++;
         break;
       }
@@ -494,10 +495,14 @@ void RunTPCC(coro_yield_t& yield, coro_id_t coro_id) {
     }
 
     while (true) {
-        // Guarantee that each coroutine has a different seed
-        bool is_partitioned = FastRand(&run_seed) % 100 < (LOCAL_TRASACTION_RATE * 100); // local transaction rate
+        // 是否是跨分区事务
+        bool is_partitioned = FastRand(&run_seed) % 100 > (LOCAL_TRASACTION_RATE * 100); // local transaction rate
         TPCCTxType tx_type;
-        if(is_partitioned) {
+        /*
+          对于 TPCC 来说，如果是本分区内的事务，那所有的事务都能做，因此随机选个就行
+          但是，只有 NewOrder 和 Payment 涉及到跨仓库的东东
+        */
+        if(!is_partitioned) {
             tx_type = tpcc_workgen_arr[FastRand(&run_seed) % 100];
         } else {
             tx_type = tpcc_workgen_arr[100 - FastRand(&run_seed) % 88];
@@ -637,11 +642,23 @@ void initThread(thread_params* params,
         这样就导致所有的节点都在时间片 0 才会做一大堆事情，需要把分区和 ZipFian 结合在一起
         目前的想法是，就用 ZipFian 生成 0~单个分区大小的随机数，然后随机数再根据是否跨分区的策略，得到一个真正要去访问的页面
     */
-    uint64_t zipf_seed = 2 * thread_gid * GetCPUCycle();
-    uint64_t zipf_seed_mask = (uint64_t(1) << 48) - 1;
-    // SmallBank 只有两个表，而且两个表的大小是一样的
-    int par_size = meta_man->GetPartitionSizePerTable();
-    zipfan_gen = new ZipFanGen(par_size, 0.50 , zipf_seed & zipf_seed_mask);
+    if (WORKLOAD_MODE == 0){
+      for (int table_id_ = 0 ; table_id_ < 2 ; table_id_++){
+        uint64_t zipf_seed = 2 * thread_gid * GetCPUCycle();
+        uint64_t zipf_seed_mask = (uint64_t(1) << 48) - 1;
+
+        int par_size = meta_man->GetPartitionSizePerTable(
+          compute_server->get_node()->getMetaManager()->GetPageNumPerNode(compute_server->get_node()->get_node_id() , 
+          table_id_ , 
+          ComputeNodeCount
+        ));
+
+        (*zipfan_gens)[table_id_] = new ZipFanGen(par_size, 0.50 , zipf_seed & zipf_seed_mask);
+      }
+    }else{
+      assert(false);
+    }
+    
     
     data_channel = new brpc::Channel();
     log_channel = new brpc::Channel();
@@ -696,7 +713,8 @@ void RunWorkLoad(ComputeServer* server, std::string bench_name , int thread_id ,
 
 void run_thread(thread_params* params,
                 SmallBank* smallbank_cli,
-                TPCC* tpcc_cli) {
+                TPCC* tpcc_cli ,
+                YCSB *ycsb_cli) {
   bench_name = params->bench_name;
   std::string config_filepath = "../../config/" + bench_name + "_config.json";
   // std::cout << "running threads\n";
@@ -717,7 +735,11 @@ void run_thread(thread_params* params,
     tpcc_workgen_arr = tpcc_client->CreateWorkgenArray(READONLY_TXN_RATE);
     thread_local_try_times = new uint64_t[TPCC_TX_TYPES]();
     thread_local_commit_times = new uint64_t[TPCC_TX_TYPES]();
-  } else {
+  } else if (bench_name == "ycsb"){
+    ycsb_client = ycsb_cli;
+    thread_local_try_times = new uint64_t[YCSB_TX_TYPES]();
+    thread_local_commit_times = new uint64_t[YCSB_TX_TYPES]();
+  }else {
     LOG(FATAL) << "Unsupported benchmark: " << bench_name;
   }
 
@@ -735,8 +757,6 @@ void run_thread(thread_params* params,
   // Init coroutines
   if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3) coro_num = 1;// 0-5只使用一个协程
 
-  // coro_sched = new CoroutineScheduler(thread_gid, coro_num);
-
   timer = new double[ATTEMPTED_NUM+50]();
   
   // Init coroutine random gens specialized for TPCC benchmark
@@ -744,7 +764,7 @@ void run_thread(thread_params* params,
 
   // Guarantee that each thread has a global different initial seed
   seed = 0xdeadbeef + thread_gid;
-  if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3){
+  {
     coro_sched = new CoroutineScheduler(thread_gid, coro_num);
     for (coro_id_t coro_i = 0; coro_i < coro_num; coro_i++) {
       uint64_t coro_seed = static_cast<uint64_t>((static_cast<uint64_t>(thread_gid) << 32) | static_cast<uint64_t>(coro_i));
@@ -755,22 +775,49 @@ void run_thread(thread_params* params,
         // 绑定协程执行的函数为 RunSmallBank
         if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3){
           coro_sched->coro_array[coro_i].func = coro_call_t(bind(RunSmallBank, _1, coro_i));
+        }else {
+          assert(false);
         }
       } else if (bench_name == "tpcc") {
         if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3){
           coro_sched->coro_array[coro_i].func = coro_call_t(bind(RunTPCC, _1, coro_i));
-        } 
-      } else {
+        }else {
+          assert(false);
+        }
+      } else if (bench_name == "ycsb"){
+        if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3){
+          coro_sched->coro_array[coro_i].func = coro_call_t(bind(RunTPCC, _1, coro_i));
+        }else {
+          assert(false);
+        }
+      }else {
         LOG(FATAL) << "Unsupported benchmark: " << bench_name;
       }
     }
   }
 
+  if (bench_name == "smallbank"){
     uint64_t zipf_seed = 2 * thread_gid * GetCPUCycle();
     uint64_t zipf_seed_mask = (uint64_t(1) << 48) - 1;
-    // SmallBank 只有两个表，而且两个表的大小是一样的
-    int par_size = meta_man->GetPartitionSizePerTable();
-    zipfan_gen = new ZipFanGen(par_size , 0.50 , zipf_seed & zipf_seed_mask);
+    zipfan_gens = new std::vector<ZipFanGen*>(2, nullptr);
+    for (int table_id_ = 0 ; table_id_ < 2 ; table_id_++){
+      int par_size_this_node = meta_man->GetPageNumPerNode(compute_server->getNodeID() , table_id_ , ComputeNodeCount);
+      std::cout << "par size this node = " << par_size_this_node << "\n";
+
+      (*zipfan_gens)[table_id_] = new ZipFanGen(par_size_this_node, 0.50 , zipf_seed & zipf_seed_mask);
+    }
+  }else if (bench_name == "tpcc"){
+
+  }else if (bench_name == "dbsc"){
+    uint64_t zipf_seed = 2 * thread_gid * GetCPUCycle();
+    uint64_t zipf_seed_mask = (uint64_t(1) << 48) - 1;
+    zipfan_gens = new std::vector<ZipFanGen*>(2, nullptr);
+
+    int par_size_this_node = meta_man->GetPageNumPerNode(compute_server->getNodeID() , 0 , ComputeNodeCount);
+    (*zipfan_gens)[0] = new ZipFanGen(par_size_this_node, 0.50 , zipf_seed & zipf_seed_mask);
+  }else {
+    assert(false);
+  }
   data_channel = new brpc::Channel();
   log_channel = new brpc::Channel();
   remote_server_channel = new brpc::Channel();
