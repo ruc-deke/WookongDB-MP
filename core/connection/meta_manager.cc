@@ -62,6 +62,15 @@ MetaManager::MetaManager(std::string bench_name, IndexCache* index_cache , PageC
     table_meta_map[8] = meta;
     table_meta_map[9] = meta;
     table_meta_map[10] = meta;
+  }else if (bench_name == "ycsb"){
+    table_name_map[0] = "ycsb_user_table";
+    TableMeta meta;
+    meta.record_size_ = sizeof(DataItem);
+    meta.num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (meta.record_size_ + sizeof(itemkey_t)) * BITMAP_WIDTH);
+    meta.bitmap_size_ = (meta.num_records_per_page_ + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
+    table_meta_map[0] = meta;
+  }else {
+    assert(false);
   }
 
   // Read config json file
@@ -188,16 +197,19 @@ node_id_t MetaManager::GetRemoteStorageMeta(std::string& remote_ip, int remote_p
   int record_per_page = *((int*)snooper);
   snooper += sizeof(int);
   page_num_per_table = std::vector<int>(30000 , 0);
-  std::cout << "Table Num = " << table_num << "\n";
   assert(table_num % 3 == 0);
   assert(table_num > 0);
   int real_table = table_num / 3;
-
+  // std::cout << "Real Table Cnt = " << real_table << "\n";
   for(int i = 0; i < real_table ; i++) {
-      // std::cout << "Page Num = " << init_page_num_per_table[i];
       page_num_per_table[i] = init_page_num_per_table[i];
       page_num_per_table[i + 10000] = init_page_num_per_table[i + real_table];
       page_num_per_table[i + 20000] = init_page_num_per_table[i + real_table * 2];
+
+      // std::cout << "[MetaManager] Table ID = " << i << " Raw Page Num = " << page_num_per_table[i] 
+      //     << " BLink Raw Page Num = " << page_num_per_table[i + 10000]
+      //     << " FSM Raw Page Num = " << page_num_per_table[i + 20000] 
+      //     << "\n";
   }
   
   assert(*(uint64_t*)snooper == MEM_STORE_META_END);

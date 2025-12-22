@@ -38,7 +38,7 @@ public:
                     brpc::Server server;
                     auto disk_manager = std::make_shared<DiskManager>();
                     auto log_manager = std::make_shared<LogManager>(disk_manager.get(), nullptr, "Raft_Log" + std::to_string(i));
-                    storage_service::StoragePoolImpl raft_server_impl(log_manager.get(), disk_manager.get(), nullptr, 0);
+                    storage_service::StoragePoolImpl raft_server_impl(log_manager.get(), disk_manager.get(), nullptr, nullptr, 0);
                     if (server.AddService(&raft_server_impl, 
                                             brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
                         LOG(ERROR) << "Fail to add service";
@@ -64,7 +64,7 @@ public:
             //启动事务brpc server
             brpc::Server server;
 
-            storage_service::StoragePoolImpl storage_pool_impl(log_manager_, disk_manager_, raft_node_channels_, raft_num);
+            storage_service::StoragePoolImpl storage_pool_impl(log_manager_, disk_manager_, rm_manager_, raft_node_channels_, raft_num);
             if (server.AddService(&storage_pool_impl, 
                                     brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
                 LOG(ERROR) << "Fail to add service";

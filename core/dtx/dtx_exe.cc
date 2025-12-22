@@ -23,7 +23,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
   std::vector<std::pair<size_t, std::pair<Rid, DataSetItem*>>> ro_fetch_tasks;  // record the index and rid of read-only items
   std::vector<std::pair<size_t, std::pair<Rid, DataSetItem*>>> rw_fetch_tasks;  // record the index and rid of read-write items
 
-  // 步骤 1：先明确之后要执行的任务，把任务装入到 ro_fetch_tasks 里面
+  // 读操作
   for (size_t i=0; i<read_only_set.size(); i++) {
     DataSetItem& item = read_only_set[i];
     if (!item.is_fetched) { 
@@ -41,6 +41,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
       ro_fetch_tasks.emplace_back(i, std::make_pair(rid, &read_only_set[i]));
     }
   }
+  // Update 操作
   for (size_t i=0; i<read_write_set.size(); i++) { 
     DataSetItem& item = read_write_set[i];
     if (!item.is_fetched) {
@@ -59,6 +60,10 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
       // // LOG(INFO) << "Thread id:" << local_t_id << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " found on page: " << rid.page_no_;
       rw_fetch_tasks.emplace_back(i, std::make_pair(rid, &read_write_set[i]));
     }
+  }
+  for (size_t i = 0 ; i < insert_set.size() ; i++){
+    DataSetItem &item = insert_set[i];
+    compute_server->insert_entry(item.item_ptr.get());
   }
 
   // 真正执行任务，也就是真正地去读取页面数据
@@ -133,6 +138,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
         // lock conflict
         ReleaseXPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page
         tx_status = TXStatus::TX_ABORTING; // Transaction is aborting due to lock conflict
+        // std::cout << "Abort\n";
         break; // Exit the loop on lock conflict, will check tx_status later
       }
       item.is_fetched = true;
@@ -200,6 +206,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
   tx_fetch_exe_time += (end_time2.tv_sec - start_time2.tv_sec) + (double)(end_time2.tv_nsec - start_time2.tv_nsec) / 1000000000;
   // Step 4: Check if the transaction is still valid
   if (tx_status == TXStatus::TX_ABORTING) {
+    // std::cout << "Tx " << tx_id << " Abort\n";
     if (fail_abort) TxAbort(yield);
     return false;
   }
@@ -233,7 +240,7 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
   clock_gettime(CLOCK_REALTIME, &end_ts_time);
   // 把这次获取全局时间戳的耗时给记录下来，加入到 tx...
   tx_get_timestamp_time2 += (end_ts_time.tv_sec - start_time.tv_sec) + (double)(end_ts_time.tv_nsec - start_time.tv_nsec) / 1000000000;
-
+  
   // 把事务提交的日志给刷到磁盘下去
   brpc::CallId* cid;
   AddLogToTxn();    // 构造事务日志
@@ -271,9 +278,9 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
 
     // 把元组的锁给释放，并标记版本号
     orginal_item->version = commit_ts;
-    orginal_item->lock = UNLOCKED;      
+    orginal_item->lock = UNLOCKED;        // 解锁
     memcpy(orginal_item->value, data_item.item_ptr->value, MAX_ITEM_SIZE);
-
+    
     struct timespec start_time2, end_time2;
     clock_gettime(CLOCK_REALTIME, &start_time2);
     ReleaseXPage(yield, data_item.item_ptr->table_id, rid.page_no_);

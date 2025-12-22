@@ -206,6 +206,8 @@ public:
     // 三个核心函数：search / insert（delete 暂不实现）
     bool search(const itemkey_t *key , Rid &result);
     page_id_t insert_entry(const itemkey_t *key , const Rid &value);
+    page_id_t update_entry(const itemkey_t *key , const Rid &value);
+    
     bool delete_entry(const itemkey_t *key);
 
     bool checkIfDirectlyGetPage(const itemkey_t *key , Rid &result);

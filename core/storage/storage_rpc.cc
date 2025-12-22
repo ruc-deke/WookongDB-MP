@@ -2,13 +2,15 @@
 #include "config.h"
 #include "record/record.h"
 #include "common.h"
+#include "base/data_item.h"
+#include "storage/blink_tree/blink_tree.h"
 
 #include "compute_server/bp_tree/bp_tree_defs.h"
 
 namespace storage_service{
 
-    StoragePoolImpl::StoragePoolImpl(LogManager* log_manager, DiskManager* disk_manager, brpc::Channel* raft_channels, int raft_num)
-        :log_manager_(log_manager), disk_manager_(disk_manager), raft_channels_(raft_channels), raft_num_(raft_num){};
+    StoragePoolImpl::StoragePoolImpl(LogManager* log_manager, DiskManager* disk_manager, RmManager* rm_manager, brpc::Channel* raft_channels, int raft_num)
+        :log_manager_(log_manager), disk_manager_(disk_manager), rm_manager_(rm_manager), raft_channels_(raft_channels), raft_num_(raft_num){};
 
     StoragePoolImpl::~StoragePoolImpl(){};
 
@@ -231,18 +233,56 @@ namespace storage_service{
     };
 
     // table_id 到 B+ 树名字的映射
-    static std::string TableIdToPrimaryPath(table_id_t table_id) {
+    static std::string TableIdToTablePath(table_id_t table_id) {
         if (WORKLOAD_MODE == 0) {
-            if (table_id == 2) return "smallbank_savings_bp";
-            if (table_id == 3) return "smallbank_checking_bp";
-            if (table_id == 4) return "smallbank_savings_bl";
-            if (table_id == 5) return "smallbank_checking_bl";
-            LOG(ERROR) << "Invalid smallbank table_id=" << table_id;
-            assert(false);
+            if (table_id == 0) return "smallbank_savings";
+            else if (table_id == 1) return "smallbank_checking";
+            else if (table_id == 10000) return "smallbank_savings_bl";
+            else if (table_id == 10001) return "smallbank_checking_bl";
+            else if (table_id == 20000) return "smallbank_savings_fsm";
+            else if (table_id == 20001) return "smallbank_checking_fsm";
+            else assert(false);
         } else if (WORKLOAD_MODE == 1) {
-            // TODO
-        } else {
-            LOG(ERROR) << "Unsupported WORKLOAD_MODE=" << WORKLOAD_MODE;
+            if (table_id == 0) return "TPCC_warehouse";
+            else if (table_id == 1) return "TPCC_district";
+            else if (table_id == 2) return "TPCC_customer";
+            else if (table_id == 3) return "TPCC_customerhistory";
+            else if (table_id == 4) return "TPCC_ordernew";
+            else if (table_id == 5) return "TPCC_order";
+            else if (table_id == 6) return "TPCC_orderline";
+            else if (table_id == 7) return "TPCC_item";
+            else if (table_id == 8) return "TPCC_stock";
+            else if (table_id == 9) return "TPCC_customerindex";
+            else if (table_id == 10) return "TPCC_orderindex";
+            else if (table_id == 10000) return "TPCC_warehouse_bl";
+            else if (table_id == 10001) return "TPCC_district_bl";
+            else if (table_id == 10002) return "TPCC_customer_bl";
+            else if (table_id == 10003) return "TPCC_customerhistory_bl";
+            else if (table_id == 10004) return "TPCC_ordernew_bl";
+            else if (table_id == 10005) return "TPCC_order_bl";
+            else if (table_id == 10006) return "TPCC_orderline_bl";
+            else if (table_id == 10007) return "TPCC_item_bl";
+            else if (table_id == 10008) return "TPCC_stock_bl";
+            else if (table_id == 10009) return "TPCC_customerindex_bl";
+            else if (table_id == 10010) return "TPCC_orderindex_bl";
+            else if (table_id == 20000) return "TPCC_warehouse_fsm";
+            else if (table_id == 20001) return "TPCC_district_fsm";
+            else if (table_id == 20002) return "TPCC_customer_fsm";
+            else if (table_id == 20003) return "TPCC_customerhistory_fsm";
+            else if (table_id == 20004) return "TPCC_ordernew_fsm";
+            else if (table_id == 20005) return "TPCC_order_fsm";
+            else if (table_id == 20006) return "TPCC_orderline_fsm";
+            else if (table_id == 20007) return "TPCC_item_fsm";
+            else if (table_id == 20008) return "TPCC_stock_fsm";
+            else if (table_id == 20009) return "TPCC_customerindex_fsm";
+            else if (table_id == 20010) return "TPCC_orderindex_fsm";
+            else assert(false);
+        } else if (WORKLOAD_MODE == 2){
+            if (table_id == 0) return "ycsb_user_table";
+            else if (table_id == 10000) return "ycsb_user_table_bl";
+            else if (table_id == 20000) return "ycsb_user_table_fsm";
+            else assert(false);
+        }else {
             assert(false);
         }
         return "";
@@ -252,7 +292,6 @@ namespace storage_service{
     static std::mutex g_create_page_map_mu;
     static std::unordered_map<table_id_t, std::unique_ptr<std::mutex>> g_create_page_mu;
     static int create_cnt = 0;
-    // TODO：目前创建 Page 是搭积木式的，递增地往前加东西，由于没有垃圾回收策略，所以就算前面有空闲页面，也不管它
     void StoragePoolImpl::CreatePage(::google::protobuf::RpcController* controller , 
                         const ::storage_service::CreatePageRequest *request ,
                         ::storage_service::CreatePageResponse *response , 
@@ -260,14 +299,7 @@ namespace storage_service{
         brpc::ClosureGuard done_guard(done);
 
         table_id_t table_id = request->table_id();
-        std::string table_path = TableIdToPrimaryPath(table_id);
-
-        std::ifstream file_check(table_path);
-        if (!file_check.good()) {
-            std::ofstream new_file(table_path);
-            new_file.close();
-        }
-        file_check.close();
+        std::string table_path = TableIdToTablePath(table_id);
 
         // 需要加锁，否则可能返回两个相同的 page_id
         {
@@ -280,21 +312,16 @@ namespace storage_service{
         int fd = disk_manager_->open_file(table_path);
 
         // 判断是否为 B+ 索引文件
-        bool is_bp_index = (table_path.find("_bp") != std::string::npos);
-        if (!is_bp_index){
-            is_bp_index = (table_path.find("_bl") != std::string::npos);
-        }
+        bool is_bp_index = (table_path.find("_bl") != std::string::npos);
 
         // 创建索引页
         if (is_bp_index) {
             off_t end_off = lseek(fd, 0, SEEK_END);
             int current_pages = static_cast<int>(end_off / PAGE_SIZE);
             disk_manager_->set_fd2pageno(fd, current_pages);
-        } else {
-            // TODO：创建文件页
         }
 
-        // 分配新页
+        // 让 disk_manager 来分配一个新的页面，其实也是堆积木的过程
         page_id_t new_page_no = disk_manager_->allocate_page(fd);
 
         // 初始化整页为 0
@@ -323,11 +350,6 @@ namespace storage_service{
         }
 
         std::cout << "Create A Page , table_id = " << table_id << " page_id = " << new_page_no << "\n";
-        create_cnt++;
-        if (create_cnt % 2000 == 0){
-            std::cout << "create_cnt = " << create_cnt << "\n";
-        }
-
         disk_manager_->close_file(fd);
 
         response->set_page_no(new_page_no);
@@ -375,4 +397,26 @@ namespace storage_service{
         return;
     }
 
+    void StoragePoolImpl::InsertRecord(::google::protobuf::RpcController *controller , 
+                        const ::storage_service::InsertRecordRequest *request ,
+                        ::storage_service::InsertRecordResponse *response ,
+                        ::google::protobuf::Closure *done){
+        brpc::ClosureGuard done_guard(done);
+
+        table_id_t table_id = request->table_id();
+        itemkey_t key = request->key();
+        std::string data = request->data();
+        Rid rid_to_insert;
+        rid_to_insert.page_no_ = request->page_id();
+        rid_to_insert.slot_no_ = request->slot_no();
+
+        std::string table_path = TableIdToTablePath(table_id);
+        std::unique_ptr<RmFileHandle> file_handle = rm_manager_->open_file(table_path);
+        
+        // TODO，向那个 slot 中插入数据
+        assert(data.size() == sizeof(DataItem));
+        file_handle->insert_record(rid_to_insert , &data[0]);
+        
+        response->set_success(true);
+    }
 }

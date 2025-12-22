@@ -20,7 +20,7 @@ bool SmallBankDTX::GenTxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, 
   a1.sav_obj_0 = std::make_shared<DataItem>((table_id_t)
   SmallBankTableType::kSavingsTable, sav_key_0.item_key);
   dtx->AddToReadWriteSet(a1.sav_obj_0);
-
+  
   smallbank_checking_key_t chk_key_0;
   chk_key_0.acct_id = acct_id_0;
   a1.chk_obj_0 = std::make_shared<DataItem>((table_id_t)SmallBankTableType::kCheckingTable, chk_key_0.item_key);

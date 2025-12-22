@@ -35,8 +35,6 @@
 #define FREQUENCY_TRANSACT_SAVINGS 20
 #define FREQUENCY_WRITE_CHECK 20
 
-#define TX_HOT 60 /* Percentage of txns that use accounts from hotspot */
-
 // Smallbank table keys and values
 // All keys have been sized to 8 bytes
 // All values have been sized to the next multiple of 8 bytes
@@ -110,12 +108,12 @@ enum class SmallBankTableType : uint64_t {
 class SmallBank {
  public:
   std::string bench_name;
-
   uint32_t total_thread_num;
-
   uint32_t num_accounts_global, num_hot_global;
   std::vector<std::vector<itemkey_t>> hot_accounts_vec; // only use for uniform hot setting
-  double hot_rate;
+  double hot_rate = 50;      // 热点页面占总页面的比例
+  int tx_hot_rate;      // 访问热点页面的事务比例
+  int use_zipfian;      // 是否采用 zipfian
 
   RmManager* rm_manager;
 
@@ -125,7 +123,9 @@ class SmallBank {
 
   // For server usage: Provide interfaces to servers for loading tables
   // Also for client usage: Provide interfaces to clients for generating ids during tests
-  SmallBank(RmManager* rm_manager): rm_manager(rm_manager) {
+  SmallBank(RmManager* rm_manager , int tx_hot_rate_ = 50): rm_manager(rm_manager) {
+    tx_hot_rate = tx_hot_rate_;
+
     if (rm_manager){
         // 2颗 B+ 树
         // for (int i = 0 ; i < 2 ; i++){
@@ -225,10 +225,6 @@ class SmallBank {
     
 
     acc1 = dtx->page_cache->SearchRandom(seed , table_id , page_id);
-
-    // LOG(INFO) << "target node id = " << target_node_id  << " chosen page id = " << page_id
-    //         << " par cnt = " << par_cnt
-    //         << " is_par = " << is_partitioned << " key = " << acc1;
   }
 
   void get_two_accounts(itemkey_t &acc1 , itemkey_t &acc2 , ZipFanGen *zip_fan , bool is_partitioned , const DTX *dtx , uint64_t *seed , table_id_t table_id){
@@ -246,7 +242,7 @@ class SmallBank {
         double global_conflict = 100;
         if(ComputeNodeCount == 1) {
             // 是热点页面
-            if (FastRand(seed) % 100 < TX_HOT) {
+            if (FastRand(seed) % 100 < tx_hot_rate) {
                 // 
                 *acct_id = FastRand(seed) % num_hot_global;
             } else {
@@ -281,7 +277,7 @@ class SmallBank {
         }
 
         bool is_hot;
-        if (FastRand(seed) % 100 < TX_HOT){
+        if (FastRand(seed) % 100 < tx_hot_rate){
             is_hot = true;
             page_id = (FastRand(seed) % node_page_cnt) * hot_rate;
         }else {
@@ -311,7 +307,7 @@ class SmallBank {
 
   inline void get_two_accounts(uint64_t* seed, uint64_t* acct_id_0, uint64_t* acct_id_1, const DTX* dtx, node_id_t gen_node_id, bool is_partitioned, table_id_t table_id = 0) const {
       if (ComputeNodeCount == 1) {
-          if (FastRand(seed) % 100 < TX_HOT) {
+          if (FastRand(seed) % 100 < tx_hot_rate) {
               *acct_id_0 = FastRand(seed) % num_hot_global;
               *acct_id_1 = FastRand(seed) % num_hot_global;
               while (*acct_id_1 == *acct_id_0) {
@@ -342,7 +338,7 @@ class SmallBank {
         if(is_partitioned){
             int node_id = (SYSTEM_MODE == 12 || SYSTEM_MODE == 13) ? dtx->compute_server->get_node()->get_ts_cnt() : gen_node_id;
             // int node_id = gen_node_id;
-            if(FastRand(seed) % 100 < TX_HOT){ 
+            if(FastRand(seed) % 100 < tx_hot_rate){ 
                 int hot_range = hot_accounts_vec[node_id].size();
                 *acct_id = hot_accounts_vec[node_id][FastRand(seed) % hot_range];
             }else{
@@ -351,7 +347,7 @@ class SmallBank {
         }else{
             int node_id = (SYSTEM_MODE == 12 || SYSTEM_MODE == 13) ? dtx->compute_server->get_node()->get_ts_cnt() : gen_node_id;
             // int node_id = gen_node_id;
-            if(FastRand(seed) % 100 < TX_HOT){ 
+            if(FastRand(seed) % 100 < tx_hot_rate){ 
                 int random = FastRand(seed) % (ComputeNodeCount - 1);
                 int hot_par = (random < node_id ? random : random + 1);
                 int hot_range = hot_accounts_vec[hot_par].size();

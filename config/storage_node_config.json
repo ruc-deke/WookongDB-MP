@@ -6,7 +6,7 @@
     "local_meta_port": 15981,
     "use_rdma": false,
     // TPCC , SmallBank
-    "workload": "YCSB"
+    "workload": "TPCC"
   },
   "remote_compute_nodes": {
     "compute_node_ips": [

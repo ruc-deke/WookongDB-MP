@@ -11,7 +11,8 @@ void YCSB::PopulateUserTable(){
     for (int id = 0 ; id < record_count ; id++){
         user_table_key_t key;
         key.user_id = (uint64_t)id;
-        user_table_val_t val;
+        ycsb_user_table_val val;
+        val.magic = ycsb_user_table_magic;
         std::string f0 = ramdom_string(field_len);
         std::string f1 = ramdom_string(field_len);
         std::string f2 = ramdom_string(field_len);
@@ -34,7 +35,7 @@ void YCSB::PopulateUserTable(){
         strncpy(val.file_8, f8.c_str(), sizeof(val.file_8));
         strncpy(val.file_9, f9.c_str(), sizeof(val.file_9));
         
-        LoadRecord(table_file.get() , key.item_key , (void*)&val , sizeof(user_table_val_t) , 0 , indexfile);
+        LoadRecord(table_file.get() , key.item_key , (void*)&val , sizeof(ycsb_user_table_val) , 0 , indexfile);
     }                                                                   
     
     rm_manager->close_file(table_file.get());
@@ -82,7 +83,7 @@ void YCSB::VerifyData() {
             DataItem* data_item = reinterpret_cast<DataItem*>(record->value_);
             
             // Check size
-            if (data_item->value_size == sizeof(user_table_val_t)) {
+            if (data_item->value_size == sizeof(ycsb_user_table_val)) {
                 assert(data_item->key == key.item_key);
             } else {
                 assert(false);

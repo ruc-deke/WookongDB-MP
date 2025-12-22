@@ -29,7 +29,7 @@ void LoadData(node_id_t machine_id,
       std::string config_path = "../../config/ycsb_config.json";
       auto config = JsonConfig::load_file(config_path);
       int record_cnt = config.get("ycsb").get("num_record").get_int64();
-      YCSB *ycsb_server = new YCSB(rm_manager , record_cnt , 0);
+      YCSB *ycsb_server = new YCSB(rm_manager , record_cnt , -1 , 0 , std::vector<int>{});
       ycsb_server->LoadTable();
       ycsb_server->VerifyData();
   } else{
@@ -58,6 +58,9 @@ void Server::PrepareStorageMeta(node_id_t machine_id, std::string workload, char
   // Get LockTable meta
   int table_num;
 
+  // 我们项目里，每个表的 B+ 树和 FSM 都视为一个单独的表
+  // 所以这里 table_num 是物理上的表数量，用户看到的数量是 table_num / 3
+  // 也就是 smallbank 两张，saving 和 checking，tpcc 11 张，ycsb 1 张 user_table
   if(workload == "SmallBank") {
     table_num = 6;
   }else if(workload == "TPCC") {
@@ -68,7 +71,7 @@ void Server::PrepareStorageMeta(node_id_t machine_id, std::string workload, char
     assert(false);
   }
   
-  int* max_page_num_per_table = new int[table_num];
+  int* init_page_num_per_table = new int[table_num];
   int record_per_page;
   int storage_meta_len = sizeof(int) + table_num * sizeof(int) + sizeof(int);
   char* storage_meta = new char[storage_meta_len];
@@ -78,14 +81,14 @@ void Server::PrepareStorageMeta(node_id_t machine_id, std::string workload, char
     for(int i = 0; i < 2; ++i) {
         // 1. Data Table (ID: i)
         std::unique_ptr<RmFileHandle> table_file = rm_manager_->open_file(sb_tables[i]);
-        max_page_num_per_table[i] = table_file->get_file_hdr().num_pages_;
+        init_page_num_per_table[i] = table_file->get_file_hdr().num_pages_;
         // std::cout << "File Size = " << max_page_num_per_table[i] << "\n";
         if(i == 0) record_per_page = table_file->get_file_hdr().num_records_per_page_;
 
         // 2. B-Link Tree (ID: i + 4)
         std::string bl_name = sb_tables[i] + "_bl";
         int bl_size = rm_manager_->get_diskmanager()->get_file_size(bl_name);
-        max_page_num_per_table[i + 2] = (bl_size == -1) ? 0 : (bl_size / PAGE_SIZE);
+        init_page_num_per_table[i + 2] = (bl_size == -1) ? 0 : (bl_size / PAGE_SIZE);
 
         // 3. FSM
         std::string fsm_name = sb_tables[i] + "_fsm";
@@ -95,7 +98,7 @@ void Server::PrepareStorageMeta(node_id_t machine_id, std::string workload, char
 
     // Fill storage meta
     memcpy(storage_meta, &table_num, sizeof(int));
-    memcpy(storage_meta + sizeof(int), max_page_num_per_table, table_num * sizeof(int));
+    memcpy(storage_meta + sizeof(int), init_page_num_per_table, table_num * sizeof(int));
     memcpy(storage_meta + sizeof(int) + table_num * sizeof(int), &record_per_page, sizeof(int));
 
   }else if(workload == "TPCC") {
@@ -108,13 +111,18 @@ void Server::PrepareStorageMeta(node_id_t machine_id, std::string workload, char
       for(int i = 0; i < 11; ++i) {
           // 1. Data Table (ID: i)
           std::unique_ptr<RmFileHandle> table_file = rm_manager_->open_file(tpcc_tables[i]);
-          max_page_num_per_table[i] = table_file->get_file_hdr().num_pages_;
+          init_page_num_per_table[i] = table_file->get_file_hdr().num_pages_;
           if(i == 0) record_per_page = table_file->get_file_hdr().num_records_per_page_;
 
           // 2. B-Link Tree (ID: i + 22)
           std::string bl_name = tpcc_tables[i] + "_bl";
           int bl_size = rm_manager_->get_diskmanager()->get_file_size(bl_name);
-          max_page_num_per_table[i + 11] = (bl_size == -1) ? 0 : (bl_size / PAGE_SIZE);
+          init_page_num_per_table[i + 11] = (bl_size == -1) ? 0 : (bl_size / PAGE_SIZE);
+
+          std::cout << "Table Init Page Num = " << init_page_num_per_table[i]
+                    << " BLink Init Page Num = " << init_page_num_per_table[i + 11]
+                    << " FSM "
+                    << " \n";
 
           // 3. FSM
           std::string fsm_name = tpcc_tables[i] + "fsm";
@@ -124,27 +132,29 @@ void Server::PrepareStorageMeta(node_id_t machine_id, std::string workload, char
 
       // Fill storage meta
       memcpy(storage_meta, &table_num, sizeof(int));
-      memcpy(storage_meta + sizeof(int), max_page_num_per_table, table_num * sizeof(int));
+      memcpy(storage_meta + sizeof(int), init_page_num_per_table, table_num * sizeof(int));
       memcpy(storage_meta + sizeof(int) + table_num * sizeof(int), &record_per_page, sizeof(int));
   } else if (workload == "YCSB"){
     std::string ycsb_table = "ycsb_user_table";
-    for (int i = 0 ; i < 3 ; i++){
+    for (int i = 0 ; i < 1 ; i++){
         std::unique_ptr<RmFileHandle> table_file = rm_manager_->open_file(ycsb_table);
-        max_page_num_per_table[i] = table_file->get_file_hdr().num_pages_;
+        init_page_num_per_table[i] = table_file->get_file_hdr().num_pages_;
         if(i == 0) record_per_page = table_file->get_file_hdr().num_records_per_page_;
 
         // 2. B-Link Tree (ID: i + 22)
         std::string bl_name = ycsb_table + "_bl";
         int bl_size = rm_manager_->get_diskmanager()->get_file_size(bl_name);
-        max_page_num_per_table[i + 11] = (bl_size == -1) ? 0 : (bl_size / PAGE_SIZE);
-
+        init_page_num_per_table[i + 1] = (bl_size == -1) ? 0 : (bl_size / PAGE_SIZE);
+        
+        std::cout << "Init Page Num = " << init_page_num_per_table[i] << " " << "Init BLink = " << init_page_num_per_table[i + 1] << "\n";
         // 3. FSM
         std::string fsm_name = ycsb_table + "fsm";
         // int fsm_size = rm_manager_->get_diskmanager()->get_file_size(fsm_name);
         // max_page_num_per_table[i + 22] = (fsm_size == -1) ? 0 : (fsm_size / PAGE_SIZE);
+        init_page_num_per_table[i + 2] = 0;
     }
     memcpy(storage_meta, &table_num, sizeof(int));
-    memcpy(storage_meta + sizeof(int), max_page_num_per_table, table_num * sizeof(int));
+    memcpy(storage_meta + sizeof(int), init_page_num_per_table, table_num * sizeof(int));
     memcpy(storage_meta + sizeof(int) + table_num * sizeof(int), &record_per_page, sizeof(int));
   } else {
     LOG(ERROR) << "Unsupported workload: " << workload;

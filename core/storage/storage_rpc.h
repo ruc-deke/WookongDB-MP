@@ -7,12 +7,13 @@
 #include "storage_service.pb.h"
 #include "log_manager.h"
 #include "disk_manager.h"
+#include "record/rm_manager.h"
 #include "common.h"
 
 namespace storage_service{
 class StoragePoolImpl : public StorageService{  
   public:
-    StoragePoolImpl(LogManager* log_manager, DiskManager* disk_manager, brpc::Channel* raft_channels_, int raft_num);
+    StoragePoolImpl(LogManager* log_manager, DiskManager* disk_manager, RmManager* rm_manager, brpc::Channel* raft_channels_, int raft_num);
 
     virtual ~StoragePoolImpl();
 
@@ -53,9 +54,15 @@ class StoragePoolImpl : public StorageService{
                         ::storage_service::DeletePageResponse *response ,
                         ::google::protobuf::Closure *done);
 
+    virtual void InsertRecord(::google::protobuf::RpcController *controller , 
+                        const ::storage_service::InsertRecordRequest *request ,
+                        ::storage_service::InsertRecordResponse *response ,
+                        ::google::protobuf::Closure *done);
+
   private:
     LogManager* log_manager_;
     DiskManager* disk_manager_;
+    RmManager* rm_manager_;
     brpc::Channel* raft_channels_;
     int raft_num_;
   };

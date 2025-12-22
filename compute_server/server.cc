@@ -456,6 +456,11 @@ void ComputeServer::InitTableNameMeta(){
         table_name_meta[20008] = "../storage_server/TPCC_stock_fsm";
         table_name_meta[20009] = "../storage_server/TPCC_customerindex_fsm";
         table_name_meta[20010] = "../storage_server/TPCC_orderindex_fsm";
+    }else if (WORKLOAD_MODE == 2){
+        table_name_meta[0] = "../storage_server/ycsb_user_table";
+        table_name_meta[10000] = "../storage_server/ycsb_user_table_bl";
+    }else {
+        assert(false);
     }
 }
 

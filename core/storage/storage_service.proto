@@ -72,6 +72,18 @@ message DeletePageResponse {
     bool successs = 1;
 }
 
+message InsertRecordRequest {
+    int32 table_id = 1;
+    int32 page_id = 2;
+    int32 slot_no = 3;
+    uint64 key = 4;
+    bytes data = 5;
+}
+
+message InsertRecordResponse {
+    bool success = 1;
+}
+
 service StorageService {
     rpc LogWrite(LogWriteRequest) returns (LogWriteResponse);
     rpc RaftLogWrite(RaftLogWriteRequest) returns (LogWriteResponse);
@@ -82,4 +94,5 @@ service StorageService {
     rpc WritePage(WritePageRequest) returns (WritePageResponse);
     rpc CreatePage(CreatePageRequest) returns (CreatePageResponse);
     rpc DeletePage(DeletePageRequest) returns (DeletePageResponse);
+    rpc InsertRecord(InsertRecordRequest) returns (InsertRecordResponse);
 };

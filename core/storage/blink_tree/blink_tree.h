@@ -216,7 +216,7 @@ public:
             }
         }else if (bench_name == "ycsb"){
             if (table_id == 10000){
-                index_path = "user_table_bl";
+                index_path = "ycsb_user_table_bl";
             }
         }
     }

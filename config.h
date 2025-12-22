@@ -13,8 +13,8 @@
 // Max data item size.
 // 8: smallbank
 // 664: tpcc
-// 1056: yscb
-#define MAX_ITEM_SIZE 1000
+// 1008: yscb
+#define MAX_ITEM_SIZE 664
 
 enum class TsPhase{
     BEGIN = 0,          // 初始化

@@ -15,8 +15,9 @@
 #include "record/rm_file_handle.h"
 #include "storage/blink_tree/blink_tree.h"
 #include "dtx/dtx.h"
+#include "util/zipfan.h"
 
-#define YCSB_TX_TYPES 1 //只有一个事务类型
+#define YCSB_TX_TYPES 1     //只有一个事务类型
 union user_table_key_t {
   uint64_t user_id;
   uint64_t item_key;
@@ -29,7 +30,12 @@ union user_table_key_t {
 // 编译阶段检查
 static_assert(sizeof(user_table_key_t) == sizeof(uint64_t), "");
 
-struct user_table_val_t {
+#define YCSB_MAGIC 97
+#define ycsb_user_table_magic (YCSB_MAGIC + 2)
+
+// 表结构，magic 是用来检验的
+struct ycsb_user_table_val {
+    uint32_t magic;
     char file_0[100];
     char file_1[100];
     char file_2[100];
@@ -44,13 +50,16 @@ struct user_table_val_t {
 
 class YCSB {
 public:
-    YCSB(RmManager* rm_manage_ , int record_cnt , int access_pattern_ , int read_cnt = 90 , int update_cnt = 10 , int filed_len_ = 100)
+    YCSB(RmManager* rm_manage_ , int record_cnt , int hot_record_cnt_ , int access_pattern_ 
+        , std::vector<int> page_num_per_node , int read_cnt = 10 , int update_cnt = 90 , int filed_len_ = 100 , int TX_HOT_ = 60)
         :rm_manager(rm_manage_),
          record_count(record_cnt),
          access_pattern(access_pattern_),
          read_percent(read_cnt),
          update_percent(update_cnt),
-         field_len(filed_len_) {
+         field_len(filed_len_),
+         hot_record_cnt(hot_record_cnt_),
+         tx_hot_rate(TX_HOT_){
         assert(read_cnt + update_cnt == 100);
         int total_keys = 10;
         // 下面这个看着挺复杂的，其实就是 total_keys * (read_percent / 100.0)
@@ -61,6 +70,15 @@ public:
             rw_flags[i] = true;
         }
 
+        zip_fans.reserve(page_num_per_node.size());
+        // 构造 zipfan_gen
+        for (int i = 0 ; i < page_num_per_node.size() ; i++){
+            uint64_t zipf_seed = 2 * GetCPUCycle() * (int)(ramdom_string(20)[0] % ComputeNodeCount);
+            uint64_t zipf_seed_mask = (uint64_t(1) << 48) - 1;
+            zip_fans.emplace_back(page_num_per_node[i], 0.70 , zipf_seed & zipf_seed_mask);
+            usleep(100);
+        }
+
         if (rm_manage_){
             bl_indexes.emplace_back(new S_BLinkIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , 10000 , "ycsb"));
         }
@@ -68,16 +86,130 @@ public:
     }
 
     ~YCSB() = default; 
+
+    // 给存储层用的，用来构建初始的表数据和 B+ 树
     void LoadTable(){
         PopulateUserTable();
     }
     void VerifyData();
 
-    void generate_ten_keys(std::vector<itemkey_t> &keys , uint64_t *seed){
+    // 事务生成函数，生成多个读集和写集
+    bool YCSB_Multi_RW(uint64_t *seed , tx_id_t tx_id , DTX *dtx , coro_yield_t& yield , bool is_partitioned = false){
+        dtx->TxBegin(tx_id);
+        // 1. 生成 10 个 key，放在 vec 里
+        std::vector<itemkey_t> keys(10);
+        generate_ten_keys(keys , seed , is_partitioned , dtx);
+
         for (int i = 0 ; i < 10 ; i++){
-            itemkey_t key;
-            keys[i] = FastRand(seed) % record_count + 1;
+            if (rw_flags[i]){
+                // 读事务
+                auto ro_user_id_i = std::make_shared<DataItem>(0 , keys[i]);
+                dtx->AddToReadOnlySet(ro_user_id_i);
+            }else {
+                auto rw_user_id_i = std::make_shared<DataItem>(0 , keys[i]);
+                dtx->AddToReadWriteSet(rw_user_id_i);
+            }
         }
+
+        if (!(dtx->TxExe(yield))){
+            return false;
+        }
+        
+        for (auto& item : dtx->read_only_set) {
+            if (item.is_fetched) {
+                ycsb_user_table_val* val = (ycsb_user_table_val*)item.item_ptr->value;
+                if (val->magic != ycsb_user_table_magic){
+                    LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+                }
+            }
+        }
+
+        for (auto& item : dtx->read_write_set) {
+            if (item.is_fetched) {
+                ycsb_user_table_val* val = (ycsb_user_table_val*)item.item_ptr->value;
+                if (val->magic != ycsb_user_table_magic){
+                    LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+                }
+                // 写 item 的 file_0 为随机的字符串
+                std::string rand_str = ramdom_string(field_len); 
+                memcpy(val->file_0, rand_str.c_str(), field_len);
+            }
+        }
+
+        bool commit_stat = dtx->TxCommit(yield);
+        return commit_stat;
+    }
+    
+    void generate_ten_keys(std::vector<itemkey_t> &keys , uint64_t *seed , bool is_partitioned , const DTX *dtx){
+        int belonged_node_id;
+         int target_node_id;
+        if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
+            belonged_node_id = dtx->compute_server->get_node()->ts_cnt;
+        }else {
+            belonged_node_id = dtx->compute_server->getNodeID();
+        }
+       
+        page_id_t page_id;
+        
+        if (is_partitioned){
+            do {
+                target_node_id = FastRand(seed) % ComputeNodeCount;
+            }while(target_node_id == belonged_node_id);
+        }else {
+            target_node_id = belonged_node_id;
+        }
+
+        int partition_size = dtx->compute_server->get_node()->getMetaManager()->GetPartitionSizePerTable(0);
+        int now_page_num = dtx->compute_server->get_node()->getMetaManager()->GetTablePageNum(0);
+        int par_cnt = now_page_num / partition_size + 1;
+        int node_page_num;
+
+        for (int i = 0 ; i < 10 ; i++){
+            if (access_pattern == 0){
+                // 根据 is_partition 和 TX_HOT 以及热点事务的比例来生成一个 page_id
+                node_page_num = dtx->compute_server->get_node()->getMetaManager()->GetPageNumPerNode(target_node_id , 0 , ComputeNodeCount);
+                int num_hot_this_node = (int)((double)node_page_num * ((double)hot_record_cnt / (double)record_count));
+                if (FastRand(seed) % 100 < tx_hot_rate){
+                    // 热点事务，需要访问热点页面
+                    page_id = FastRand(seed) % num_hot_this_node;
+                }else {
+                    // 访问冷页面
+                    page_id = (FastRand(seed) % (node_page_num - num_hot_this_node)) + num_hot_this_node;
+                }
+                // LOG(INFO) << "Hot Cnt = " << num_hot_this_node << " total page num = " << node_page_num;
+            } else if (access_pattern == 1){
+                // zipfan 本身就带了热点属性，所以只需要考虑分区即可    
+                page_id = zip_fans[target_node_id].next() + 1;
+            } else {
+                assert(false);
+            }
+
+            int debug_page_id = page_id;
+            
+            // 前面得到的 page_id 是逻辑上的 page_id，表示的是页面在本节点管理分区内的偏移量，需要再映射到具体的页面上
+            // 举个例子，分区大小 1000，三个节点，然后 page_id = 1020，那映射到之后的 page_id 就是 1000 + 1000 + 1000 + 20 = 3020
+            // 在比如 page_id = 3020，那映射之后就是 9020
+            page_id = (page_id / partition_size) * (ComputeNodeCount * partition_size)
+                    + (target_node_id * partition_size)
+                    + page_id % partition_size
+                    + 1;
+            
+            assert(page_id > 0);
+            assert(page_id <= now_page_num);
+
+            int account_cnt_per_page = PAGE_SIZE / sizeof(DataItem);
+            keys[i] = (page_id - 1) * account_cnt_per_page + (FastRand(seed) % account_cnt_per_page);
+
+            // LOG(INFO) << "Target Node ID = " << target_node_id 
+            //           << " chosen page ID = " << page_id
+            //           << " account cnt per page = " << account_cnt_per_page
+            //           << " par_cnt = " << par_cnt
+            //           << " node_page_num = " << node_page_num
+            //           << " is partitioned = " << is_partitioned
+            //           << " middle page id = " << debug_page_id
+            //           << " chosen key = " << keys[i];
+        }
+
     }
 
 public:
@@ -95,9 +227,6 @@ public:
     }
     int getFiledLen() const {
         return field_len;
-    }
-    double getZipfanTheta() const {
-        return zipfian_theta;
     }
 
 private:
@@ -118,14 +247,14 @@ private:
     int read_percent;           // 读比例
     int update_percent;         // 写比例
     int field_len;              // 每个字段的长度，默认 100
-
-    double zipfian_theta;
-    double hotspot_fraction;
-    double hotspot_access_prob;
+    int hot_record_cnt;         // 热点账户数量
+    int tx_hot_rate;                 // 访问热点账户的事务占比
 
     int read_op_per_txn;        // 单个事务要做几次读操作，这个值是根据 read_percent 计算的
     int write_op_per_txn;       // 同上
     std::vector<bool> rw_flags; // 假如 read_op_per_txn = 9 , write_op_per_txn = 1，那这个数组的值就是 0000000001
+
+    std::vector<ZipFanGen> zip_fans;
     
     const static std::string ramdom_string(int len){
         static thread_local std::mt19937 rng{std::random_device{}()};

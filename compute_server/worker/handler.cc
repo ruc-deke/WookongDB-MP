@@ -175,7 +175,11 @@ void Handler::GenThreads(std::string bench_name) {
   YCSB *ycsb_client = nullptr;
 
   if (bench_name == "smallbank") {
-    smallbank_client = new SmallBank(nullptr);
+    std::string config_path = "../../config/smallbank_config.json";
+    auto config = JsonConfig::load_file(config_path);
+    int hot_rate = config.get("smallbank").get("num_hot_rate").get_int64();
+    assert(hot_rate > 0 && hot_rate < 100);
+    smallbank_client = new SmallBank(nullptr , hot_rate);
     total_try_times.resize(SmallBank_TX_TYPES, 0);
     total_commit_times.resize(SmallBank_TX_TYPES, 0);
   } else if(bench_name == "tpcc") {
@@ -186,7 +190,24 @@ void Handler::GenThreads(std::string bench_name) {
     std::string config_path = "../../config/ycsb_config.json";
     auto config = JsonConfig::load_file(config_path);
     int record_cnt = config.get("ycsb").get("num_record").get_int64();
-    ycsb_client = new YCSB(nullptr , record_cnt , 0);
+    int hot_cnt = config.get("ycsb").get("num_hot_record").get_int64();
+    int use_zipfian = config.get("ycsb").get("use_zipfian").get_int64();
+    int read_cnt = config.get("ycsb").get("read_percent").get_int64();
+    int write_cnt = config.get("ycsb").get("write_percent").get_int64();
+    int field_len = config.get("ycsb").get("field_len").get_int64();
+    int tx_hot_rate = config.get("ycsb").get("TX_HOT").get_int64();
+    assert(hot_cnt < record_cnt);
+    assert(use_zipfian == 1 || use_zipfian == 0);
+    assert(read_cnt > 0 && write_cnt > 0 && read_cnt + write_cnt == 100);
+    assert(field_len > 0);
+    assert(tx_hot_rate > 0 && tx_hot_rate < 100);
+    std::vector<int> page_num_per_node;
+    for (int i = 0 ; i < ComputeNodeCount ; i++){
+      page_num_per_node.emplace_back(compute_server->get_node()->getMetaManager()->GetPageNumPerNode(i , 0 , ComputeNodeCount));
+    }
+    ycsb_client = new YCSB(nullptr , record_cnt , hot_cnt , use_zipfian , page_num_per_node , read_cnt , write_cnt , field_len , tx_hot_rate);
+    total_try_times.resize(YCSB_TX_TYPES, 0);
+    total_commit_times.resize(YCSB_TX_TYPES, 0);
   }else {
     LOG(FATAL) << "Unsupported benchmark name: " << bench_name;
   }
@@ -208,12 +229,12 @@ void Handler::GenThreads(std::string bench_name) {
     param_arr[i].compute_server = compute_server;
     param_arr[i].thread_num_per_machine = thread_num_per_machine;
     param_arr[i].total_thread_num = thread_num_per_machine * machine_num;
-    if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){x
+    if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
       std::vector<int> thread_ids = compute_node->getSchedulerThreadIds();
       if (i < thread_ids.size()) {
           // 先初始化一下调度器里面的每一个线程
           auto task = [&, i](){
-            initThread(&param_arr[i] , smallbank_client , tpcc_client);
+            initThread(&param_arr[i] , smallbank_client , tpcc_client , ycsb_client);
             init_finish_cnt++;
           };
           compute_node->getScheduler()->schedule(task , thread_ids[i]);
@@ -225,7 +246,8 @@ void Handler::GenThreads(std::string bench_name) {
       thread_arr[i] = std::thread(run_thread,
                                   &param_arr[i],
                                   smallbank_client,
-                                  tpcc_client);
+                                  tpcc_client,
+                                  ycsb_client);
       /* Pin thread i to hardware thread i */
       cpu_set_t cpuset;
       CPU_ZERO(&cpuset);

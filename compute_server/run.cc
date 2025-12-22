@@ -46,9 +46,11 @@ int main(int argc, char* argv[]) {
   const auto fetch_storage_cnt = static_cast<long long>(*fetch_from_storage_vec.rbegin());
   const auto fetch_local_cnt = static_cast<long long>(*fetch_from_local_vec.rbegin());
   std::cout << std::fixed << std::setprecision(2);
-  std::cout << "Fetch from remote compute: " << fetch_remote_cnt << " (" << from_remote_ratio * 100 << "%)" << std::endl;
-  std::cout << "Fetch from storage: " << fetch_storage_cnt << " (" << from_storage_ratio * 100 << "%)" << std::endl;
-  std::cout << "Fetch from local cache: " << fetch_local_cnt << " (" << from_local_ratio * 100 << "%)" << std::endl;
+  if (SYSTEM_MODE != 2){
+    std::cout << "Fetch from remote compute: " << fetch_remote_cnt << " (" << from_remote_ratio * 100 << "%)" << std::endl;
+    std::cout << "Fetch from storage: " << fetch_storage_cnt << " (" << from_storage_ratio * 100 << "%)" << std::endl;
+    std::cout << "Fetch from local cache: " << fetch_local_cnt << " (" << from_local_ratio * 100 << "%)" << std::endl;
+  }
   std::cout << std::defaultfloat;
   std::cout << "Evicted pages: " << *evict_page_vec.rbegin() << std::endl;
   std::cout << "Fetch three cnt: " << static_cast<long long>(*fetch_three_vec.rbegin()) << std::endl;
@@ -73,6 +75,12 @@ int main(int argc, char* argv[]) {
         for (int i = 0; i < TPCC_TX_TYPES; i++) {
             std::cout << "abort:" <<TPCC_TX_NAME[i] << " " << total_try_times[i] << " " << total_commit_times[i] << " " << (double)(total_try_times[i] - total_commit_times[i]) / (double)total_try_times[i] << std::endl;
         }
+    } else if(std::string(argv[1]) == "ycsb") {
+        for (int i = 0; i < YCSB_TX_TYPES; i++) {
+            std::cout << "abort:YCSB " << total_try_times[i] << " " << total_commit_times[i] << " " << (double)(total_try_times[i] - total_commit_times[i]) / (double)total_try_times[i] << std::endl;
+        }
+    }else {
+        assert(false);
     }
 
     std::cout << "tx_begin_time: " << tx_begin_time / std::atoi(argv[3]) << std::endl;
@@ -132,6 +140,19 @@ int main(int argc, char* argv[]) {
             }
             result_file << rr << std::endl;
         }
+    } else if(std::string(argv[1]) == "ycsb") {
+        for (int i = 0; i < YCSB_TX_TYPES; i++) {
+            result_file << total_try_times[i] << " " << total_commit_times[i] << std::endl;
+        }
+        for (int i = 0; i < YCSB_TX_TYPES; i++) {
+            double rr = 0.0;
+            if (total_try_times[i] > 0) {
+                rr = (double)(total_try_times[i] - total_commit_times[i]) / (double)total_try_times[i];
+            }
+            result_file << rr << std::endl;
+        }
+    } else {
+        assert(false);
     }
 
     result_file << tx_begin_time / std::atoi(argv[3]) << std::endl;

@@ -316,6 +316,70 @@ void RecordTpLat(double msr_sec, DTX* dtx) {
   mux.unlock();
 }
 
+void RunYCSB(coro_yield_t& yield, coro_id_t coro_id){
+  struct timespec tx_end_time;
+  bool tx_committed = false;
+  DTX* dtx = new DTX(meta_man,
+    thread_gid,
+    thread_local_id,
+    coro_id,
+    coro_sched,
+    index_cache,
+    page_cache,
+    compute_server,
+    data_channel,
+    log_channel,
+    remote_server_channel,
+    thread_pool,
+    thread_txn_log
+  );
+  clock_gettime(CLOCK_REALTIME, &msr_start);
+  uint64_t run_seed = seed;
+  uint64_t iter = ++tx_id_generator;
+
+  while(true){
+    if (stat_attempted_tx_total >= ATTEMPTED_NUM || stat_enter_commit_tx_total >= ATTEMPTED_NUM) {
+      break;
+    }
+    stat_attempted_tx_total++;
+
+    bool is_partitioned = FastRand(&run_seed) % 100 > (LOCAL_TRASACTION_RATE * 100); 
+    Txn_request_info txn_meta;
+    clock_gettime(CLOCK_REALTIME, &txn_meta.start_time);
+
+    thread_local_try_times[0]++;
+    tx_committed = ycsb_client->YCSB_Multi_RW(&run_seed , iter , dtx , yield , is_partitioned);
+
+    if (tx_committed){
+      thread_local_commit_times[0]++;
+      clock_gettime(CLOCK_REALTIME, &tx_end_time);
+      double tx_usec = (tx_end_time.tv_sec - txn_meta.start_time.tv_sec) * 1000000 + (double)(tx_end_time.tv_nsec - txn_meta.start_time.tv_nsec) / 1000;
+      uint64_t idx = stat_committed_tx_total.load();
+      if (idx < ATTEMPTED_NUM + 50) {
+        timer[idx] = tx_usec;
+      }
+      stat_committed_tx_total++;
+    }
+
+    if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3){
+      coro_sched->Yield(yield, coro_id);
+    }
+  }
+
+  if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3){
+    coro_sched->FinishCorotine(coro_id);
+    while(coro_sched->isAllCoroStopped() == false) {
+        coro_sched->Yield(yield, coro_id);
+    }
+    clock_gettime(CLOCK_REALTIME, &msr_end);
+    // double msr_usec = (msr_end.tv_sec - msr_start.tv_sec) * 1000000 + (double) (msr_end.tv_nsec - msr_start.tv_nsec) / 1000;
+    double msr_sec = (msr_end.tv_sec - msr_start.tv_sec) + (double)(msr_end.tv_nsec - msr_start.tv_nsec) / 1000000000;
+    RecordTpLat(msr_sec,dtx);
+  }else {
+    // SYSTEM_MODE == 12 || 13
+  }
+}
+
 void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
   // std::cout << "RunSmallBank\n";
 
@@ -340,7 +404,8 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
                      log_channel,
                      remote_server_channel,
                      thread_pool,
-                     thread_txn_log);
+                     thread_txn_log
+    );
     
   clock_gettime(CLOCK_REALTIME, &msr_start);
   uint64_t run_seed = seed;
@@ -352,7 +417,7 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
       clock_gettime(CLOCK_REALTIME, &msr_start_global);
     }
   }
-  // run_seed = seed;
+
   SmallBankDTX* bench_dtx = new SmallBankDTX();
   bench_dtx->dtx = dtx;
 
@@ -601,7 +666,8 @@ void RunTPCC(coro_yield_t& yield, coro_id_t coro_id) {
 // 初始化 thread_local 的一些变量
 void initThread(thread_params* params,
               SmallBank* smallbank_cli,
-              TPCC* tpcc_cli){
+              TPCC* tpcc_cli,
+              YCSB *ycsb_cli){
     static std::atomic<int> cnt{1};
     int thread_id_logic = cnt++;
     LOG(INFO) << "INIT Thread , Thread ID = " << getThreadID(); 
@@ -625,6 +691,10 @@ void initThread(thread_params* params,
       tpcc_workgen_arr = tpcc_client->CreateWorkgenArray(READONLY_TXN_RATE);
       thread_local_try_times = new uint64_t[TPCC_TX_TYPES]();
       thread_local_commit_times = new uint64_t[TPCC_TX_TYPES]();
+    } else if (bench_name == "ycsb"){
+      ycsb_client = ycsb_cli;
+      thread_local_try_times = new uint64_t[YCSB_TX_TYPES]();
+      thread_local_commit_times = new uint64_t[YCSB_TX_TYPES]();
     } else {
       LOG(FATAL) << "Unsupported benchmark: " << bench_name;
     }
@@ -786,7 +856,7 @@ void run_thread(thread_params* params,
         }
       } else if (bench_name == "ycsb"){
         if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3){
-          coro_sched->coro_array[coro_i].func = coro_call_t(bind(RunTPCC, _1, coro_i));
+          coro_sched->coro_array[coro_i].func = coro_call_t(bind(RunYCSB, _1, coro_i));
         }else {
           assert(false);
         }
@@ -808,13 +878,8 @@ void run_thread(thread_params* params,
     }
   }else if (bench_name == "tpcc"){
 
-  }else if (bench_name == "dbsc"){
-    uint64_t zipf_seed = 2 * thread_gid * GetCPUCycle();
-    uint64_t zipf_seed_mask = (uint64_t(1) << 48) - 1;
-    zipfan_gens = new std::vector<ZipFanGen*>(2, nullptr);
-
-    int par_size_this_node = meta_man->GetPageNumPerNode(compute_server->getNodeID() , 0 , ComputeNodeCount);
-    (*zipfan_gens)[0] = new ZipFanGen(par_size_this_node, 0.50 , zipf_seed & zipf_seed_mask);
+  }else if (bench_name == "ycsb"){
+    // 在 YCSB 构造函数内部初始化了，不在这里构造了
   }else {
     assert(false);
   }

@@ -332,15 +332,15 @@ void RmFileHandle::release_page_handle(RmPageHandle&page_handle) {
  * @param {char*} buf 要插入记录的数据
  */
 void RmFileHandle::insert_record(const Rid& rid, char* buf) {
-    // 这个时候锁还没有释放因此不需要重新加锁
-    // RmPageHandle page_handle = fetch_page_handle(rid.page_no);
-    // assert(Bitmap::is_set(page_handle.bitmap, rid.slot_no) == false);
-    // Bitmap::set(page_handle.bitmap, rid.slot_no);
-    // page_handle.page_hdr->num_records ++;
-    // if(page_handle.page_hdr ->num_records == file_hdr_.num_records_per_page) {
-    //     file_hdr_.first_free_page_no = page_handle.page_hdr->next_free_page_no;
-    // }
-    // char* slot = page_handle.get_slot(rid.slot_no);
-    // memcpy(slot, buf, file_hdr_.record_size);
-    // buffer_pool_manager_->unpin_page(page_handle.page->get_page_id(), true);
+    // 这个函数之前注释掉了，不知道为啥，可能不能用，小心点
+    assert(false);
+
+    RmPageHandle page_handle = fetch_page_handle(rid.page_no_);
+    assert(Bitmap::is_set(page_handle.bitmap, rid.slot_no_) == false);
+    Bitmap::set(page_handle.bitmap, rid.slot_no_);
+    page_handle.page_hdr->num_records_ ++;
+    
+    char* slot = page_handle.get_slot(rid.slot_no_);
+    memcpy(slot, buf, file_hdr_.record_size_);
+    buffer_pool_manager_->unpin_page(page_handle.page->get_page_id(), true);
 }

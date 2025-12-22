@@ -172,7 +172,7 @@ public:
             auto log_manager = std::make_shared<LogManager>(disk_manager.get(), nullptr, "Raft_Log" + std::to_string(node_->getNodeID()));
             compute_node_service::ComputeNodeServiceImpl compute_node_service_impl(this);
             twopc_service::TwoPCServiceImpl twoPC_service_impl(this);
-            storage_service::StoragePoolImpl storage_service_impl(log_manager.get(), disk_manager.get(), nodes_channel, 0);
+            storage_service::StoragePoolImpl storage_service_impl(log_manager.get(), disk_manager.get(), nullptr, nodes_channel, 0);
             // 和存储层的通信
             if (server.AddService(&storage_service_impl, brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
                 LOG(ERROR) << "Fail to add compute_node_service";
@@ -274,6 +274,46 @@ public:
             return result;
         }
         return INDEX_NOT_FOUND;
+    }
+
+    // 插入一个新的数据项
+    Rid insert_entry(DataItem *item){
+        // 目前的想法
+        // 1. 先检查下 key 不存在，是不是可以先去占个位置，只插入 key，slot 先不管，防止别人和我一起插入同一个 key 了
+        auto page_id = bl_indexes[item->table_id]->insert_entry(&item->key , {-1 , -1});
+        if (page_id == INVALID_PAGE_ID){
+            LOG(INFO) << "Try To Insert A Same Key\n";
+            return {-1 , -1};
+        }
+
+        // 2. 从 FSM 里面找到一个页面
+        Rid free_slot;
+
+        // 3. 插入到存储层
+        storage_service::StorageService_Stub storage_stub(&node_->storage_channel);
+        storage_service::InsertRecordRequest request;
+        storage_service::InsertRecordResponse response;
+        brpc::Controller cntl;
+
+        request.set_table_id(item->table_id);
+        request.set_key(item->key);
+        request.set_data(item->value, item->value_size);
+        request.set_page_id(free_slot.page_no_);
+        request.set_slot_no(free_slot.slot_no_);
+
+        storage_stub.InsertRecord(&cntl, &request, &response, nullptr);
+        
+        if (cntl.Failed()) {
+             LOG(ERROR) << "Fail to insert record to storage: " << cntl.ErrorText();
+             return {-1, -1};
+        }
+        assert(response.success());
+        
+        // 3. 更新 BLink 里面的数据
+        auto page_id2 = bl_indexes[item->table_id]->update_entry(&item->key , free_slot);
+        
+        // 完工
+        return free_slot;
     }
 
     page_id_t insert_into_bltree(table_id_t table_id , itemkey_t key , Rid value){
@@ -754,7 +794,7 @@ public:
         brpc::Controller cntl;
         storage_service::CreatePageRequest req;
         storage_service::CreatePageResponse resp;
-
+        
         req.set_table_id(table_id);
         storage_stub.CreatePage(&cntl , &req , &resp , NULL);
         if (cntl.Failed()) {
