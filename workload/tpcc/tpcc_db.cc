@@ -575,7 +575,7 @@ int TPCC::LoadRecord(RmFileHandle* file_handle,
     index_cache->Insert(table_id,item_key,rid);
 
     bl_indexes[table_id]->insert_entry(&item_key , rid);
-    bl_indexes[table_id]->write_file_hdr_to_page();
+    // bl_indexes[table_id]->write_file_hdr_to_page();
 
     free(item_char);
     return 1;
@@ -587,9 +587,6 @@ DataItem* TPCC::GetRecord(RmFileHandle* file_handle,
     /* get from HashStore */
     Rid rid = index_cache->Search(table_id,item_key);
     std::vector<Rid> results;
-    // bool exist = bp_tree_indexes[table_id]->search(&item_key , &results);
-    // Rid rid2 = results[0];
-    // assert(rid.page_no_ == rid2.page_no_ && rid.slot_no_ == rid2.slot_no_);
     
     if(rid == INDEX_NOT_FOUND) {
         return nullptr;

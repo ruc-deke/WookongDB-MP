@@ -126,25 +126,15 @@ char* DTX::FetchXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_i
 void DTX::ReleaseSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id){
     if(SYSTEM_MODE == 0) {
         compute_server->rpc_release_s_page(table_id,page_id);
-    } 
-    else if(SYSTEM_MODE == 1){
+    } else if(SYSTEM_MODE == 1){
         compute_server->rpc_lazy_release_s_page(table_id,page_id);
-    }
-    else if(SYSTEM_MODE == 2){
+    }else if(SYSTEM_MODE == 2){
         compute_server->local_release_s_page(table_id,page_id);
-    }
-    else if(SYSTEM_MODE == 3){
+    }else if(SYSTEM_MODE == 3){
         compute_server->single_release_s_page(table_id,page_id);
     }else if(SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
         compute_server->rpc_ts_release_s_page(table_id , page_id);
-        // if (compute_server->is_hot_page(table_id, page_id)){
-        //     compute_server->rpc_lazy_release_s_page(table_id , page_id);
-        // } else {
-        //     compute_server->rpc_ts_release_s_page(table_id , page_id);
-        // }
-    }
-    else assert(false);
-
+    }else assert(false);
 }
 
 void DTX::ReleaseXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id){
@@ -198,16 +188,11 @@ DataItemPtr DTX::GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid,
 }
 
 DataItemPtr DTX::UndoDataItem(DataItemPtr item) {
-  // auto prev_lsn = item->prev_lsn;
-  // while(start_ts < item->version) {
-  //   // Undo the data item
-  //   // UndoLog();
-  // }
+  // TODO
+  // 这里的目标是把 item 通过 undo 回滚到某个历史版本，实现读写隔离
   return item;
 };
 
 void DTX::Abort() {
-  // When failures occur, transactions need to be aborted.
-  // In general, the transaction will not abort during committing replicas if no hardware failure occurs
   tx_status = TXStatus::TX_ABORT;
 }

@@ -59,6 +59,7 @@ class MetaManager {
     par_size_per_table = std::vector<int>(30000 , 0);
   }
   int GetPartitionSizePerTable(table_id_t table_id) const {
+    // par_size_per_table = page_num / ComputeNodeCount
     return par_size_per_table[table_id];
   }
   // 获取到 table_id 对应的表中，node_id 管理的页面数量
@@ -67,12 +68,13 @@ class MetaManager {
     int now_page_num = GetTablePageNum(table_id);                // 该表页面数量
     int par_cnt = now_page_num / partition_size + 1;                                                                // 总分区数量
 
+    // std::cout << "Par Size = " << partition_size << " page num = " << now_page_num << " par cnt = " << par_cnt << "\n";
     // 本节点管理的全部页面数量
     int node_page_cnt = 0;
-    node_page_cnt += (par_cnt / node_cnt) * partition_size;
-    if (node_id + 1 < par_cnt % node_cnt){
+    node_page_cnt += ((par_cnt - 1) / node_cnt) * partition_size;
+    if (node_id < (par_cnt - 1) % node_cnt){
         node_page_cnt += partition_size;
-    }else if (node_id + 1 == par_cnt % node_cnt){
+    }else if (node_id == (par_cnt - 1) % node_cnt){
         node_page_cnt += now_page_num % partition_size;
     }
 

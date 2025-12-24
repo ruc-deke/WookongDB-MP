@@ -150,7 +150,7 @@ class DTX {
           int end = begin + 100;
           for (int i = begin ; i < end ; i++){
               Rid insert_rid = { .page_no_ = i % 100, .slot_no_ = (i / 100) % 100 };
-              compute_server->insert_into_bltree(table_id, i, insert_rid);
+              compute_server->insert_into_blink(table_id, i, insert_rid);
 
               {
                   std::lock_guard<std::mutex> lk(g_mtx);
@@ -365,6 +365,7 @@ class DTX {
   std::vector<DataSetItem> read_only_set;     // 本事务读取过的数据项集合
   std::vector<DataSetItem> read_write_set;    // 本事务修改的数据项集合
   std::vector<DataSetItem> insert_set;        // 本事务插入的数据项集合
+  std::vector<DataSetItem> delete_set;        // 本事务删除的页面集合
 
   IndexCache* index_cache;
   PageCache* page_cache;

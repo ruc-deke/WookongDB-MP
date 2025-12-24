@@ -193,23 +193,15 @@ class SmallBank {
     return workgen_arr;
   }
 
-  inline void get_account(itemkey_t &acc1 , ZipFanGen *zip_fan , bool is_partitioned , const DTX *dtx , uint64_t *seed , table_id_t table_id){
-    int belong_node_id = (SYSTEM_MODE == 12 || SYSTEM_MODE == 13) ? dtx->compute_server->get_node()->ts_cnt.load() : dtx->compute_server->get_node()->get_node_id();
-    int target_node_id;
+  inline void get_account(itemkey_t &acc1 , ZipFanGen *zip_fan , const DTX *dtx , uint64_t *seed , table_id_t table_id , int target_node_id){
     // 这里得到的 page_id 所在区间是 0~分区大小，需要再把这个值映射到别的区间的某个页面上
     page_id_t page_id = zip_fan->next() + 1;
-
-    if (is_partitioned){
-        do {
-            target_node_id = FastRand(seed) % ComputeNodeCount;
-        }while(target_node_id == belong_node_id);
-    } else {
-        target_node_id = belong_node_id;
-    }
 
     int partition_size = dtx->compute_server->get_node()->getMetaManager()->GetPartitionSizePerTable(table_id);     // 分区大小
     int now_page_num = dtx->compute_server->get_node()->getMetaManager()->GetTablePageNum(table_id);                // 该表页面数量
     int par_cnt = now_page_num / partition_size + 1;        
+
+    int debug_page_id = page_id;
 
     page_id = (page_id / partition_size) * (ComputeNodeCount * partition_size) 
             + (target_node_id * partition_size)
@@ -225,13 +217,6 @@ class SmallBank {
     
 
     acc1 = dtx->page_cache->SearchRandom(seed , table_id , page_id);
-  }
-
-  void get_two_accounts(itemkey_t &acc1 , itemkey_t &acc2 , ZipFanGen *zip_fan , bool is_partitioned , const DTX *dtx , uint64_t *seed , table_id_t table_id){
-    get_account(acc1 , zip_fan , is_partitioned , dtx , seed , table_id);
-    do {
-        get_account(acc2 , zip_fan , is_partitioned , dtx , seed , table_id);
-    }while(acc1 == acc2);
   }
 
   /*
@@ -269,10 +254,10 @@ class SmallBank {
 
         // 本节点管理的全部页面数量
         int node_page_cnt = 0;
-        node_page_cnt += (par_cnt / ComputeNodeCount) * partition_size;
-        if (target_node_id + 1 < par_cnt % ComputeNodeCount){
+        node_page_cnt += ((par_cnt - 1) / ComputeNodeCount) * partition_size;
+        if (target_node_id < (par_cnt - 1) % ComputeNodeCount){
             node_page_cnt += partition_size;
-        }else if (target_node_id + 1 == par_cnt % ComputeNodeCount){
+        }else if (target_node_id == (par_cnt - 1) % ComputeNodeCount){
             node_page_cnt += now_page_num % partition_size;
         }
 

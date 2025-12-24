@@ -102,7 +102,7 @@ thread_local CoroutineScheduler* coro_sched;  // Each transaction thread has a c
 thread_local CoroutineScheduler* coro_sched_0; // Coroutine 0, use a single sheduler to manage it, only use in long transactions evaluation
 thread_local int* using_which_coro_sched; // 0=>coro_sched_0, 1=>coro_sched
 
-thread_local std::vector<ZipFanGen*>* zipfan_gens;
+thread_local std::vector<std::vector<ZipFanGen*>>* zipfan_gens;
 
 // Performance measurement (thread granularity)
 thread_local struct timespec msr_start, msr_end;
@@ -717,13 +717,16 @@ void initThread(thread_params* params,
         uint64_t zipf_seed = 2 * thread_gid * GetCPUCycle();
         uint64_t zipf_seed_mask = (uint64_t(1) << 48) - 1;
 
-        int par_size = meta_man->GetPartitionSizePerTable(
-          compute_server->get_node()->getMetaManager()->GetPageNumPerNode(compute_server->get_node()->get_node_id() , 
-          table_id_ , 
-          ComputeNodeCount
-        ));
+        for (int i = 0 ; i < ComputeNodeCount ; i++){
+          int par_size = meta_man->GetPartitionSizePerTable(
+            compute_server->get_node()->getMetaManager()->GetPageNumPerNode(compute_server->get_node()->get_node_id() , 
+            table_id_ , 
+            i
+          ));
+          (*zipfan_gens)[i][table_id_] = new ZipFanGen(par_size, 0.50 , zipf_seed & zipf_seed_mask);
+        }
 
-        (*zipfan_gens)[table_id_] = new ZipFanGen(par_size, 0.50 , zipf_seed & zipf_seed_mask);
+        
       }
     }else{
       assert(false);
@@ -869,15 +872,16 @@ void run_thread(thread_params* params,
   if (bench_name == "smallbank"){
     uint64_t zipf_seed = 2 * thread_gid * GetCPUCycle();
     uint64_t zipf_seed_mask = (uint64_t(1) << 48) - 1;
-    zipfan_gens = new std::vector<ZipFanGen*>(2, nullptr);
+    zipfan_gens = new std::vector<std::vector<ZipFanGen*>>(ComputeNodeCount, std::vector<ZipFanGen*>(2 , nullptr));
     for (int table_id_ = 0 ; table_id_ < 2 ; table_id_++){
-      int par_size_this_node = meta_man->GetPageNumPerNode(compute_server->getNodeID() , table_id_ , ComputeNodeCount);
-      std::cout << "par size this node = " << par_size_this_node << "\n";
-
-      (*zipfan_gens)[table_id_] = new ZipFanGen(par_size_this_node, 0.50 , zipf_seed & zipf_seed_mask);
+      for (int i = 0 ; i < ComputeNodeCount ; i++){
+        int par_size_this_node = meta_man->GetPageNumPerNode(i , table_id_ , ComputeNodeCount);
+        (*zipfan_gens)[i][table_id_] = new ZipFanGen(par_size_this_node, 0.50 , zipf_seed & zipf_seed_mask);
+        std::cout << "Table ID = " << table_id_ << " Node ID = " << i << " Size = " << par_size_this_node << "\n";
+      }
     }
   }else if (bench_name == "tpcc"){
-
+    // TODO
   }else if (bench_name == "ycsb"){
     // 在 YCSB 构造函数内部初始化了，不在这里构造了
   }else {

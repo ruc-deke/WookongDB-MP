@@ -36,6 +36,8 @@
 #include "bp_tree/latch_crabbing/bp_tree.h"
 #include "bp_tree/blink/blink.h"
 
+#include "util/bitmap.h"
+
 extern double ReadOperationRatio; // for workload generator
 extern int TryOperationCnt;  // only for micro experiment
 extern double ConsecutiveAccessRatio;  // for workload generator
@@ -276,52 +278,67 @@ public:
         return INDEX_NOT_FOUND;
     }
 
+    Rid delete_entry(DataItem *item){
+        // 1. 修改 FSM
+
+        // 2. 删除 BLink 里面的数据
+        Rid delete_rid = bl_indexes[item->table_id]->delete_entry(&item->key);
+        // 如果删除的 key 不存在，那直接返回就行，不需要 Abort
+        if (delete_rid.page_no_ == -1){
+            return {-1 , -1};
+        }
+
+        // 2. 修改 BitMap
+        Page *page = rpc_lazy_fetch_x_page(item->table_id , delete_rid.page_no_ , false);
+        char *data = page->get_data();
+        RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(data + OFFSET_PAGE_HDR);
+        char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+        Bitmap::reset(bitmap, delete_rid.slot_no_);
+        page_hdr->num_records_--;
+
+        // 3. 释放掉页面锁
+        rpc_lazy_release_x_page(item->table_id, delete_rid.page_no_);
+
+        return delete_rid;
+    }
+
     // 插入一个新的数据项
     Rid insert_entry(DataItem *item){
-        // 目前的想法
-        // 1. 先检查下 key 不存在，是不是可以先去占个位置，只插入 key，slot 先不管，防止别人和我一起插入同一个 key 了
-        auto page_id = bl_indexes[item->table_id]->insert_entry(&item->key , {-1 , -1});
+        // 1. 从 FSM 里面获取到一个存在空闲空闲的页面
+        page_id_t free_page_id;
+
+        // 2. 修改这个页面的 BitMap
+        Page *page = rpc_lazy_fetch_x_page(item->table_id , free_page_id , false);
+        char *data = page->get_data();
+        auto &meta = node_->getMetaManager()->GetTableMeta(item->table_id);
+        RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(data + OFFSET_PAGE_HDR);
+        char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+        int slot_no = Bitmap::first_bit(false, bitmap, meta.num_records_per_page_);
+
+        // 2. 插入到 BLink 
+        auto page_id = bl_indexes[item->table_id]->insert_entry(&item->key , {free_page_id , slot_no});
         if (page_id == INVALID_PAGE_ID){
             LOG(INFO) << "Try To Insert A Same Key\n";
             return {-1 , -1};
         }
 
-        // 2. 从 FSM 里面找到一个页面
-        Rid free_slot;
+        // 3. 插入到页面里
+        Bitmap::set(bitmap, slot_no);
+        page_hdr->num_records_++;
 
-        // 3. 插入到存储层
-        storage_service::StorageService_Stub storage_stub(&node_->storage_channel);
-        storage_service::InsertRecordRequest request;
-        storage_service::InsertRecordResponse response;
-        brpc::Controller cntl;
+        char *slots = bitmap + meta.bitmap_size_;
+        char* tuple = slots + slot_no * (sizeof(DataItem) + sizeof(itemkey_t));
+        memcpy(tuple, &item->key, sizeof(itemkey_t));
+        // 写入 DataItem
+        DataItem* target_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+        *target_item = *item;
+        // 3.2 把元组里边的锁设置成 EXCLUSIVE_LOCKED
+        target_item->lock = EXCLUSIVE_LOCKED;
 
-        request.set_table_id(item->table_id);
-        request.set_key(item->key);
-        request.set_data(item->value, item->value_size);
-        request.set_page_id(free_slot.page_no_);
-        request.set_slot_no(free_slot.slot_no_);
-
-        storage_stub.InsertRecord(&cntl, &request, &response, nullptr);
+        // 3.3 释放掉页面锁
+        rpc_lazy_release_x_page(item->table_id, free_page_id);
         
-        if (cntl.Failed()) {
-             LOG(ERROR) << "Fail to insert record to storage: " << cntl.ErrorText();
-             return {-1, -1};
-        }
-        assert(response.success());
-        
-        // 3. 更新 BLink 里面的数据
-        auto page_id2 = bl_indexes[item->table_id]->update_entry(&item->key , free_slot);
-        
-        // 完工
-        return free_slot;
-    }
-
-    page_id_t insert_into_bltree(table_id_t table_id , itemkey_t key , Rid value){
-        return bl_indexes[table_id]->insert_entry(&key , value);
-    }
-
-    bool delete_from_bltree(table_id_t table_id , itemkey_t key){
-        return bl_indexes[table_id]->delete_entry(&key);
+        return {free_page_id , slot_no};
     }
 
     Rid get_rid_from_bptree(table_id_t table_id , itemkey_t key){
@@ -333,6 +350,13 @@ public:
             return result;
         }
         return INDEX_NOT_FOUND;
+    }
+
+    void insert_into_blink(table_id_t table_id , itemkey_t key , Rid value){
+        bl_indexes[table_id]->insert_entry(&key , value);
+    }
+    Rid delete_from_blink(table_id_t table_id , itemkey_t key){
+        return bl_indexes[table_id]->delete_entry(&key);
     }
 
     void delete_from_bptree(table_id_t table_id , itemkey_t key){
@@ -547,17 +571,17 @@ public:
         bool is_from_lru = false;
         frame_id_t frame_id = -1;
 
-        // 先试试看能不能直接插入，可以的话直接插入就行
+        // 先试试看缓冲区是否有空闲位置
         Page *page = checkIfDirectlyPutInBuffer(table_id , page_id , data);
         if (page != nullptr){
             return page;
         }
 
-        // 作为一个参数传入淘汰窗口中，目标是锁定一个页面，确保页面淘汰过程中不会被访问
+        // 作为一个参数传入淘汰窗口中，目标是锁定一个页面，确保页面淘汰过程中别的线程无法访问本页面
         auto try_begin_evict = ([this , table_id](page_id_t victim_page_id) {
             return this->node_->lazy_local_page_lock_tables[table_id]->GetLock(victim_page_id)->TryBeginEvict();
         });
-
+        
         int try_cnt = -1;
         // 循环直到找到一个可淘汰的页面
         while(true){

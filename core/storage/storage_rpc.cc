@@ -165,7 +165,6 @@ namespace storage_service{
         for(auto it = table_fd_map.begin(); it != table_fd_map.end(); it++){
             disk_manager_->close_file(it->second);
         }
-        // RDMA_// LOG(INFO) << "success to GetPage";
         return;
     };
 
@@ -365,7 +364,7 @@ namespace storage_service{
 
         table_id_t table_id = request->table_id();
         page_id_t page_no = request->page_no();
-        std::string table_path = TableIdToPrimaryPath(table_id);
+        std::string table_path = TableIdToTablePath(table_id);
 
         std::cout << "Delete Page , page_no = " << page_no << "\n"; 
 

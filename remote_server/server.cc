@@ -65,6 +65,7 @@ public:
             if (server.Start(point,&options) != 0) {
                 LOG(ERROR) << "Fail to start Server";
             }
+            std::cout << "Remote Server Started at port " << rpc_port_ << std::endl;
             server.RunUntilAskedToQuit();
             exit(1);
         });
@@ -136,12 +137,12 @@ int socket_start_server(Server *server) {
     }
 
     // 计算节点已经启动，建立连接
-    for(size_t i = 0; i < server->getGlobalPageLockTableList()->size(); i++){
-        server->getGlobalPageLockTableList()->at(i)->Reset();
-        server->getGlobalValidTableList()->at(i)->Reset();
-        // 对每一个表，添加所有主节点到这个锁表的 RPC
-        server->getGlobalPageLockTableList()->at(i)->BuildRPCConnection(server->compute_node_ips_, server->compute_node_ports_);
-    }
+    // for(size_t i = 0; i < server->getGlobalPageLockTableList()->size(); i++){
+    //     server->getGlobalPageLockTableList()->at(i)->Reset();
+    //     server->getGlobalValidTableList()->at(i)->Reset();
+    //     // 对每一个表，添加所有主节点到这个锁表的 RPC
+    //     server->getGlobalPageLockTableList()->at(i)->BuildRPCConnection(server->compute_node_ips_, server->compute_node_ports_);
+    // }
     
     for(size_t i=0; i<server->compute_node_ips_.size(); i++){
         // 发送 SYN 消息到客户端
@@ -246,16 +247,19 @@ int main(int argc, char* argv[]) {
 
     // 初始化全局的bufferpool和page_lock_table
     auto bufferpool = std::make_unique<BufferPool>(BufferFusionSize , 10000);
-    auto global_page_lock_table_list = std::make_unique<std::vector<GlobalLockTable*>>();
-    auto global_valid_table_list = std::make_unique<std::vector<GlobalValidTable*>>();
-    for(int i=0; i < 33; i++){
-        global_page_lock_table_list->push_back(new GlobalLockTable());
-        global_valid_table_list->push_back(new GlobalValidTable());
-    }
+    // auto global_page_lock_table_list = std::make_unique<std::vector<GlobalLockTable*>>();
+    // auto global_valid_table_list = std::make_unique<std::vector<GlobalValidTable*>>();
+    // for(int i=0; i < 33; i++){
+    //     global_page_lock_table_list->push_back(new GlobalLockTable());
+    //     global_valid_table_list->push_back(new GlobalValidTable());
+    // }
+    // Server server(global_page_lock_table_list.get(), global_valid_table_list.get(), bufferpool.get());
+
     
     // 启动rpc server
-    Server server(global_page_lock_table_list.get(), global_valid_table_list.get(), bufferpool.get());
+    Server server(nullptr, nullptr, bufferpool.get());
 
+    
     // 启动socket server
     socket_start_server(&server);
     std::cout << "Start, and wait compute nodes finish running workload..." << std::endl;

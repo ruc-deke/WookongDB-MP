@@ -45,13 +45,31 @@
             ]
         },
         {
+            "name": "(gdb)storage-server",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/storage_server/storage_pool",
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build/storage_server/",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
             "name": "(gdb)compute-server0",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",
             // lazy , 2pc , eager , ts_sep , ts_sep_hot
             // smallbank , tpcc , ycsb
-            "args": ["tpcc", "2pc", "8", "5000", "0", "0.3" , "0"],
+            "args": ["ycsb", "lazy", "8", "5000", "0", "0.8" , "0"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
@@ -71,7 +89,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",
 
-            "args": ["tpcc", "2pc", "8", "5000", "0", "0.3" , "1"],
+            "args": ["ycsb", "lazy", "8", "5000", "0", "0.8" , "1"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
@@ -90,7 +108,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",
-            "args": ["tpcc", "2pc", "8", "5000", "0", "0.3" , "2"],
+            "args": ["ycsb", "lazy", "8", "5000", "0", "0.8" , "2"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
@@ -142,24 +160,7 @@
                 }
             ]
         },
-        {
-            "name": "(gdb)storage-server",
-            "type": "cppdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build/storage_server/storage_pool",
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/build/storage_server/",
-            "environment": [],
-            "externalConsole": false,
-            "MIMode": "gdb",
-            "setupCommands": [
-                {
-                    "description": "Enable pretty-printing for gdb",
-                    "text": "-enable-pretty-printing",
-                    "ignoreFailures": true
-                }
-            ]
-        },
+        
         {
             "name": "(gdb)coro_test",
             "type": "cppdbg",

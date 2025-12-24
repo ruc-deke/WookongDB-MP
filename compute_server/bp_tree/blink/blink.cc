@@ -463,6 +463,7 @@ std::pair<BLinkNodeHandle* , itemkey_t> BLinkIndexHandle::split(BLinkNodeHandle 
 void BLinkIndexHandle::insert_into_parent(BLinkNodeHandle *old_node , const itemkey_t sep_key ,
                                       BLinkNodeHandle *new_node ,
                                       std::vector<page_id_t> &trace){
+    // 如果旧的节点是一个根节点，那就需要去创建一个新的 Root，然后把旧的 Root 拆分为两个节点
     if (old_node->is_root()){
         page_id_t new_root_id = create_node();
         BLinkNodeHandle *new_root = fetch_node(new_root_id , BPOperation::INSERT_OPERA);
@@ -482,12 +483,13 @@ void BLinkIndexHandle::insert_into_parent(BLinkNodeHandle *old_node , const item
 
         old_node->set_is_root(false);
         new_node->set_is_root(false);
+
         // 释放三个节点
         release_node(new_node->get_page_no() , BPOperation::INSERT_OPERA);
         release_node(old_node->get_page_no() , BPOperation::INSERT_OPERA);
-
         release_node(new_root_id , BPOperation::INSERT_OPERA);
         
+        // 根节点变化后，需要同步到 file_hdr 中，不然别的节点看不到
         Page *page = x_get_file_hdr();
         file_hdr->root_page_id = new_root->get_page_no();
         x_release_file_hdr(page);
@@ -580,14 +582,11 @@ bool BLinkIndexHandle::search(const itemkey_t *key , Rid &result){
         key2leaf_mtx.unlock();
         result = *rid;
     }else {
-        // SmallBank 的每个都存在，TPCC 不一定
-        if (WORKLOAD_MODE == 0){
+        // TPCC 负载下，生成的 key 不一定存在，所以不断言了
+        // SmallBank 和 YCSB 负载下，查找的 key 一定存在
+        if (WORKLOAD_MODE == 0 || WORKLOAD_MODE == 2){
             assert(false);
         }
-        // release_node(leaf->get_page_no() , BPOperation::SEARCH_OPERA);
-        // std::stringstream ss;
-        // find_leaf_for_search_with_print(key , ss);
-        // std::cout << ss.str() << "\n";
     }
     release_node(leaf->get_page_no() , BPOperation::SEARCH_OPERA);
     delete leaf;
@@ -617,6 +616,7 @@ page_id_t BLinkIndexHandle::update_entry(const itemkey_t *key , const Rid &value
     return ret;
 }
 
+// 向 BLink 插入一个新的 pkey
 page_id_t BLinkIndexHandle::insert_entry(const itemkey_t *key , const Rid &value){
     std::vector<page_id_t> trace;
     BLinkNodeHandle *leaf = find_leaf_for_insert(key , trace);
@@ -655,7 +655,12 @@ page_id_t BLinkIndexHandle::insert_entry(const itemkey_t *key , const Rid &value
     return ret;
 }
 
-bool BLinkIndexHandle::delete_entry(const itemkey_t *key){
+/*
+    删除一个 key，这里是简化的版本，直接在叶子节点中把 key 给删了
+    为什么不按照 B+ 树的做法，调整树的结构的原因是，BLink 不允许自上向下的加锁
+    这样做没有正确性的问题，但是会有空间浪费的问题，pg 的做法是后台线程定期清理，后续可以优化下
+*/
+Rid BLinkIndexHandle::delete_entry(const itemkey_t *key){
     BLinkNodeHandle *leaf = find_leaf_for_delete(key);
     assert(leaf->is_leaf());
 
@@ -663,14 +668,16 @@ bool BLinkIndexHandle::delete_entry(const itemkey_t *key){
     if (leaf->get_size() == 0 || !leaf->need_delete(key)){
         release_node(leaf->get_page_no() , BPOperation::DELETE_OPERA);
         delete leaf;
-        return false;
+        return {-1 , -1};
     }
 
-    int before = leaf->get_size();
-    int after = leaf->remove(key);
-    assert(after == before - 1);
+    int pos = leaf->lower_bound(key);
+    // 这里 ret 是一定存在的，因为前面已经检查了 leaf->need_delete
+    Rid ret = *leaf->get_rid(pos);
+    assert(ret.page_no_ != -1);
+    leaf->remove(key);
 
     release_node(leaf->get_page_no() , BPOperation::DELETE_OPERA);
     delete leaf;
-    return true;
+    return ret;
 }

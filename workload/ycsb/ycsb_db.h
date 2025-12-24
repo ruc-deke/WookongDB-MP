@@ -70,18 +70,23 @@ public:
             rw_flags[i] = true;
         }
 
-        zip_fans.reserve(page_num_per_node.size());
-        // 构造 zipfan_gen
-        for (int i = 0 ; i < page_num_per_node.size() ; i++){
-            uint64_t zipf_seed = 2 * GetCPUCycle() * (int)(ramdom_string(20)[0] % ComputeNodeCount);
-            uint64_t zipf_seed_mask = (uint64_t(1) << 48) - 1;
-            zip_fans.emplace_back(page_num_per_node[i], 0.70 , zipf_seed & zipf_seed_mask);
-            usleep(100);
+        // 在整个项目会创建两个 YCSB 实例，一个是在存储层初始化，导入数据的时候，一个是在计算层，用来生成 YCSB 负载
+        if (rm_manage_){
+            // 存储层初始化 BLink
+            bl_indexes.emplace_back(new S_BLinkIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , 10000 , "ycsb"));
+        }else {
+            // 计算层初始化 Zipfan
+            zip_fans.reserve(ComputeNodeCount);
+            for (int i = 0 ; i < ComputeNodeCount ; i++){
+                // 目前 YCSB 只有一个表，所以 zipfans 的结构是 ComputeNodeCount 行 + 1 列
+                std::vector<ZipFanGen> zipfan_vec;
+                uint64_t zipf_seed = 2 * GetCPUCycle() * (int)(ramdom_string(20)[0] % ComputeNodeCount);
+                uint64_t zipf_seed_mask = (uint64_t(1) << 48) - 1;
+                zipfan_vec.emplace_back(ZipFanGen(page_num_per_node[i] , 0.70 , zipf_seed & zipf_seed_mask));
+                zip_fans.emplace_back(zipfan_vec);
+            }
         }
 
-        if (rm_manage_){
-            bl_indexes.emplace_back(new S_BLinkIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , 10000 , "ycsb"));
-        }
         bench_name = "ycsb";
     }
 
@@ -179,7 +184,7 @@ public:
                 // LOG(INFO) << "Hot Cnt = " << num_hot_this_node << " total page num = " << node_page_num;
             } else if (access_pattern == 1){
                 // zipfan 本身就带了热点属性，所以只需要考虑分区即可    
-                page_id = zip_fans[target_node_id].next() + 1;
+                page_id = zip_fans[target_node_id][0].next() + 1;
             } else {
                 assert(false);
             }
@@ -209,7 +214,6 @@ public:
             //           << " middle page id = " << debug_page_id
             //           << " chosen key = " << keys[i];
         }
-
     }
 
 public:
@@ -254,7 +258,8 @@ private:
     int write_op_per_txn;       // 同上
     std::vector<bool> rw_flags; // 假如 read_op_per_txn = 9 , write_op_per_txn = 1，那这个数组的值就是 0000000001
 
-    std::vector<ZipFanGen> zip_fans;
+    // zip_fans[i][j]：第 i 个节点的第 j 个表的 zipfans 账户生成
+    std::vector<std::vector<ZipFanGen>> zip_fans;
     
     const static std::string ramdom_string(int len){
         static thread_local std::mt19937 rng{std::random_device{}()};

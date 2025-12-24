@@ -208,7 +208,7 @@ public:
     page_id_t insert_entry(const itemkey_t *key , const Rid &value);
     page_id_t update_entry(const itemkey_t *key , const Rid &value);
     
-    bool delete_entry(const itemkey_t *key);
+    Rid delete_entry(const itemkey_t *key);
 
     bool checkIfDirectlyGetPage(const itemkey_t *key , Rid &result);
 

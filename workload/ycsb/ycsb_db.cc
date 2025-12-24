@@ -35,6 +35,9 @@ void YCSB::PopulateUserTable(){
         strncpy(val.file_8, f8.c_str(), sizeof(val.file_8));
         strncpy(val.file_9, f9.c_str(), sizeof(val.file_9));
         
+        if (id == 100){
+            std::cout << "Val Size = " << sizeof(ycsb_user_table_val) << "\n";
+        }
         LoadRecord(table_file.get() , key.item_key , (void*)&val , sizeof(ycsb_user_table_val) , 0 , indexfile);
     }                                                                   
     

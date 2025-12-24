@@ -305,7 +305,7 @@ bool SmallBankDTX::ReTxWriteCheck(coro_yield_t& yield) {
 
 /******************** The original logic (Transaction) start ********************/
 
-bool SmallBankDTX::TxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , std::vector<ZipFanGen*> *zipfan_gens) {
+bool SmallBankDTX::TxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , std::vector<std::vector<ZipFanGen*>> *zipfans) {
   // 设置开始时间戳
   dtx->TxBegin(tx_id);
   
@@ -314,7 +314,7 @@ bool SmallBankDTX::TxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, cor
 #if UniformHot
   smallbank_client->get_uniform_hot_two_accounts(seed, &acct_id_0, &acct_id_1, dtx, dtx->compute_server->get_node()->getNodeID(), is_partitioned);
 #else
-  if (zipfan_gens == nullptr){
+  if (zipfans == nullptr){
     // smallbank_client->get_two_accounts(seed, &acct_id_0, &acct_id_1, dtx, dtx->compute_server->get_node()->getNodeID(), is_partitioned);
     // 第一个账号 acct_id_0，是 saving 表的
     smallbank_client->get_account(seed, &acct_id_0, dtx, is_partitioned, dtx->compute_server->get_node()->getNodeID() , 0);
@@ -323,9 +323,17 @@ bool SmallBankDTX::TxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, cor
       smallbank_client->get_account(seed , &acct_id_1 , dtx , is_partitioned , dtx->compute_server->get_node()->get_node_id() , 1);
     }while(acct_id_0 == acct_id_1);
   }else{
-    smallbank_client->get_account(acct_id_0 , (*zipfan_gens)[0] , is_partitioned , dtx , seed , 0);
+    node_id_t target_node_id;
+    if (is_partitioned){
+        do {
+            target_node_id = FastRand(seed) % ComputeNodeCount;
+        }while(target_node_id == dtx->compute_server->getNodeID());
+    } else {
+        target_node_id = dtx->compute_server->getNodeID();
+    }
+    smallbank_client->get_account(acct_id_0 , (*zipfans)[target_node_id][1] , dtx , seed , 1 , target_node_id);
     do {
-      smallbank_client->get_account(acct_id_1 , (*zipfan_gens)[1] , is_partitioned , dtx , seed , 1);
+      smallbank_client->get_account(acct_id_1 , (*zipfans)[target_node_id][0] , dtx , seed , 0 , target_node_id);
     }while(acct_id_0 == acct_id_1);
   }
 
@@ -382,7 +390,7 @@ bool SmallBankDTX::TxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, cor
 }
 
 /* Calculate the sum of saving and checking kBalance */
-bool SmallBankDTX::TxBalance(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , std::vector<ZipFanGen*> *zip_fans) {
+bool SmallBankDTX::TxBalance(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , std::vector<std::vector<ZipFanGen*>> *zip_fans) {
   dtx->TxBegin(tx_id);
     //  // LOG(INFO) << "TxBalance";
   /* Transaction parameters */
@@ -394,7 +402,15 @@ bool SmallBankDTX::TxBalance(SmallBank* smallbank_client, uint64_t* seed, coro_y
     // 只在 saving 表
     smallbank_client->get_account(seed, &acct_id, dtx, is_partitioned,dtx->compute_server->get_node()->getNodeID() , 0);
   }else{
-    smallbank_client->get_account(acct_id , (*zip_fans)[0] , is_partitioned , dtx , seed , 0);
+    node_id_t target_node_id;
+    if (is_partitioned){
+        do {
+            target_node_id = FastRand(seed) % ComputeNodeCount;
+        }while(target_node_id == dtx->compute_server->getNodeID());
+    } else {
+        target_node_id = dtx->compute_server->getNodeID();
+    }
+    smallbank_client->get_account(acct_id , (*zip_fans)[target_node_id][0] , dtx , seed , 0 , target_node_id);
   }
 #endif
 
@@ -431,7 +447,7 @@ bool SmallBankDTX::TxBalance(SmallBank* smallbank_client, uint64_t* seed, coro_y
 }
 
 /* Add $1.3 to acct_id's checking account */
-bool SmallBankDTX::TxDepositChecking(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , std::vector<ZipFanGen*> *zip_fans) {
+bool SmallBankDTX::TxDepositChecking(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , std::vector<std::vector<ZipFanGen*>> *zip_fans) {
   dtx->TxBegin(tx_id);
     //  // LOG(INFO) << "TxDepositChecking" ;
   /* Transaction parameters */
@@ -443,7 +459,15 @@ bool SmallBankDTX::TxDepositChecking(SmallBank* smallbank_client, uint64_t* seed
     // checking 表账号
     smallbank_client->get_account(seed, &acct_id, dtx, is_partitioned,dtx->compute_server->get_node()->getNodeID() , 1);
   }else {
-    smallbank_client->get_account(acct_id , (*zip_fans)[1] , is_partitioned , dtx , seed , 1);
+    node_id_t target_node_id;
+    if (is_partitioned){
+        do {
+            target_node_id = FastRand(seed) % ComputeNodeCount;
+        }while(target_node_id == dtx->compute_server->getNodeID());
+    } else {
+        target_node_id = dtx->compute_server->getNodeID();
+    }
+    smallbank_client->get_account(acct_id , (*zip_fans)[target_node_id][1] , dtx , seed , 1 , target_node_id);
   }
 #endif
   float amount = 1.3;
@@ -472,7 +496,7 @@ bool SmallBankDTX::TxDepositChecking(SmallBank* smallbank_client, uint64_t* seed
 }
 
 /* Send $5 from acct_id_0's checking account to acct_id_1's checking account */
-bool SmallBankDTX::TxSendPayment(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , std::vector<ZipFanGen*> *zip_fans) {
+bool SmallBankDTX::TxSendPayment(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , std::vector<std::vector<ZipFanGen*>> *zip_fans) {
   dtx->TxBegin(tx_id);
     //  // LOG(INFO) << "TxSendPayment" ;
   /* Transaction parameters: send money from acct_id_0 to acct_id_1 */
@@ -487,9 +511,17 @@ bool SmallBankDTX::TxSendPayment(SmallBank* smallbank_client, uint64_t* seed, co
       smallbank_client->get_account(seed , &acct_id_1 , dtx , is_partitioned , dtx->compute_server->getNodeID() , 0);
     }while(acct_id_0 == acct_id_1);
   }else {
-    smallbank_client->get_account(acct_id_0 , (*zip_fans)[1] , is_partitioned , dtx , seed , 1);
+    node_id_t target_node_id;
+    if (is_partitioned){
+        do {
+            target_node_id = FastRand(seed) % ComputeNodeCount;
+        }while(target_node_id == dtx->compute_server->getNodeID());
+    } else {
+        target_node_id = dtx->compute_server->getNodeID();
+    }
+    smallbank_client->get_account(acct_id_0 , (*zip_fans)[target_node_id][1] , dtx , seed , 1 , target_node_id);
     do {
-      smallbank_client->get_account(acct_id_1 , (*zip_fans)[0] , is_partitioned , dtx , seed , 0);
+      smallbank_client->get_account(acct_id_1 , (*zip_fans)[target_node_id][0] , dtx , seed , 0 , target_node_id);
     }while(acct_id_0 == acct_id_1);
   }
 #endif
@@ -538,7 +570,7 @@ bool SmallBankDTX::TxSendPayment(SmallBank* smallbank_client, uint64_t* seed, co
 }
 
 /* Add $20 to acct_id's saving's account */
-bool SmallBankDTX::TxTransactSaving(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , std::vector<ZipFanGen*> *zip_fans) {
+bool SmallBankDTX::TxTransactSaving(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , std::vector<std::vector<ZipFanGen*>> *zip_fans) {
   dtx->TxBegin(tx_id);
     //  // LOG(INFO) << "TxTransactSaving" ;
   /* Transaction parameters */
@@ -549,7 +581,15 @@ bool SmallBankDTX::TxTransactSaving(SmallBank* smallbank_client, uint64_t* seed,
   if (zip_fans == nullptr){
     smallbank_client->get_account(seed, &acct_id,dtx, is_partitioned,dtx->compute_server->get_node()->getNodeID() , 0);
   }else{
-    smallbank_client->get_account(acct_id , (*zip_fans)[0] , is_partitioned , dtx , seed , 0);
+    node_id_t target_node_id;
+    if (is_partitioned){
+        do {
+            target_node_id = FastRand(seed) % ComputeNodeCount;
+        }while(target_node_id == dtx->compute_server->getNodeID());
+    } else {
+        target_node_id = dtx->compute_server->getNodeID();
+    }
+    smallbank_client->get_account(acct_id , (*zip_fans)[target_node_id][0] , dtx , seed , 0 , target_node_id);
   }
 #endif
   float amount = 20.20;
@@ -579,7 +619,7 @@ bool SmallBankDTX::TxTransactSaving(SmallBank* smallbank_client, uint64_t* seed,
 }
 
 /* Read saving and checking kBalance + update checking kBalance unconditionally */
-bool SmallBankDTX::TxWriteCheck(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , std::vector<ZipFanGen*> *zip_fans) {
+bool SmallBankDTX::TxWriteCheck(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , std::vector<std::vector<ZipFanGen*>> *zip_fans) {
   dtx->TxBegin(tx_id);
     //  // LOG(INFO) << "TxWriteCheck" ;
   /* Transaction parameters */
@@ -590,7 +630,15 @@ bool SmallBankDTX::TxWriteCheck(SmallBank* smallbank_client, uint64_t* seed, cor
   if (zip_fans == nullptr){
     smallbank_client->get_account(seed, &acct_id, dtx, is_partitioned,dtx->compute_server->get_node()->getNodeID() , 0);
   }else{
-    smallbank_client->get_account(acct_id , (*zip_fans)[0] , is_partitioned , dtx , seed , 0);
+    node_id_t target_node_id;
+    if (is_partitioned){
+        do {
+            target_node_id = FastRand(seed) % ComputeNodeCount;
+        }while(target_node_id == dtx->compute_server->getNodeID());
+    } else {
+        target_node_id = dtx->compute_server->getNodeID();
+    }
+    smallbank_client->get_account(acct_id , (*zip_fans)[target_node_id][0] , dtx , seed , 0 , target_node_id);
   }
 #endif
   float amount = 5.0;
