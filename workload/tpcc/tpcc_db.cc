@@ -574,7 +574,7 @@ int TPCC::LoadRecord(RmFileHandle* file_handle,
     indexfile << item_key << " " << rid.page_no_ << " " << rid.slot_no_ << std::endl;
     index_cache->Insert(table_id,item_key,rid);
 
-    bl_indexes[table_id]->insert_entry(&item_key , rid);
+    bl_indexes[table_id]->insert_entry(&item_key , rid , 0);
     // bl_indexes[table_id]->write_file_hdr_to_page();
 
     free(item_char);

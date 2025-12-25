@@ -70,7 +70,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
       *item.item_ptr = *GetDataItemFromPageRO(item.item_ptr->table_id , data , rid);
       item.is_fetched = true;
       ReleaseSPage(yield , item.item_ptr->table_id , rid.page_no_);
-    }else {
+    } else {
         DataSetItem& item = read_only_set[idx];  // Explicitly copy the pointer
         assert(&item == task.second.second); // Ensure the pointer matches
         // Fetch data from storage
@@ -302,6 +302,30 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
     // 把改过的信息给写回去
     memcpy(orginal_item->value, data_item.item_ptr->value, MAX_ITEM_SIZE);
     
+    struct timespec start_time2, end_time2;
+    clock_gettime(CLOCK_REALTIME, &start_time2);
+    ReleaseXPage(yield, data_item.item_ptr->table_id, rid.page_no_);
+    clock_gettime(CLOCK_REALTIME, &end_time2);
+    tx_release_commit_time += (end_time2.tv_sec - start_time2.tv_sec) + (double)(end_time2.tv_nsec - start_time2.tv_nsec) / 1000000000;
+  }
+
+  for (size_t i = 0 ; i < insert_set.size() ; i++){
+    DataSetItem &data_item = insert_set[i];
+    assert(data_item.is_fetched);
+    Rid rid = UnlockFromBLink(data_item.item_ptr->table_id , data_item.item_ptr->key);
+
+    struct timespec start_time1, end_time1;
+    clock_gettime(CLOCK_REALTIME, &start_time1);
+    auto page = FetchXPage(yield, data_item.item_ptr->table_id, rid.page_no_);
+    clock_gettime(CLOCK_REALTIME, &end_time1);
+    tx_fetch_commit_time += (end_time1.tv_sec - start_time1.tv_sec) + (double)(end_time1.tv_nsec - start_time1.tv_nsec) / 1000000000;
+    DataItem* orginal_item = nullptr;
+    // 让 original_item 指向 Page 中的 rid 部分的数据
+    GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid, orginal_item);
+    // 验证在 TxExe 阶段读取到的数据，和我现在读取到的数据是一致的
+    assert(orginal_item->key == data_item.item_ptr->key);
+    orginal_item->version = commit_ts;
+    orginal_item->lock = UNLOCKED;  
     struct timespec start_time2, end_time2;
     clock_gettime(CLOCK_REALTIME, &start_time2);
     ReleaseXPage(yield, data_item.item_ptr->table_id, rid.page_no_);

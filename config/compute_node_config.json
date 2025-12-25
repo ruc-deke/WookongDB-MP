@@ -4,7 +4,7 @@
 "machine_id": 2,
 "thread_num_per_machine": 8,
 "coroutine_num": 5000,
-"txn_system": 1,
+"txn_system": 12,
     "batch_size": 400
   },
   "table_buffer_pool_size_per_table": 5000,  

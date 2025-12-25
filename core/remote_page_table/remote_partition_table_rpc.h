@@ -84,7 +84,7 @@ class PartitionTableImpl : public PartitionTableService {
         bool need_update_epoch = true;
         node_id_t node_id = request->node_id();
         partition_id_t partition_id = request->partition_id().partition_no();
-
+        
         while (true){
             global_epoch_mutex.lock();
             assert(global_epoch_cnt >= compute_epoch[node_id]);

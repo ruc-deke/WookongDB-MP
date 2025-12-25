@@ -245,19 +245,35 @@ int main(int argc, char* argv[]) {
         ComputeNodeCount = atoi(argv[1]);
     }
 
-    // 初始化全局的bufferpool和page_lock_table
-    auto bufferpool = std::make_unique<BufferPool>(BufferFusionSize , 10000);
-    // auto global_page_lock_table_list = std::make_unique<std::vector<GlobalLockTable*>>();
-    // auto global_valid_table_list = std::make_unique<std::vector<GlobalValidTable*>>();
-    // for(int i=0; i < 33; i++){
-    //     global_page_lock_table_list->push_back(new GlobalLockTable());
-    //     global_valid_table_list->push_back(new GlobalValidTable());
-    // }
-    // Server server(global_page_lock_table_list.get(), global_valid_table_list.get(), bufferpool.get());
+    int table_num;
+    auto server_config = JsonConfig::load_file("../../config/remote_server_config.json");
+    auto workload = server_config.get("WORKLOAD").get_str();
+    if (workload == "SmallBank"){
+        table_num = 2;
+    }else if (workload == "TPCC"){
+        table_num = 11;
+    }else if (workload == "YCSB"){
+        table_num = 1;
+    }else {
+        assert(false);
+    }
 
-    
-    // 启动rpc server
-    Server server(nullptr, nullptr, bufferpool.get());
+    // 初始化全局的bufferpool和page_lock_table
+    // auto bufferpool = std::make_unique<BufferPool>(BufferFusionSize , 10000);
+    auto global_page_lock_table_list = std::make_unique<std::vector<GlobalLockTable*>>();
+    global_page_lock_table_list->resize(30000);
+    auto global_valid_table_list = std::make_unique<std::vector<GlobalValidTable*>>();
+    global_valid_table_list->resize(30000);
+    for(int i = 0; i < table_num; i++){
+        global_page_lock_table_list->at(i) = new GlobalLockTable();
+        global_page_lock_table_list->at(i + 10000) = new GlobalLockTable();
+        global_page_lock_table_list->at(i + 20000) = new GlobalLockTable();
+
+        global_valid_table_list->at(i) = new GlobalValidTable();
+        global_valid_table_list->at(i + 10000) = new GlobalValidTable();
+        global_valid_table_list->at(i + 20000) = new GlobalValidTable();
+    }
+    Server server(global_page_lock_table_list.get(), global_valid_table_list.get(), nullptr);
 
     
     // 启动socket server

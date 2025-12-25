@@ -58,7 +58,6 @@ set(Storage_SRC
         storage/logreplay.cc
         storage/storage_rpc.cc
         storage/storage_service.pb.cc
-        storage/bp_tree/bp_tree.cc        
         storage/blink_tree/blink_tree.cc    
 )
 
@@ -73,7 +72,6 @@ set(Record_SRC
 set(StorageBuffer_SRC
         storage/buffer/storage_bufferpool.cc
         storage/buffer/replacer/lru_replacer.cc
-        storage/bp_tree/bp_tree.cc
         )
 
 add_library(load_table STATIC

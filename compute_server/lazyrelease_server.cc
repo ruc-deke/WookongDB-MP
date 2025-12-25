@@ -140,18 +140,6 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
             std::cout << "Lazy Fetch Cnt = " << k1 << "\n";
         }
         this->node_->fetch_allpage_cnt++;
-
-        // std::lock_guard<std::mutex> lk(page_cnt_mtx);
-        // page_cnt[page_id]++;
-        // if (k1 == 400000){
-        //     std::sort(page_cnt.begin(), page_cnt.end(), [](int a, int b) {
-        //         return a > b;
-        //     });
-        //     for (int i = 0 ; i < 1000 ; i++){
-        //         std::cout << page_cnt[i] << "\n";
-        //     }
-        //     assert(false);
-        // }
     }
     
     // LOG(INFO) << "fetching X Page " << "table_id = " << table_id << " page_id = " << page_id;

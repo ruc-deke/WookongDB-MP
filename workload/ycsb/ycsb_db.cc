@@ -55,9 +55,15 @@ void YCSB::LoadRecord(RmFileHandle *file_handle ,
     item_to_be_insert.Serialize(item_char);
     Rid rid = file_handle->insert_record(item_key , item_char , nullptr);
     index_file << item_key << " " << rid.page_no_ << " " << rid.slot_no_ << std::endl;
-    bl_indexes[table_id]->insert_entry(&item_key , rid);
+    bl_indexes[table_id]->insert_entry(&item_key , rid , 0);
+
+    // Rid baga;
+    // auto res = bl_indexes[table_id]->search(&item_key , baga);
+    // assert(baga == rid);
+    
     free(item_char);
 }
+
 
 void YCSB::VerifyData() {
     std::cout << "Start verifying YCSB data...\n";
@@ -88,6 +94,7 @@ void YCSB::VerifyData() {
             // Check size
             if (data_item->value_size == sizeof(ycsb_user_table_val)) {
                 assert(data_item->key == key.item_key);
+                assert(data_item->lock == 0);
             } else {
                 assert(false);
             }

@@ -316,31 +316,29 @@ void ComputeServer::ts_switch_phase(uint64_t time_slice){
         partition_id_pb->set_partition_no(node_->ts_cnt);
         ts_par_lock_request.set_allocated_partition_id(partition_id_pb);
         ts_par_lock_request.set_node_id(node_->get_node_id());
-
+        
         // 2.2 向 RemoteServer 发送请求，得到我现在这个分区的全部页面的最新有效性信息都在哪里
         if (SYSTEM_MODE == 13){
-            auto table_size = node_->meta_manager_->GetTableNum();
-            for (int table_id = 0 ; table_id < table_size ; table_id++){
-                auto single_ts_size = get_partitioned_size(table_id);
-                int start_page_id = node_->ts_cnt * single_ts_size + 1;
-                int end_page_id = (node_->ts_cnt + 1) * single_ts_size;
-                uint64_t hot_len = static_cast<uint64_t>(single_ts_size * hot_rate);
-                int cold_start = start_page_id + (int)hot_len + 1;
-                if (cold_start <= end_page_id){
-                    ts_par_lock_request.add_table_id(table_id);
-                    ts_par_lock_request.add_start_page_no(cold_start);
-                    ts_par_lock_request.add_end_page_no(end_page_id);
-                }
-            }
+            // 把冷页面给发过去
+            // TODO
         }else{
             auto table_size = node_->meta_manager_->GetTableNum();
             for (int table_id = 0 ; table_id < table_size ; table_id++){
-                auto single_ts_size = get_partitioned_size(table_id);
-                int start_page_id = node_->ts_cnt * single_ts_size + 1;
-                int end_page_id = (node_->ts_cnt + 1) * single_ts_size;
-                ts_par_lock_request.add_table_id(table_id);
-                ts_par_lock_request.add_start_page_no(start_page_id);
-                ts_par_lock_request.add_end_page_no(end_page_id);
+                int par_cnt = node_->meta_manager_->GetParCnt(table_id);
+                auto partition_size = node_->meta_manager_->GetPartitionSizePerTable(table_id);
+                auto page_num_tot = node_->meta_manager_->GetTablePageNum(table_id);
+                for (int i = node_->ts_cnt ; i < par_cnt ; i += ComputeNodeCount){
+                    int start_page_id = i * partition_size + 1;
+                    int end_page_id = (i + 1) * partition_size ;
+                    if (end_page_id >= page_num_tot){
+                        end_page_id = page_num_tot - 1;
+                    }
+                    ts_par_lock_request.add_table_id(table_id);
+                    ts_par_lock_request.add_start_page_no(start_page_id);
+                    ts_par_lock_request.add_end_page_no(end_page_id);
+
+                    LOG(INFO) << "Start Page ID = " << start_page_id << " End Page ID = " << end_page_id;
+                }
             }
         }
 
@@ -364,9 +362,6 @@ void ComputeServer::ts_switch_phase(uint64_t time_slice){
         
         auto ts_active_start_time = std::chrono::high_resolution_clock::now();
         auto duration_parxlock_time = std::chrono::duration_cast<std::chrono::microseconds>(ts_active_start_time - ts_start_time).count();
-        {
-            
-        }
         
         node_->setPhase(TsPhase::RUNNING);
         // LOG(INFO) << "Before Schedule , Active Thread Count = " << node_->getScheduler()->getActiveThreadCount();
@@ -409,10 +404,7 @@ void ComputeServer::ts_switch_phase(uint64_t time_slice){
             LOG(INFO) << "Dirty Page Size = " << node_->dirty_pages.size();
             for (auto &[table_id , page_id] : node_->dirty_pages){
                 // DEBUG: 验证页面确实在当前时间片分区内
-                uint64_t single_par_size = get_partitioned_size(table_id);
-                int start_page_id = node_->ts_cnt * single_par_size + 1;
-                int end_page_id = (node_->ts_cnt + 1) * single_par_size + 1;
-                assert(page_id >= start_page_id && page_id < end_page_id);
+                assert(is_partitioned_page(table_id , page_id , node_->ts_cnt));
 
                 if (SYSTEM_MODE == 13){
                     assert(!is_hot_page(table_id , page_id));

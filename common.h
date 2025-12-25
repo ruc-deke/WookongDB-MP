@@ -64,6 +64,8 @@ const uint64_t MEM_STORE_META_END = 0xE0FF0E0F;
 
 static constexpr uint64_t UNLOCKED = 0;
 static constexpr uint64_t EXCLUSIVE_LOCKED = 0xFF00000000000000;
+static constexpr uint64_t INSERT_LOCKED = 0xFFF0000000000000;     // BLink 用，插入锁
+static constexpr uint64_t DELETE_LOCKED = 0xFFFF000000000000;     // BLink 用，删除锁
 static constexpr uint64_t MASKED_SHARED_LOCKS = 0xFF00000000000000;
 static constexpr uint64_t SHARED_UNLOCK_TO_BE_ADDED = 0xFFFFFFFFFFFFFFFF;
 

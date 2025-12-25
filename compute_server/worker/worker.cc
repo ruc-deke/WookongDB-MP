@@ -673,14 +673,14 @@ void initThread(thread_params* params,
     LOG(INFO) << "INIT Thread , Thread ID = " << getThreadID(); 
     bench_name = params->bench_name;
     std::string config_filepath = "../../config/" + bench_name + "_config.json";
-    // std::cout << "running threads\n";
   
     auto json_config = JsonConfig::load_file(config_filepath);
     auto conf = json_config.get(bench_name);
     ATTEMPTED_NUM = conf.get("attempted_num").get_uint64();
+    assert(ATTEMPTED_NUM > 0);
   
     // 根据 bench 类型，生成长度 100 的事务类型概率数组，随机抽事务类型
-    if (bench_name == "smallbank") { // SmallBank benchmark
+    if (bench_name == "smallbank") { 
       // std::cout << "ASDDSSDAADS\n\n\n";
       smallbank_client = smallbank_cli;
       smallbank_workgen_arr = smallbank_client->CreateWorkgenArray(READONLY_TXN_RATE);
@@ -713,22 +713,21 @@ void initThread(thread_params* params,
         目前的想法是，就用 ZipFian 生成 0~单个分区大小的随机数，然后随机数再根据是否跨分区的策略，得到一个真正要去访问的页面
     */
     if (WORKLOAD_MODE == 0){
+      // SmallBank
+      uint64_t zipf_seed = 2 * thread_gid * GetCPUCycle();
+      uint64_t zipf_seed_mask = (uint64_t(1) << 48) - 1;
+      zipfan_gens = new std::vector<std::vector<ZipFanGen*>>(ComputeNodeCount, std::vector<ZipFanGen*>(2 , nullptr));
       for (int table_id_ = 0 ; table_id_ < 2 ; table_id_++){
-        uint64_t zipf_seed = 2 * thread_gid * GetCPUCycle();
-        uint64_t zipf_seed_mask = (uint64_t(1) << 48) - 1;
-
         for (int i = 0 ; i < ComputeNodeCount ; i++){
-          int par_size = meta_man->GetPartitionSizePerTable(
-            compute_server->get_node()->getMetaManager()->GetPageNumPerNode(compute_server->get_node()->get_node_id() , 
-            table_id_ , 
-            i
-          ));
-          (*zipfan_gens)[i][table_id_] = new ZipFanGen(par_size, 0.50 , zipf_seed & zipf_seed_mask);
+          int par_size_this_node = meta_man->GetPageNumPerNode(i , table_id_ , ComputeNodeCount);
+          (*zipfan_gens)[i][table_id_] = new ZipFanGen(par_size_this_node, 0.50 , zipf_seed & zipf_seed_mask);
+          std::cout << "Table ID = " << table_id_ << " Node ID = " << i << " Size = " << par_size_this_node << "\n";
         }
-
-        
       }
-    }else{
+    }else if (WORKLOAD_MODE == 2){
+      // YCSB 的 ZipFian 在 YCSB 本身构造函数内部构造好了，所以这里不需要再去初始化它
+    }else {
+      // TPCC 不考虑时间片轮转了
       assert(false);
     }
     
@@ -771,8 +770,10 @@ void RunWorkLoad(ComputeServer* server, std::string bench_name , int thread_id ,
         RunSmallBank(fake_yield, 0); 
      } else if (bench_name == "tpcc"){
         RunTPCC(fake_yield, 0);
-     } else {
-        assert(false);
+     } else if (bench_name == "ycsb"){
+        RunYCSB(fake_yield , 0);
+     }else {
+      assert(false);
      }
      server->decrease_alive_fiber_cnt(1);
   };
@@ -798,7 +799,7 @@ void run_thread(thread_params* params,
 
 
   // 根据 bench 类型，生成长度 100 的事务类型概率数组，随机抽事务类型
-  if (bench_name == "smallbank") { // SmallBank benchmark
+  if (bench_name == "smallbank") { 
     smallbank_client = smallbank_cli;
     smallbank_workgen_arr = smallbank_client->CreateWorkgenArray(READONLY_TXN_RATE);
     thread_local_try_times = new uint64_t[SmallBank_TX_TYPES]();

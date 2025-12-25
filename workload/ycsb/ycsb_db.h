@@ -62,6 +62,7 @@ public:
          tx_hot_rate(TX_HOT_){
         assert(read_cnt + update_cnt == 100);
         int total_keys = 10;
+        now_account.store(record_cnt + 1);
         // 下面这个看着挺复杂的，其实就是 total_keys * (read_percent / 100.0)
         read_op_per_txn = std::max(0 , std::min(total_keys , (int)std::round(total_keys * (read_percent / 100.0))));
         write_op_per_txn = total_keys - read_op_per_txn;
@@ -116,6 +117,27 @@ public:
             }
         }
 
+        // 随机执行三个插入试试
+        // for (int i = 0 ; i < 3 ; i++){
+        //     int gen_id = now_account.fetch_add(1);
+        //     auto insert_item = std::make_shared<DataItem>(0, sizeof(ycsb_user_table_val), gen_id, 1);
+        //     ycsb_user_table_val* val = (ycsb_user_table_val*)insert_item->value;
+
+        //     val->magic = ycsb_user_table_magic;
+        //     memcpy(val->file_0 , ramdom_string(field_len).c_str() , field_len);
+        //     memcpy(val->file_1 , ramdom_string(field_len).c_str() , field_len);
+        //     memcpy(val->file_2 , ramdom_string(field_len).c_str() , field_len);
+        //     memcpy(val->file_3 , ramdom_string(field_len).c_str() , field_len);
+        //     memcpy(val->file_4 , ramdom_string(field_len).c_str() , field_len);
+        //     memcpy(val->file_5 , ramdom_string(field_len).c_str() , field_len);
+        //     memcpy(val->file_6 , ramdom_string(field_len).c_str() , field_len);
+        //     memcpy(val->file_7 , ramdom_string(field_len).c_str() , field_len);
+        //     memcpy(val->file_8 , ramdom_string(field_len).c_str() , field_len);
+        //     memcpy(val->file_9 , ramdom_string(field_len).c_str() , field_len);
+            
+        //     dtx->AddToInsertSet(insert_item);
+        // }
+
         if (!(dtx->TxExe(yield))){
             return false;
         }
@@ -145,6 +167,9 @@ public:
         return commit_stat;
     }
     
+    // 生成 10 个 key，生成时需要注意两个规则
+    // 1. 是否是热点数据(ZipFian 不需要这个规则)
+    // 2. 是否是跨分区访问数据
     void generate_ten_keys(std::vector<itemkey_t> &keys , uint64_t *seed , bool is_partitioned , const DTX *dtx){
         int belonged_node_id;
          int target_node_id;
@@ -260,6 +285,8 @@ private:
 
     // zip_fans[i][j]：第 i 个节点的第 j 个表的 zipfans 账户生成
     std::vector<std::vector<ZipFanGen>> zip_fans;
+
+    std::atomic<int> now_account{0};
     
     const static std::string ramdom_string(int len){
         static thread_local std::mt19937 rng{std::random_device{}()};

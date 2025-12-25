@@ -62,6 +62,14 @@ class MetaManager {
     // par_size_per_table = page_num / ComputeNodeCount
     return par_size_per_table[table_id];
   }
+
+  // 获取分区的数量
+  int GetParCnt(table_id_t table_id){
+    int partition_size = GetPartitionSizePerTable(table_id);     // 分区大小
+    int now_page_num = GetTablePageNum(table_id);                // 该表页面数量
+    return now_page_num / partition_size + 1;  
+  }
+
   // 获取到 table_id 对应的表中，node_id 管理的页面数量
   int GetPageNumPerNode(node_id_t node_id , table_id_t table_id , int node_cnt){
     int partition_size = GetPartitionSizePerTable(table_id);     // 分区大小

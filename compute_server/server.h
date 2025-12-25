@@ -278,6 +278,10 @@ public:
         return INDEX_NOT_FOUND;
     }
 
+    Rid unlock_from_blink(table_id_t table_id , itemkey_t key){
+        return bl_indexes[table_id]->unlock_entry(&key);
+    }
+
     Rid delete_entry(DataItem *item){
         // 1. 修改 FSM
 
@@ -341,30 +345,12 @@ public:
         return {free_page_id , slot_no};
     }
 
-    Rid get_rid_from_bptree(table_id_t table_id , itemkey_t key){
-        Rid result;
-        bool exist = bp_tree_indexes[table_id]->search(&key , result);
-        // assert(exist);
-        // assert(!results.empty());
-        if (exist){
-            return result;
-        }
-        return INDEX_NOT_FOUND;
-    }
 
     void insert_into_blink(table_id_t table_id , itemkey_t key , Rid value){
         bl_indexes[table_id]->insert_entry(&key , value);
     }
     Rid delete_from_blink(table_id_t table_id , itemkey_t key){
         return bl_indexes[table_id]->delete_entry(&key);
-    }
-
-    void delete_from_bptree(table_id_t table_id , itemkey_t key){
-        bp_tree_indexes[table_id]->delete_entry_optimism(&key);
-    }
-
-    void insert_into_bptree(table_id_t table_id , itemkey_t key , Rid value){
-        bp_tree_indexes[table_id]->insert_entry_optimism(&key , value);
     }
 
     void PushPageToOther(table_id_t table_id , page_id_t page_id , node_id_t dest_node_id);
@@ -428,14 +414,14 @@ public:
     inline bool is_ts_par_page(table_id_t table_id , page_id_t page_id , int now_ts_cnt){
         auto partition_size = node_->meta_manager_->GetPartitionSizePerTable(table_id);
         assert(partition_size > 0);        
-        int page_belong_par = (page_id / partition_size) % ComputeNodeCount;
+        int page_belong_par = ((page_id - 1) / partition_size) % ComputeNodeCount;
         return page_belong_par == now_ts_cnt;
     }
 
     int get_ts_belong_par(table_id_t table_id , page_id_t page_id){
         auto partition_size = node_->meta_manager_->GetPartitionSizePerTable(table_id);
         assert(partition_size > 0);        
-        int page_belong_par = (page_id / partition_size) % ComputeNodeCount;
+        int page_belong_par = ((page_id - 1) / partition_size) % ComputeNodeCount;
         return page_belong_par;
     }
 
@@ -768,7 +754,18 @@ public:
             Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(table_id , page_id , frame_id , true , replaced_page_id , data);
             // 页面已经被淘汰了，所有权自然不在我这里了
             local_lock->SetDirty(false);
-            node_->set_page_dirty(table_id , page_id , false);
+            {
+                if (SYSTEM_MODE == 12){
+                    std::lock_guard<std::mutex> lk(node_->switch_mtx);
+                    node_->set_page_dirty(table_id , page_id , false);
+                } else {
+                    std::lock_guard<std::mutex> lk(node_->switch_mtx_hot);
+                    node_->set_page_dirty_hot(table_id , page_id , false);
+                }
+                
+            }
+            
+
             node_->evict_page_cnt++;
             local_lock->EndEvict();
             return page;
@@ -903,10 +900,10 @@ public:
         return node_->meta_manager_->GetPartitionSizePerTable(table_id);
     }
     
-    inline bool is_partitioned_page(table_id_t table_id , page_id_t page_id){
+    inline bool is_partitioned_page(table_id_t table_id , page_id_t page_id , node_id_t node_id){
         auto partition_size = node_->meta_manager_->GetPartitionSizePerTable(table_id);
         int belong_par = ((page_id - 1) / partition_size) % ComputeNodeCount;
-        return (node_->getNodeID() == belong_par);
+        return (node_id == belong_par);
     }
 
     inline uint64_t make_page_key(table_id_t table_id, page_id_t page_id) const {
@@ -914,31 +911,50 @@ public:
     }
 
     void InitHotPages(){
-        std::string config_filepath = "../../config/smallbank_config.json";
-        auto json_config = JsonConfig::load_file(config_filepath);
-        auto conf = json_config.get("smallbank");
-        uint32_t tot_account = conf.get("num_accounts").get_uint64();
-        uint32_t hot_account = conf.get("num_hot_accounts").get_uint64();
+        std::string config_filepath;
+        uint32_t tot_account;
+        uint32_t hot_account;
+
+        if (WORKLOAD_MODE == 0){
+            config_filepath = "../../config/smallbank_config.json";
+            auto json_config = JsonConfig::load_file(config_filepath);
+            auto conf = json_config.get("smallbank");
+            tot_account = conf.get("num_accounts").get_uint64();
+            hot_account = conf.get("num_hot_accounts").get_uint64();
+        }else if (WORKLOAD_MODE == 2){
+            config_filepath = "../../config/ycsb_config.json";
+            auto json_config = JsonConfig::load_file(config_filepath);
+            auto conf = json_config.get("ycsb");
+            tot_account = conf.get("num_record").get_uint64();
+            hot_account = conf.get("num_hot_record").get_uint64();
+        }else {
+            assert(false);
+        }
+        
         double hot_rate = (double)hot_account / (double)tot_account;
 
         hot_page_set.clear();
-        auto table_size = (WORKLOAD_MODE == 0) ? 2 : 11;
+        auto table_size = node_->meta_manager_->GetTableNum();
+        std::cout << "Init Hot Page , Table Num = " << table_size << "\n";
 
-        for (int t = 0; t < table_size; ++t){
-            auto partition_size = node_->meta_manager_->GetPartitionSizePerTable(t);
+        for (int node_id = 0 ; node_id < ComputeNodeCount ; node_id++){
+            for (int table_id = 0 ; table_id < table_size ; table_id++){
+                int partition_size = node_->meta_manager_->GetPartitionSizePerTable(table_id);
+                auto page_num_node_i = node_->meta_manager_->GetPageNumPerNode(node_id , table_id , ComputeNodeCount);
+                uint64_t hot_len = static_cast<uint64_t>(page_num_node_i * hot_rate);
+                assert(hot_len < page_num_node_i);
 
-            // 每个分区中，热点页面分区在前面，每个分区的热点页面长度是下面这个计算方法
-            uint64_t hot_len = static_cast<uint64_t>(partition_size * hot_rate);
-            std::cout << "Hot Page Len = " << hot_len << "\n";
-            assert(hot_len <= partition_size);
-
-            // 这里先简化下，假设最多 50 个分区，后面再改改
-            for (int p = 0; p < 50; ++p){
-                uint64_t start = static_cast<uint64_t>(p) * partition_size + 1;
-                uint64_t end = start + hot_len;
-                std::cout << "start : " << start << " end : " << end << "\n";
-                for (uint64_t pid = start; pid <= end; ++pid){
-                    hot_page_set.insert(make_page_key(t, static_cast<page_id_t>(pid)));
+                for (int i = 0 ; i < hot_len ; i++){
+                    page_id_t page_id = i;
+                    page_id = (i / partition_size) * (ComputeNodeCount * partition_size) 
+                        + (node_id * partition_size)
+                        + i % partition_size
+                        + 1;
+                    // LOG(INFO) << "Hot Page ID = " << page_id << " Partition Size = " 
+                    //     << partition_size << " Page Num Node " << node_id << " = " << page_num_node_i
+                    //     << " hot Len = " << hot_len
+                    //     << " hot rate = " << hot_rate;
+                    hot_page_set.insert(make_page_key(table_id , page_id));
                 }
             }
         }
@@ -993,8 +1009,7 @@ private:
     std::vector<GlobalLockTable*>* global_page_lock_table_list_;
     std::vector<GlobalValidTable*>* global_valid_table_list_;
 
-    // BPTree
-    std::vector<BPTreeIndexHandle*> bp_tree_indexes;
+    // BLink
     std::vector<BLinkIndexHandle*> bl_indexes;
 
     brpc::Channel* nodes_channel; //与其他计算节点通信的channel

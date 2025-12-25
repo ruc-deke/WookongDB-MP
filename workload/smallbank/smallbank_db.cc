@@ -36,7 +36,7 @@ int SmallBank::LoadRecord(RmFileHandle* file_handle,
   // bp_tree_indexes[table_id]->insert_entry(&item_key , rid);
   // bp_tree_indexes[table_id]->write_file_hdr_to_page();
 
-  bl_indexes[table_id]->insert_entry(&item_key , rid);
+  bl_indexes[table_id]->insert_entry(&item_key , rid , 0);
   // bl_indexes[table_id]->write_file_hdr_to_page();
   // Rid result;
   // auto res = bl_indexes[table_id]->search(&item_key , result);

@@ -479,7 +479,6 @@ public:
     IndexCache* index_cache;
 
     // 存储层用的，只负责插入初始化的那些数据
-    std::vector<S_BPTreeIndexHandle*> bp_tree_indexes;
     std::vector<S_BLinkIndexHandle*> bl_indexes;
 
 
