@@ -15,7 +15,6 @@
 
 /*
     本文件只负责构建初始数据，不考虑并发，只是构建一个数据结构而已
-    因为上层使用的都是 rpc 通信，存储层没有这玩意，所以需要单独一个类来构建初始的数据
 */
 class S_BLinkNodeHandle{
 public:
@@ -23,34 +22,11 @@ public:
 
     explicit S_BLinkNodeHandle(Page *page_) : page(page_) {
         key_size = sizeof(itemkey_t);
-        recompute_layout();
-    }
+        order = static_cast<int>((PAGE_SIZE - sizeof(BLNodeHdr)) / (key_size + sizeof(Rid)) - 1);
 
-    void recompute_layout() {
-        static int cnt = 0;
         node_hdr = reinterpret_cast<BLNodeHdr*>(page->get_data());
-        if (is_leaf()) {
-            static int cnt = 0;
-            
-            order = static_cast<int>((PAGE_SIZE - sizeof(BLNodeHdr)) / (key_size + sizeof(Rid) + sizeof(lock_t)) - 1);
-            if (cnt++ == 0){
-                std::cout << "Order Of S_BLink Leaf = " << order << "\n";
-            }
-        } else {
-            static int cnt = 0;
-            
-            order = static_cast<int>((PAGE_SIZE - sizeof(BLNodeHdr)) / (key_size + sizeof(Rid)) - 1);
-            if (cnt++ == 0){
-                std::cout << "Order Of S_BLink Inner = " << order << "\n";
-            }
-        }
         keys = reinterpret_cast<itemkey_t*>(page->get_data() + sizeof(BLNodeHdr));
         rids = reinterpret_cast<Rid*>(page->get_data() + sizeof(BLNodeHdr) + (order + 1) * key_size);
-        if (is_leaf()) {
-            locks = reinterpret_cast<lock_t*>(page->get_data() + sizeof(BLNodeHdr) + (order + 1) * (key_size + sizeof(Rid)));
-        } else {
-            locks = nullptr;
-        }
     }
 
     bool is_root() const { return node_hdr->is_root; }
@@ -65,18 +41,10 @@ public:
 
     itemkey_t *get_key(int index) const { return &keys[index]; }
     Rid *get_rid(int index) const { return &rids[index]; }
-    lock_t *get_lock(int index) const { 
-        assert(is_leaf());
-        return &locks[index]; 
-    }
 
 
     void set_key(int index , itemkey_t key){ keys[index] = key; }
     void set_rid(int index , Rid rid){ rids[index] = rid; }
-    void set_lock(int index , lock_t lock){ 
-        assert(is_leaf());
-        locks[index] = lock; 
-    }
 
     int get_size() const { return node_hdr->num_key; }
     void set_size(int size){ node_hdr->num_key = size; }
@@ -93,6 +61,9 @@ public:
     void set_prev_leaf(page_id_t pre){ node_hdr->prev_leaf = pre; }
     void set_next_leaf(page_id_t nex){ node_hdr->next_leaf = nex; }
 
+    // page_id_t get_parent() const { return node_hdr->parent; }
+    // void set_parent(page_id_t par){ node_hdr->parent = par; }
+
     page_id_t get_right_sibling() const { return node_hdr->right_sibling; }
     void set_right_sibling(page_id_t right_sib){ node_hdr->right_sibling = right_sib; }
 
@@ -101,10 +72,7 @@ public:
     itemkey_t get_high_key() const { return node_hdr->high_key; }
     void reset_high_key(){ node_hdr->high_key = NEG_KEY; node_hdr->has_high_key = false; }
 
-    void set_is_leaf(bool flag){ 
-        node_hdr->is_leaf = flag; 
-        recompute_layout();
-    }
+    void set_is_leaf(bool flag){ node_hdr->is_leaf = flag; }
     void init_internal_node(){
         assert(get_size() == 0);
         assert(!is_leaf());
@@ -117,8 +85,8 @@ public:
 public:
     int lower_bound(const itemkey_t *target);
     int upper_bound(const itemkey_t *target);
-    void insert_pairs(int pos , const itemkey_t *keys , const Rid *rids , const lock_t *locks , int n);
-    void insert_pair(int pos , const itemkey_t *key , const Rid *rid , lock_t lock);
+    void insert_pairs(int pos , const itemkey_t *keys , const Rid *rids , int n);
+    void insert_pair(int pos , const itemkey_t *key , const Rid *rid);
 
     bool leaf_lookup(const itemkey_t* target, Rid** value);
     page_id_t internal_lookup(const itemkey_t* target){
@@ -129,7 +97,7 @@ public:
     }
 
     bool isIt(int pos, const itemkey_t* key);
-    int insert(const itemkey_t* key, const Rid& value, lock_t lock);
+    int insert(const itemkey_t* key, const Rid& value);
     void erase_pair(int pos);
     int remove(const itemkey_t* key);
     bool need_to_right(itemkey_t target){ return (has_high_key() && (get_high_key() < target) && get_right_sibling() != INVALID_PAGE_ID); }
@@ -139,7 +107,6 @@ private:
     Page *page;
     itemkey_t *keys;
     Rid *rids;
-    lock_t *locks;
     BLNodeHdr *node_hdr;
     int key_size;
     int order;
@@ -269,7 +236,7 @@ public:
 
     // 三个核心函数（不实现 delete）
     bool search(const itemkey_t *key , Rid &result);
-    page_id_t insert_entry(const itemkey_t *key , const Rid &value, lock_t lock);
+    page_id_t insert_entry(const itemkey_t *key , const Rid &value);
 
     // 将 file_hdr 持久化到头页，供 smallbank 初始化调用
     void write_file_hdr_to_page();

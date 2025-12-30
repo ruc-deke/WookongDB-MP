@@ -23,27 +23,12 @@ public:
 
     BLinkNodeHandle(Page *page_) : page(page_) {
         key_size = sizeof(itemkey_t);
-        recompute_layout();
-    }
+        order = static_cast<int>((PAGE_SIZE - sizeof(BLNodeHdr)) / (key_size + sizeof(Rid)) - 1);
 
-    // 只有叶子节点才需要 lock，内部节点不需要，这个函数就是用来重新计算其 order 的
-    void recompute_layout(){
         node_hdr = reinterpret_cast<BLNodeHdr*>(page->get_data());
-        if (is_leaf()){
-            order = static_cast<int>((PAGE_SIZE - sizeof(BLNodeHdr)) / (key_size + sizeof(Rid) + sizeof(lock_t)) - 1);
-            assert((order * (sizeof(key_size) + sizeof(Rid) + sizeof(lock_t)) + sizeof(BLNodeHdr)) < PAGE_SIZE);
-        }else {
-            order = static_cast<int>((PAGE_SIZE - sizeof(BLNodeHdr)) / (key_size + sizeof(Rid)) - 1);
-            assert((order * (sizeof(key_size) + sizeof(Rid)) + sizeof(BLNodeHdr)) < PAGE_SIZE);
-        }
         keys = reinterpret_cast<itemkey_t*>(page->get_data() + sizeof(BLNodeHdr));
         rids = reinterpret_cast<Rid*>(page->get_data() + sizeof(BLNodeHdr) + (order + 1) * key_size);
-        if (is_leaf()) {
-            locks = reinterpret_cast<lock_t*>(page->get_data() + sizeof(BLNodeHdr) + (order + 1) * (key_size + sizeof(Rid)));
-        } else {
-            locks = nullptr;
-        }
-    }       
+    }
 
     bool is_root() const {
         return node_hdr->is_root;
@@ -68,20 +53,12 @@ public:
     Rid *get_rid(int index) const {
         return &rids[index];
     }
-    lock_t *get_lock(int index) const {
-        assert(is_leaf());
-        return &locks[index];
-    }
 
     void set_key(int index , itemkey_t key){
         keys[index] = key;
     }
     void set_rid(int index , Rid rid){
         rids[index] = rid;
-    }
-    void set_lock(int index , lock_t val){
-        assert(is_leaf());
-        locks[index] = val;
     }
 
     void set_is_root(bool val){
@@ -161,7 +138,6 @@ public:
 
     void set_is_leaf(bool flag){
         node_hdr->is_leaf = flag;
-        recompute_layout();
     }
     void init_internal_node(){
         assert(get_size() == 0);
@@ -175,13 +151,11 @@ public:
 public:
     int lower_bound(const itemkey_t *target);
     int upper_bound(const itemkey_t *target);
-
-    void insert_pairs(int pos , const itemkey_t *keys , const Rid *rids , const lock_t *in_locks , int n);
-    void insert_pair(int pos , const itemkey_t *key , const Rid *rid , const lock_t *lock);
-
+    void insert_pairs(int pos , const itemkey_t *keys , const Rid *rids , int n);
+    void insert_pair(int pos , const itemkey_t *key , const Rid *rid);
     bool leaf_lookup(const itemkey_t* target, Rid** value);
     bool isIt(int pos, const itemkey_t* key);
-    int insert(const itemkey_t* key, const Rid& value , const lock_t lock);
+    int insert(const itemkey_t* key, const Rid& value);
     void erase_pair(int pos);
     int remove(const itemkey_t* key);
     bool need_delete(const itemkey_t *key);
@@ -192,7 +166,6 @@ private:
     Page *page;
     itemkey_t *keys;
     Rid *rids;
-    lock_t *locks;
     BLNodeHdr *node_hdr;
     int key_size;
     int order;
@@ -233,8 +206,9 @@ public:
     // 三个核心函数：search / insert（delete 暂不实现）
     bool search(const itemkey_t *key , Rid &result);
     page_id_t insert_entry(const itemkey_t *key , const Rid &value);
+    page_id_t update_entry(const itemkey_t *key , const Rid &value);
+    
     Rid delete_entry(const itemkey_t *key);
-    Rid unlock_entry(const itemkey_t *key);
 
     bool checkIfDirectlyGetPage(const itemkey_t *key , Rid &result);
 

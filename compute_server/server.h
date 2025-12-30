@@ -35,6 +35,7 @@
 
 #include "bp_tree/latch_crabbing/bp_tree.h"
 #include "bp_tree/blink/blink.h"
+#include "fsm/fsm_tree.h"
 
 #include "util/bitmap.h"
 
@@ -211,6 +212,12 @@ public:
                 bl_indexes[i] = new BLinkIndexHandle(this , i + 10000);
             }
 
+            fsm_trees.resize(table_cnt);
+            for (int i = 0 ; i < table_cnt ; i++){
+                fsm_trees[i] = new SecFSM(this , i + 20000);
+            }
+            
+
             for (int i = 0 ; i < table_cnt ; i++){
                 (*global_page_lock_table_list_)[i] = new GlobalLockTable();
                 (*global_valid_table_list_)[i] = new GlobalValidTable();
@@ -269,6 +276,15 @@ public:
         t.detach();
     }
 
+    page_id_t search_free_page(table_id_t table_id , uint32_t min_space_needed){
+        return fsm_trees[table_id]->find_free_page(min_space_needed);
+    }
+
+    void update_page_space(table_id_t table_id , uint32_t page_id , uint32_t free_space){
+        assert(false);
+        return fsm_trees[table_id]->update_page_space(page_id , free_space);
+    }
+
     Rid get_rid_from_blink(table_id_t table_id , itemkey_t key){
         Rid result;
         bool exist = bl_indexes[table_id]->search(&key , result);
@@ -278,16 +294,11 @@ public:
         return INDEX_NOT_FOUND;
     }
 
-    Rid unlock_from_blink(table_id_t table_id , itemkey_t key){
-        return bl_indexes[table_id]->unlock_entry(&key);
-    }
-
     Rid delete_entry(DataItem *item){
         // 1. 修改 FSM
 
-        // 2. 删除 BLink 里面的数据
-        Rid delete_rid = bl_indexes[item->table_id]->delete_entry(&item->key);
-        // 如果删除的 key 不存在，那直接返回就行，不需要 Abort
+        // 不删除 BLink 里面的 key，因为MVCC 可以读历史版本，如果删了就不可见了
+        Rid delete_rid = get_rid_from_blink(item->table_id , item->key);
         if (delete_rid.page_no_ == -1){
             return {-1 , -1};
         }
@@ -309,39 +320,49 @@ public:
     // 插入一个新的数据项
     Rid insert_entry(DataItem *item){
         // 1. 从 FSM 里面获取到一个存在空闲空闲的页面
-        page_id_t free_page_id;
+        page_id_t free_page_id = search_free_page(item->table_id , sizeof(DataItem) + sizeof(itemkey_t));
+        assert(free_page_id != INVALID_PAGE_ID);
 
-        // 2. 修改这个页面的 BitMap
+        std::cout << "Free Page ID = " << free_page_id << "\n";
+        // 2. 插入到页面里
+        /*
+            这里解释下，为什么先插入元组里
+            事务在执行的过程中，对别的事务是隔离的，因此对索引的插入操作理论上别人也是不可见的
+            目前想到的有两种隔离索引的方法：
+            1. 类似于元组，在 B+ 树的叶子节点，也给每个 key一个 lock，用来进行事务级别的并发
+               但是这样问题非常多，首先就是占空间，其次，和 MVCC 兼容起来很麻烦，所以后面被我们淘汰了
+            2. 只在索引里面进行页面级别的锁，事务级别的不管他了，因为插入写入的是一个新的版本，并且我们会给
+               插入的这个元组加上排他锁，所以自然完成了事务级别的并发，但是需要先插入元组，再插入索引
+        */
         Page *page = rpc_lazy_fetch_x_page(item->table_id , free_page_id , false);
         char *data = page->get_data();
         auto &meta = node_->getMetaManager()->GetTableMeta(item->table_id);
         RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(data + OFFSET_PAGE_HDR);
         char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+        // 2.1 去 BitMap 里面找到一个空闲的 slot
         int slot_no = Bitmap::first_bit(false, bitmap, meta.num_records_per_page_);
-
-        // 2. 插入到 BLink 
-        auto page_id = bl_indexes[item->table_id]->insert_entry(&item->key , {free_page_id , slot_no});
-        if (page_id == INVALID_PAGE_ID){
-            LOG(INFO) << "Try To Insert A Same Key\n";
-            return {-1 , -1};
-        }
-
-        // 3. 插入到页面里
+        // 由于是 FSM 找到的，所以一定有空闲位置`
+        assert(slot_no < meta.num_records_per_page_);
         Bitmap::set(bitmap, slot_no);
         page_hdr->num_records_++;
-
         char *slots = bitmap + meta.bitmap_size_;
         char* tuple = slots + slot_no * (sizeof(DataItem) + sizeof(itemkey_t));
         memcpy(tuple, &item->key, sizeof(itemkey_t));
         // 写入 DataItem
         DataItem* target_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
         *target_item = *item;
-        // 3.2 把元组里边的锁设置成 EXCLUSIVE_LOCKED
+        // 2.2 把元组里边的锁设置成 EXCLUSIVE_LOCKED
         target_item->lock = EXCLUSIVE_LOCKED;
-
-        // 3.3 释放掉页面锁
+        // 2.3 释放掉页面锁
         rpc_lazy_release_x_page(item->table_id, free_page_id);
-        
+
+        // 3. 插入到 BLink 
+        auto page_id = bl_indexes[item->table_id]->insert_entry(&item->key , {free_page_id , slot_no});
+        if (page_id == INVALID_PAGE_ID){
+            LOG(INFO) << "Try To Insert A Same Key\n";
+            return {-1 , -1};
+        }
+
         return {free_page_id , slot_no};
     }
 
@@ -1011,6 +1032,7 @@ private:
 
     // BLink
     std::vector<BLinkIndexHandle*> bl_indexes;
+    std::vector<SecFSM*> fsm_trees;
 
     brpc::Channel* nodes_channel; //与其他计算节点通信的channel
     page_table_service::PageTableServiceImpl* page_table_service_impl_; // 保存在类中，以便本地调用

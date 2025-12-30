@@ -438,6 +438,8 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
     
     Txn_request_info txn_meta;
     clock_gettime(CLOCK_REALTIME, &txn_meta.start_time);
+    tx_type = SmallBankTxType::kBalance;
+    
     switch (tx_type) {
       case SmallBankTxType::kAmalgamate: {
           thread_local_try_times[uint64_t(tx_type)]++;

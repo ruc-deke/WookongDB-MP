@@ -459,6 +459,7 @@ void ComputeServer::InitTableNameMeta(){
     }else if (WORKLOAD_MODE == 2){
         table_name_meta[0] = "../storage_server/ycsb_user_table";
         table_name_meta[10000] = "../storage_server/ycsb_user_table_bl";
+        table_name_meta[20000] = "../storage_server/ycsb_user_table_fsm";
     }else {
         assert(false);
     }

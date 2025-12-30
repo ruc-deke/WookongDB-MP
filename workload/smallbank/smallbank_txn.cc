@@ -420,6 +420,15 @@ bool SmallBankDTX::TxBalance(SmallBank* smallbank_client, uint64_t* seed, coro_y
   auto sav_obj = std::make_shared<DataItem>((table_id_t)SmallBankTableType::kSavingsTable, sav_key.item_key);
   dtx->AddToReadOnlySet(sav_obj);
 
+  // 插入功能测试
+  {  static std::atomic<int> now_account(3000000);
+    int cur_account = now_account.fetch_add(1);
+    auto insert_item = std::make_shared<DataItem>(0, sizeof(smallbank_savings_val_t), cur_account, 1);
+    smallbank_savings_val_t *insert_val = (smallbank_savings_val_t*)(insert_item->value);
+    insert_val->bal = 102.23;
+    dtx->AddToInsertSet(insert_item);
+  }
+
   // smallbank_checking_key_t chk_key;
   // chk_key.acct_id = acct_id;
   // auto chk_obj = std::make_shared<DataItem>((table_id_t)SmallBankTableType::kCheckingTable, chk_key.item_key);

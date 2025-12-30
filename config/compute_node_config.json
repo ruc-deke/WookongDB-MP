@@ -4,10 +4,10 @@
 "machine_id": 2,
 "thread_num_per_machine": 8,
 "coroutine_num": 5000,
-"txn_system": 12,
+"txn_system": 1,
     "batch_size": 400
   },
-  "table_buffer_pool_size_per_table": 5000,  
+  "table_buffer_pool_size_per_table": 16000,  
   "index_buffer_pool_size_per_table": 3000,   
   "fsm_buffer_pool_size_per_table": 500,
   "partition_size_per_table": 1000,
@@ -17,13 +17,11 @@
       "127.0.0.1",
       "127.0.0.1",
       "127.0.0.1"
-      // "127.0.0.1"
     ],
     "remote_compute_node_port": [
       28688,
       28689,
       28690
-      // 28691
     ]
   },
   "remote_server_nodes": {

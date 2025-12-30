@@ -135,8 +135,12 @@ class DTX {
     // test_blink_concurrency(table_id);
     return ret;
   }
-  inline Rid UnlockFromBLink(table_id_t table_id , itemkey_t key){
-    return compute_server->unlock_from_blink(table_id , key);
+
+  inline page_id_t GetFreePageIDFromFSM(table_id_t table_id , uint32_t min_space_needed){
+    return compute_server->search_free_page(table_id , min_space_needed);
+  }
+  inline void UpdatePageSpaceFromFSM(table_id_t table_id , uint32_t page_id , uint32_t free_space){
+    compute_server->update_page_space(table_id , page_id , free_space);
   }
 
   void test_blink_concurrency(table_id_t table_id){

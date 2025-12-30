@@ -4,8 +4,12 @@
 void YCSB::PopulateUserTable(){
     std::string table_name = bench_name + "_user_table";
     rm_manager->create_file(table_name , sizeof(DataItem));
-    std::cout << "BAGA " << sizeof(DataItem) << "\n";
+    rm_manager->create_file(table_name + "_fsm", sizeof(DataItem));
+
+    std::cout << "单个元组大小为: " << sizeof(DataItem) << "\n";
     std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(table_name);
+    std::unique_ptr<RmFileHandle> table_file_fsm = rm_manager->open_file(table_name + "_fsm");
+
     std::ofstream indexfile;
     indexfile.open(table_name + "_index.txt");
     for (int id = 0 ; id < record_count ; id++){
@@ -35,11 +39,18 @@ void YCSB::PopulateUserTable(){
         strncpy(val.file_8, f8.c_str(), sizeof(val.file_8));
         strncpy(val.file_9, f9.c_str(), sizeof(val.file_9));
         
-        if (id == 100){
-            std::cout << "Val Size = " << sizeof(ycsb_user_table_val) << "\n";
-        }
         LoadRecord(table_file.get() , key.item_key , (void*)&val , sizeof(ycsb_user_table_val) , 0 , indexfile);
-    }                                                                   
+    }               
+    
+    int fd1 = rm_manager->get_diskmanager()->open_file(table_name + "_fsm");
+    rm_manager->get_diskmanager()->write_page(fd1, RM_FILE_HDR_PAGE, (char *)&table_file_fsm->file_hdr_, sizeof(table_file_fsm->file_hdr_));
+    int leftrecords = record_count % num_records_per_page;//最后一页的记录数
+    fsm_trees[0]->update_page_space(num_pages-1, (num_records_per_page - leftrecords) * (sizeof(DataItem) + sizeof(itemkey_t)));//更新最后一页的空间信息,free space为可插入的元组数量*（key+value）
+    for(int id=num_pages;id<3*num_pages;id++){
+        fsm_trees[0]->update_page_space(id,num_records_per_page * (sizeof(DataItem) + sizeof(itemkey_t)));//初始化所有页面空间信息为0，之后运行时再更新
+    }
+    fsm_trees[0]->flush_all_pages();
+    rm_manager->get_diskmanager()->close_file(fd1);
     
     rm_manager->close_file(table_file.get());
     indexfile.close();
@@ -55,11 +66,7 @@ void YCSB::LoadRecord(RmFileHandle *file_handle ,
     item_to_be_insert.Serialize(item_char);
     Rid rid = file_handle->insert_record(item_key , item_char , nullptr);
     index_file << item_key << " " << rid.page_no_ << " " << rid.slot_no_ << std::endl;
-    bl_indexes[table_id]->insert_entry(&item_key , rid , 0);
-
-    // Rid baga;
-    // auto res = bl_indexes[table_id]->search(&item_key , baga);
-    // assert(baga == rid);
+    bl_indexes[table_id]->insert_entry(&item_key , rid);
     
     free(item_char);
 }

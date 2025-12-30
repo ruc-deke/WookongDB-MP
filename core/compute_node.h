@@ -193,7 +193,7 @@ public:
                 // 固定大小切分
                 meta_manager_->par_size_per_table[i] = partition_size_cfg;
                 meta_manager_->par_size_per_table[i + 10000] = meta_manager_->page_num_per_table[i + 10000] / ComputeNodeCount;
-                meta_manager_->par_size_per_table[i + 20000] = meta_manager_->page_num_per_table[i + 20000] / ComputeNodeCount;
+                meta_manager_->par_size_per_table[i + 20000] = 100;
             }
 
             local_buffer_pools = std::vector<BufferPool*>(30000 , nullptr);

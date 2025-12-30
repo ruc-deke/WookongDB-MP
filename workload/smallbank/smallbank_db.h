@@ -18,6 +18,7 @@
 #include "dtx/dtx.h"
 #include "storage/bp_tree/bp_tree.h"
 #include "storage/blink_tree/blink_tree.h"
+#include "storage/fsm_tree/s_fsm_tree.h"
 #include "util/zipfan.h"
 
 /* STORED PROCEDURE EXECUTION FREQUENCIES (0-100) */
@@ -115,27 +116,21 @@ class SmallBank {
   int tx_hot_rate;      // 访问热点页面的事务比例
   int use_zipfian;      // 是否采用 zipfian
 
+  int num_records_per_page;
+  int num_pages;
+
   RmManager* rm_manager;
 
   // 存储层用的，只负责插入初始化的那些数据
 //   std::vector<S_BPTreeIndexHandle*> bp_tree_indexes;
   std::vector<S_BLinkIndexHandle*> bl_indexes;
+  std::vector<S_SecFSM*> fsm_trees;
 
   // For server usage: Provide interfaces to servers for loading tables
   // Also for client usage: Provide interfaces to clients for generating ids during tests
   SmallBank(RmManager* rm_manager , int tx_hot_rate_ = 50): rm_manager(rm_manager) {
     tx_hot_rate = tx_hot_rate_;
 
-    if (rm_manager){
-        // 2颗 B+ 树
-        // for (int i = 0 ; i < 2 ; i++){
-        //     bp_tree_indexes.emplace_back(new S_BPTreeIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 2 , "smallbank"));
-        // }
-        // 两张 BLink ,B+树的存储空间从 10000 开始的
-        for (int i = 0 ; i < 2 ; i++){
-            bl_indexes.emplace_back(new S_BLinkIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 10000 , "smallbank"));
-        }
-    }
     bench_name = "smallbank";
     // Used for populate table (line num) and get account
     std::string config_filepath = "../../config/smallbank_config.json";
@@ -144,6 +139,23 @@ class SmallBank {
     num_accounts_global = conf.get("num_accounts").get_uint64();
     num_hot_global = conf.get("num_hot_accounts").get_uint64();
     hot_rate = (double)num_hot_global / (double)num_accounts_global;
+
+    num_records_per_page = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (sizeof(DataItem) + sizeof(itemkey_t)) * BITMAP_WIDTH);
+    num_pages = (num_accounts_global + num_records_per_page - 1) / num_records_per_page;
+
+    if (rm_manager){
+        // 2颗 B+ 树
+        // 两张 BLink ,B+树的存储空间从 10000 开始的
+        for (int i = 0 ; i < 2 ; i++){
+            bl_indexes.emplace_back(new S_BLinkIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 10000 , "smallbank"));
+        }
+
+        for (int i = 0 ; i < 2 ; i++){
+            fsm_trees.emplace_back(new S_SecFSM(rm_manager->get_diskmanager(),rm_manager->get_bufferPoolManager() , i+20000 , "SmallBank"));
+            fsm_trees[i]->initialize(i + 20000,num_pages * 3);
+        }
+    }
+    
 
     /* Up to 2 billion accounts */
     assert(num_accounts_global <= 2ull * 1024 * 1024 * 1024);

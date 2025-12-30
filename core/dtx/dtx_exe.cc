@@ -109,6 +109,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
         }
     }
   }
+  // 插入
   for (size_t i = 0 ; i < insert_set.size() ; i++){
     DataSetItem &item = insert_set[i];
     if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
@@ -312,7 +313,7 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
   for (size_t i = 0 ; i < insert_set.size() ; i++){
     DataSetItem &data_item = insert_set[i];
     assert(data_item.is_fetched);
-    Rid rid = UnlockFromBLink(data_item.item_ptr->table_id , data_item.item_ptr->key);
+    Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , data_item.item_ptr->key);
 
     struct timespec start_time1, end_time1;
     clock_gettime(CLOCK_REALTIME, &start_time1);
@@ -370,10 +371,14 @@ void DTX::TxAbort(coro_yield_t& yield) {
     for (size_t i = 0 ; i < insert_set.size() ; i++){
       DataSetItem &data_item = insert_set[i];
       if (data_item.is_fetched){
-        // 先把 BLink 里面给删了
-        Rid rid = compute_server->delete_from_blink(data_item.item_ptr->table_id , data_item.item_ptr->key);
+        // 不删 B+ 树，因为 MVCC
+        // Rid rid = compute_server->delete_from_blink(data_item.item_ptr->table_id , data_item.item_ptr->key);
+        
         // 之前插入的，现在一定找得到
+        Rid rid = compute_server->get_rid_from_blink(data_item.item_ptr->table_id , data_item.item_ptr->key);
         assert(rid.page_no_ != -1);
+
+        compute_server->update_page_space(data_item.item_ptr->table_id , rid.page_no_ , sizeof(DataItem) + sizeof(itemkey_t));
 
         struct timespec start_time1 , end_time1;
         clock_gettime(CLOCK_REALTIME , &start_time1);

@@ -14,6 +14,7 @@
 #include "record/rm_manager.h"
 #include "record/rm_file_handle.h"
 #include "storage/blink_tree/blink_tree.h"
+#include "storage/fsm_tree/s_fsm_tree.h"
 #include "dtx/dtx.h"
 #include "util/zipfan.h"
 
@@ -71,10 +72,17 @@ public:
             rw_flags[i] = true;
         }
 
+        num_records_per_page = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (sizeof(DataItem) + sizeof(itemkey_t)) * BITMAP_WIDTH);
+        num_pages = (record_count + num_records_per_page - 1) / num_records_per_page;
+
         // 在整个项目会创建两个 YCSB 实例，一个是在存储层初始化，导入数据的时候，一个是在计算层，用来生成 YCSB 负载
         if (rm_manage_){
             // 存储层初始化 BLink
             bl_indexes.emplace_back(new S_BLinkIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , 10000 , "ycsb"));
+
+            // fsm
+            fsm_trees.emplace_back(new S_SecFSM(rm_manager->get_diskmanager(),rm_manager->get_bufferPoolManager() , 20000 , "YCSB"));
+            fsm_trees[0]->initialize(20000 , num_pages * 3);
         }else {
             // 计算层初始化 Zipfan
             zip_fans.reserve(ComputeNodeCount);
@@ -118,25 +126,25 @@ public:
         }
 
         // 随机执行三个插入试试
-        // for (int i = 0 ; i < 3 ; i++){
-        //     int gen_id = now_account.fetch_add(1);
-        //     auto insert_item = std::make_shared<DataItem>(0, sizeof(ycsb_user_table_val), gen_id, 1);
-        //     ycsb_user_table_val* val = (ycsb_user_table_val*)insert_item->value;
-
-        //     val->magic = ycsb_user_table_magic;
-        //     memcpy(val->file_0 , ramdom_string(field_len).c_str() , field_len);
-        //     memcpy(val->file_1 , ramdom_string(field_len).c_str() , field_len);
-        //     memcpy(val->file_2 , ramdom_string(field_len).c_str() , field_len);
-        //     memcpy(val->file_3 , ramdom_string(field_len).c_str() , field_len);
-        //     memcpy(val->file_4 , ramdom_string(field_len).c_str() , field_len);
-        //     memcpy(val->file_5 , ramdom_string(field_len).c_str() , field_len);
-        //     memcpy(val->file_6 , ramdom_string(field_len).c_str() , field_len);
-        //     memcpy(val->file_7 , ramdom_string(field_len).c_str() , field_len);
-        //     memcpy(val->file_8 , ramdom_string(field_len).c_str() , field_len);
-        //     memcpy(val->file_9 , ramdom_string(field_len).c_str() , field_len);
+        for (int i = 0 ; i < 3 ; i++){
+            int gen_id = now_account.fetch_add(1);
+            auto insert_item = std::make_shared<DataItem>(0, sizeof(ycsb_user_table_val), gen_id, 1);
+            ycsb_user_table_val* val = (ycsb_user_table_val*)insert_item->value;
             
-        //     dtx->AddToInsertSet(insert_item);
-        // }
+            val->magic = ycsb_user_table_magic;
+            memcpy(val->file_0 , ramdom_string(field_len).c_str() , field_len);
+            memcpy(val->file_1 , ramdom_string(field_len).c_str() , field_len);
+            memcpy(val->file_2 , ramdom_string(field_len).c_str() , field_len);
+            memcpy(val->file_3 , ramdom_string(field_len).c_str() , field_len);
+            memcpy(val->file_4 , ramdom_string(field_len).c_str() , field_len);
+            memcpy(val->file_5 , ramdom_string(field_len).c_str() , field_len);
+            memcpy(val->file_6 , ramdom_string(field_len).c_str() , field_len);
+            memcpy(val->file_7 , ramdom_string(field_len).c_str() , field_len);
+            memcpy(val->file_8 , ramdom_string(field_len).c_str() , field_len);
+            memcpy(val->file_9 , ramdom_string(field_len).c_str() , field_len);
+            
+            dtx->AddToInsertSet(insert_item);
+        }
 
         if (!(dtx->TxExe(yield))){
             return false;
@@ -269,6 +277,7 @@ private:
     RmManager* rm_manager;
     std::string bench_name;
     std::vector<S_BLinkIndexHandle*> bl_indexes;
+    std::vector<S_SecFSM*> fsm_trees;
 
 private:
     int record_count;           // 总记录数量
@@ -287,6 +296,10 @@ private:
     std::vector<std::vector<ZipFanGen>> zip_fans;
 
     std::atomic<int> now_account{0};
+
+    //fsm 使用
+    int num_records_per_page;
+    int num_pages;
     
     const static std::string ramdom_string(int len){
         static thread_local std::mt19937 rng{std::random_device{}()};

@@ -154,7 +154,7 @@ void Handler::GenThreads(std::string bench_name) {
 
   // ComputeServer 启动是用另外一个线程启动的， 这里等待一下启动
   if (WORKLOAD_MODE == 0){
-    std::this_thread::sleep_for(std::chrono::seconds(5)); 
+    std::this_thread::sleep_for(std::chrono::seconds(10)); 
   }else if (WORKLOAD_MODE == 1){
     std::this_thread::sleep_for(std::chrono::seconds(15)); 
   }else if (WORKLOAD_MODE == 2){

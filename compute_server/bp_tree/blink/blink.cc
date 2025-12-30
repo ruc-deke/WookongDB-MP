@@ -31,18 +31,12 @@ int BLinkNodeHandle::upper_bound(const itemkey_t *target){
     return l;
 }
 
-void BLinkNodeHandle::insert_pairs(int pos , const itemkey_t *keys , const Rid *rids , const lock_t *in_locks , int n){
+void BLinkNodeHandle::insert_pairs(int pos , const itemkey_t *keys , const Rid *rids , int n){
     int size = get_size();
     assert(!(pos > size || pos < 0));
     if (size == 0){
         memmove(get_key(0) , keys , n * key_size);
         memmove(get_rid(0) , rids , n * sizeof(Rid));
-        if (is_leaf()){
-            assert(in_locks != nullptr);
-            memmove(get_lock(0) , in_locks , n * sizeof(lock_t));
-        }else{
-            assert(in_locks == nullptr);
-        }
     }else {
         int move_num = (size - pos);
         memmove(get_key(pos + n) , get_key(pos) , move_num * key_size);
@@ -50,21 +44,13 @@ void BLinkNodeHandle::insert_pairs(int pos , const itemkey_t *keys , const Rid *
 
         memmove(get_rid(pos + n) , get_rid(pos) , move_num * sizeof(Rid));
         memmove(get_rid(pos) , rids , n * sizeof(Rid));
-
-        if (is_leaf()){
-            assert(in_locks != nullptr);
-            memmove(get_lock(pos + n) , get_lock(pos) , move_num * sizeof(lock_t));
-            memmove(get_lock(pos) , in_locks , n * sizeof(lock_t));
-        }else {
-            assert(in_locks == nullptr);
-        }
     }
 
     node_hdr->num_key += n;
 }
 
-void BLinkNodeHandle::insert_pair(int pos , const itemkey_t *key , const Rid *rid , const lock_t *lock){
-    insert_pairs(pos , key , rid , lock , 1);
+void BLinkNodeHandle::insert_pair(int pos , const itemkey_t *key , const Rid *rid){
+    insert_pairs(pos , key , rid , 1);
 }
 
 bool BLinkNodeHandle::leaf_lookup(const itemkey_t* target, Rid** value){
@@ -81,9 +67,9 @@ bool BLinkNodeHandle::isIt(int pos, const itemkey_t* key){
     return bl_compare(get_key(pos) , key) == 0;
 }
 
-int BLinkNodeHandle::insert(const itemkey_t* key, const Rid& value , const lock_t lock){
+int BLinkNodeHandle::insert(const itemkey_t* key, const Rid& value){
     if (get_size() == 0){
-        insert_pair(0 , key , &value , &lock);
+        insert_pair(0 , key , &value);
         assert(node_hdr->num_key == 1);
         return node_hdr->num_key;
     }
@@ -91,10 +77,10 @@ int BLinkNodeHandle::insert(const itemkey_t* key, const Rid& value , const lock_
     int pos = lower_bound(key);
     // 如果插入的key 已经存在，那就直接返回
     if (pos != get_size() && isIt(pos , key)){
-        return node_hdr->num_key;   
+        return node_hdr->num_key;
     }
 
-    insert_pair(pos , key , &value , &lock);
+    insert_pair(pos , key , &value);
     return node_hdr->num_key;
 }
 
@@ -102,7 +88,6 @@ void BLinkNodeHandle::erase_pair(int pos){
     assert(pos >= 0 && pos < get_size());
 
     int move_num = get_size() - pos - 1;
-
     itemkey_t *erase_key = get_key(pos);
     itemkey_t *next_key = get_key(pos + 1);
     memmove(erase_key , next_key , move_num * key_size);
@@ -110,14 +95,6 @@ void BLinkNodeHandle::erase_pair(int pos){
     Rid *erase_rid = get_rid(pos);
     Rid *next_rid = get_rid(pos + 1);
     memmove(erase_rid , next_rid , move_num * sizeof(Rid));
-
-    
-    if (is_leaf()){
-        assert(locks != nullptr);
-        lock_t *erase_lock = get_lock(pos);
-        lock_t *next_lock = get_lock(pos + 1);
-        memmove(erase_lock , next_lock , move_num * sizeof(lock_t));
-    }
 
     node_hdr->num_key--;
 }
@@ -274,6 +251,70 @@ BLinkNodeHandle* BLinkIndexHandle::find_leaf_for_search(const itemkey_t * key){
     return node;
 }
 
+void BLinkIndexHandle::find_leaf_for_search_with_print(const itemkey_t *key , std::stringstream &ss){
+    BLinkNodeHandle *node = nullptr;
+    page_id_t root_page_id = INVALID_PAGE_ID;
+    while (true){
+        s_get_file_hdr();
+        root_page_id = file_hdr->root_page_id;
+        s_release_file_hdr();
+
+        node = fetch_node(root_page_id , BPOperation::SEARCH_OPERA);
+        // 可能在我获取到根节点的这段时间里面，根节点变了，那就需要去找到新的根节点
+        if (node->is_root()){
+            break;
+        }else {
+            release_node(root_page_id , BPOperation::SEARCH_OPERA);
+        }
+    }
+
+    while (!node->is_leaf()){
+        while (node->need_to_right(*key)){
+            ss << "Need To Right Sibling , page_id = " << node->get_page_no() << " node_size = " << node->get_size() << "\n";
+            for (int i = 0 ; i < node->get_size() ; i++){
+                ss << *node->get_key(i) << " ";
+            }
+            ss << "\n\n";
+
+            page_id_t sib = node->get_right_sibling();
+            release_node(node->get_page_no() , BPOperation::SEARCH_OPERA);
+            delete node; // 先删旧句柄
+            node = fetch_node(sib , BPOperation::SEARCH_OPERA); // 再取兄弟
+        }
+
+        ss << "Internal Look Up , page_id = " << node->get_page_no() << " Node Size = " << node->get_size() << "\n";
+        for (int i = 0 ; i < node->get_size() ; i++){
+            ss << *node->get_key(i) << " ";
+        }
+        ss << "\n\n";
+
+        int pos = node->upper_bound(key);
+        page_id_t child_page_no = node->value_at(pos - 1);
+        release_node(node->get_page_no() , BPOperation::SEARCH_OPERA);
+        delete node;
+        node = fetch_node(child_page_no , BPOperation::SEARCH_OPERA);
+    }
+
+    while (node->need_to_right(*key)){
+        ss << "Leaf Need To Right Sibling , page_id = " << node->get_page_no() << " node_size = " << node->get_size() << "\n";
+        for (int i = 0 ; i < node->get_size() ; i++){
+            ss << *node->get_key(i) << " ";
+        }
+        ss << "\n\n";
+
+        page_id_t sib = node->get_right_sibling();
+        release_node(node->get_page_no() , BPOperation::SEARCH_OPERA);
+        delete node; // 先删旧句柄
+        node = fetch_node(sib , BPOperation::SEARCH_OPERA); // 再取兄弟
+    }
+
+    ss << "Leaf Look Up , page_id = " << node->get_page_no() << " Node Size = " << node->get_size() << "\n";
+    for (int i = 0 ; i < node->get_size() ; i++){
+        ss << *node->get_key(i) << " ";
+    }
+    ss << "\n\n";
+}
+
 BLinkNodeHandle* BLinkIndexHandle::find_leaf_for_insert(const itemkey_t * key , std::vector<page_id_t>& trace){
     BLinkNodeHandle *node = nullptr;
     page_id_t root_page_id = INVALID_PAGE_ID;
@@ -388,15 +429,11 @@ std::pair<BLinkNodeHandle* , itemkey_t> BLinkIndexHandle::split(BLinkNodeHandle 
     int old_node_size = node->get_size() / 2;
     int new_node_size = node->get_size() - old_node_size;
     assert(old_node_size > 0 && new_node_size > 0);
-    // 将右半拷贝到 new_node
+    node->set_size(old_node_size);
+
     itemkey_t *new_keys = node->get_key(old_node_size);
     Rid *new_rids = node->get_rid(old_node_size);
-    lock_t *new_locks = nullptr;
-    if (node->is_leaf()){
-        new_locks = node->get_lock(old_node_size);
-    }
-    new_node->insert_pairs(0 , new_keys , new_rids , new_locks , new_node_size);
-    node->set_size(old_node_size);
+    new_node->insert_pairs(0 , new_keys , new_rids , new_node_size);
 
     // 先把左节点需要设置的 high_key 保存下来
     itemkey_t old_node_high_key = *new_node->get_key(0);
@@ -442,11 +479,7 @@ void BLinkIndexHandle::insert_into_parent(BLinkNodeHandle *old_node , const item
         new_root->set_rid(0 , {.page_no_ = old_node->get_page_no() , .slot_no_ = -1});
 
         Rid rid1 = {.page_no_ = new_node->get_page_no() , -1};
-        lock_t lock1 = 0;
-        // 注意，insert_pair 里面如果判断为内部节点，会 assert lock == nullptr
-        // 但是 insert_pair 的声明是 insert_pair(int pos , const itemkey_t *key , const Rid *rid , const lock_t *lock)
-        // 也就是这里应该传入 nullptr
-        new_root->insert_pairs(1 , &sep_key , &rid1 , nullptr , 1);
+        new_root->insert_pair(1 , &sep_key , &rid1);
 
         old_node->set_is_root(false);
         new_node->set_is_root(false);
@@ -490,8 +523,7 @@ void BLinkIndexHandle::insert_into_parent(BLinkNodeHandle *old_node , const item
     }
     int old_child_idx = parent->find_child(old_page_id);
     Rid rid2 = {.page_no_ = new_page_id , -1};
-    lock_t lock2 = 0;
-    parent->insert_pairs(old_child_idx + 1 , &sep_key , &rid2 , nullptr , 1);
+    parent->insert_pairs(old_child_idx + 1 , &sep_key , &rid2 , 1);
 
     delete old_node;
     delete new_node;
@@ -537,64 +569,72 @@ bool BLinkIndexHandle::checkIfDirectlyGetPage(const itemkey_t *key , Rid &result
 }
 
 bool BLinkIndexHandle::search(const itemkey_t *key , Rid &result){
-    // if (checkIfDirectlyGetPage(key , result)){
-    //     return true;
-    // }
+    if (checkIfDirectlyGetPage(key , result)){
+        return true;
+    }
     
     Rid *rid;
     BLinkNodeHandle *leaf = find_leaf_for_search(key);
-    assert(leaf->is_leaf());
-    int pos = leaf->lower_bound(key);
-    // 找到的 key 是一个未提交的事务插入的，那就当没看到
-    // 不需要考虑删除的情况，删除只有两个状态，lock = DELETE_LOCKED，此时不影响本事务看到 key，要么就是这个 key 已经被删了，就不会走到这里
-    if (leaf->get_size() == pos ||                  
-            !leaf->isIt(pos , key) || 
-            *leaf->get_lock(pos) == INSERT_LOCKED){     
-        release_node(leaf->get_page_no() , BPOperation::SEARCH_OPERA);
-        return false;
+    bool exist = leaf->leaf_lookup(key , &rid);
+    if (exist){
+        key2leaf_mtx.lock();
+        key2leaf[*key] = leaf->get_page_no();
+        key2leaf_mtx.unlock();
+        result = *rid;
+    }else {
+        // TPCC 负载下，生成的 key 不一定存在，所以不断言了
+        // SmallBank 和 YCSB 负载下，查找的 key 一定存在
+        if (WORKLOAD_MODE == 0 || WORKLOAD_MODE == 2){
+            assert(false);
+        }
     }
-
-    result = *leaf->get_rid(pos);
     release_node(leaf->get_page_no() , BPOperation::SEARCH_OPERA);
     delete leaf;
+    return exist;
+}
 
-    return true;
+page_id_t BLinkIndexHandle::update_entry(const itemkey_t *key , const Rid &value){
+    assert(value != INDEX_NOT_FOUND);
+    std::vector<page_id_t> trace;
+    // 其实写操作访问叶子节点的逻辑都一样，就不区分 insert 和 update 了
+    BLinkNodeHandle *leaf = find_leaf_for_insert(key , trace);
+    assert(leaf->is_leaf());
+
+    int pos = leaf->lower_bound(key);
+
+    // 先默认 update 时，key 一定存在
+    assert(pos != leaf->get_size() && leaf->isIt(pos , key));
+
+    Rid *rid = leaf->get_rid(pos);
+    assert(*rid == INDEX_NOT_FOUND);
+    *rid = value;
+
+    release_node(leaf->get_page_no() , BPOperation::UPDATE_OPERA);
+
+    page_id_t ret = leaf->get_page_no();
+    delete leaf;
+    return ret;
 }
 
 // 向 BLink 插入一个新的 pkey
 page_id_t BLinkIndexHandle::insert_entry(const itemkey_t *key , const Rid &value){
     std::vector<page_id_t> trace;
     BLinkNodeHandle *leaf = find_leaf_for_insert(key , trace);
-    assert(leaf->is_leaf());    
+    assert(leaf->is_leaf());
 
     int pos = leaf->lower_bound(key);
-    // 如果 key 
     if (pos != leaf->get_size() && leaf->isIt(pos , key)){
-        // 走到这里表面 key 重复了，此时有几种情况：
-        if (*leaf->get_lock(pos) == 0){
-            // 1. 重复的 key，且这个 key 是一个已经提交的事务写的
-            release_node(leaf->get_page_no() , BPOperation::INSERT_OPERA);
-            delete leaf;
-            return INVALID_PAGE_ID;
-        }else if (*leaf->get_lock(pos) == INSERT_LOCKED){
-            // 2. 遇到了一个同样没提交事务的插入，目前的想法是谁先插入谁拿到
-            // 这样其实有问题，因为先插入的事务可能会回滚，也就是插入的 key 是无效的
-            // 所以还有一种方法是，锁定插入本 key 的事务，然后挂起等待，看看他是否提交，如果提交了，那我回滚，否则继续执行
-            // 不知道哪个表现好，后边有时间了试试
-            release_node(leaf->get_page_no() , BPOperation::INSERT_OPERA);
-            delete leaf;
-            return INVALID_PAGE_ID;
-        }else if (*leaf->get_lock(pos) == DELETE_LOCKED){
-            // TODO，这里删除需要考虑的因素很多
-            // 1. 某个提交事务执行了 delete，但是由于 MVCC 的存在，不能立刻把 B+ 树里面的 key 给删了
-            // 2. 某个未提交事务执行了 delete，但是其有可能 Abort
-        }
+        page_id_t ret = leaf->get_page_no();
+        release_node(leaf->get_page_no() , BPOperation::INSERT_OPERA);
+        delete leaf;
+        return ret;
     }
 
     int old_size = leaf->get_size();
-    int new_size = leaf->insert(key , value , INSERT_LOCKED);
-    assert(old_size == new_size - 1);
-
+    int new_size = leaf->insert(key , value);
+    if (old_size == new_size){
+        return INVALID_PAGE_ID;
+    }
     page_id_t ret = leaf->get_page_no();
 
     if (leaf->get_size() == leaf->get_max_size()){
@@ -616,16 +656,14 @@ page_id_t BLinkIndexHandle::insert_entry(const itemkey_t *key , const Rid &value
 }
 
 /*
-    不能直接把key 从索引里面删掉，这是有两个方面的考虑
-    1. 删除需要从上往下加锁，这绝对不行，会死锁
-    2. 采用了 MVCC 之后， 如果直接把它删了，那事务就不读不到这个元组的历史版本了
-    所以 PG 的做法是，给这个元组(不是 B+树)打上Tag，当所有活跃事务都不再访问这个版本的历史的时候，就清理掉，由后台线程来做，现在我们还没实现
+    删除一个 key，这里是简化的版本，直接在叶子节点中把 key 给删了
+    为什么不按照 B+ 树的做法，调整树的结构的原因是，BLink 不允许自上向下的加锁
+    这样做没有正确性的问题，但是会有空间浪费的问题，pg 的做法是后台线程定期清理，后续可以优化下
 */
 Rid BLinkIndexHandle::delete_entry(const itemkey_t *key){
     BLinkNodeHandle *leaf = find_leaf_for_delete(key);
     assert(leaf->is_leaf());
-    
-    // 没找到要删的东西，直接返回即可
+
     if (leaf->get_size() == 0 || !leaf->need_delete(key)){
         release_node(leaf->get_page_no() , BPOperation::DELETE_OPERA);
         delete leaf;
@@ -633,17 +671,6 @@ Rid BLinkIndexHandle::delete_entry(const itemkey_t *key){
     }
 
     int pos = leaf->lower_bound(key);
-    // 走到这里，虽然找到了要删的key，但是这个 key 此时可能是别的事务没提交的，逻辑上我不可见
-    if (*leaf->get_lock(pos) == INSERT_LOCKED){
-        // 要删除的 key 是一个未提交事务插入的，那假装看不见即可
-        release_node(leaf->get_page_no() , BPOperation::DELETE_OPERA);
-        delete leaf;
-        return {-1 , -1};
-    }else if (*leaf->get_lock(pos) == DELETE_LOCKED){
-        // 一个未提交的事务也打算来删除这个 key，那就按正常流程来
-
-    }
-
     // 这里 ret 是一定存在的，因为前面已经检查了 leaf->need_delete
     Rid ret = *leaf->get_rid(pos);
     assert(ret.page_no_ != -1);
@@ -652,84 +679,4 @@ Rid BLinkIndexHandle::delete_entry(const itemkey_t *key){
     release_node(leaf->get_page_no() , BPOperation::DELETE_OPERA);
     delete leaf;
     return ret;
-}
-
-Rid BLinkIndexHandle::unlock_entry(const itemkey_t *key){
-    // 由于逻辑是一样的，就不再写一个接口了，复用 delete 查找叶子节点的接口
-    BLinkNodeHandle *leaf = find_leaf_for_delete(key);
-
-    int pos = leaf->lower_bound(key);
-    assert(leaf->isIt(pos , key));
-    assert(*leaf->get_lock(pos) == INSERT_LOCKED || *leaf->get_lock(pos) == DELETE_LOCKED);
-
-    Rid ret = *leaf->get_rid(pos);
-    leaf->set_lock(pos , 0);
-    release_node(leaf->get_page_no() , BPOperation::DELETE_OPERA);
-    delete leaf;
-    return ret;
-}
-
-// DEBUG 用，打印路径信息
-void BLinkIndexHandle::find_leaf_for_search_with_print(const itemkey_t *key , std::stringstream &ss){
-    BLinkNodeHandle *node = nullptr;
-    page_id_t root_page_id = INVALID_PAGE_ID;
-    while (true){
-        s_get_file_hdr();
-        root_page_id = file_hdr->root_page_id;
-        s_release_file_hdr();
-
-        node = fetch_node(root_page_id , BPOperation::SEARCH_OPERA);
-        // 可能在我获取到根节点的这段时间里面，根节点变了，那就需要去找到新的根节点
-        if (node->is_root()){
-            break;
-        }else {
-            release_node(root_page_id , BPOperation::SEARCH_OPERA);
-        }
-    }
-
-    while (!node->is_leaf()){
-        while (node->need_to_right(*key)){
-            ss << "Need To Right Sibling , page_id = " << node->get_page_no() << " node_size = " << node->get_size() << "\n";
-            for (int i = 0 ; i < node->get_size() ; i++){
-                ss << *node->get_key(i) << " ";
-            }
-            ss << "\n\n";
-
-            page_id_t sib = node->get_right_sibling();
-            release_node(node->get_page_no() , BPOperation::SEARCH_OPERA);
-            delete node; // 先删旧句柄
-            node = fetch_node(sib , BPOperation::SEARCH_OPERA); // 再取兄弟
-        }
-
-        ss << "Internal Look Up , page_id = " << node->get_page_no() << " Node Size = " << node->get_size() << "\n";
-        for (int i = 0 ; i < node->get_size() ; i++){
-            ss << *node->get_key(i) << " ";
-        }
-        ss << "\n\n";
-
-        int pos = node->upper_bound(key);
-        page_id_t child_page_no = node->value_at(pos - 1);
-        release_node(node->get_page_no() , BPOperation::SEARCH_OPERA);
-        delete node;
-        node = fetch_node(child_page_no , BPOperation::SEARCH_OPERA);
-    }
-
-    while (node->need_to_right(*key)){
-        ss << "Leaf Need To Right Sibling , page_id = " << node->get_page_no() << " node_size = " << node->get_size() << "\n";
-        for (int i = 0 ; i < node->get_size() ; i++){
-            ss << *node->get_key(i) << " ";
-        }
-        ss << "\n\n";
-
-        page_id_t sib = node->get_right_sibling();
-        release_node(node->get_page_no() , BPOperation::SEARCH_OPERA);
-        delete node; // 先删旧句柄
-        node = fetch_node(sib , BPOperation::SEARCH_OPERA); // 再取兄弟
-    }
-
-    ss << "Leaf Look Up , page_id = " << node->get_page_no() << " Node Size = " << node->get_size() << "\n";
-    for (int i = 0 ; i < node->get_size() ; i++){
-        ss << *node->get_key(i) << " ";
-    }
-    ss << "\n\n";
 }

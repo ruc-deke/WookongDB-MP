@@ -36,7 +36,7 @@ int SmallBank::LoadRecord(RmFileHandle* file_handle,
   // bp_tree_indexes[table_id]->insert_entry(&item_key , rid);
   // bp_tree_indexes[table_id]->write_file_hdr_to_page();
 
-  bl_indexes[table_id]->insert_entry(&item_key , rid , 0);
+  bl_indexes[table_id]->insert_entry(&item_key , rid);
   // bl_indexes[table_id]->write_file_hdr_to_page();
   // Rid result;
   // auto res = bl_indexes[table_id]->search(&item_key , result);
@@ -57,7 +57,11 @@ int SmallBank::LoadRecord(RmFileHandle* file_handle,
 void SmallBank::PopulateSavingsTable() {
   // 创建文件
   rm_manager->create_file(bench_name + "_savings", sizeof(DataItem));
+  rm_manager->create_file(bench_name + "_savings_fsm" , sizeof(DataItem));
+
   std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(bench_name + "_savings");
+  std::unique_ptr<RmFileHandle> table_file_fsm = rm_manager->open_file(bench_name + "_savings_fsm");
+
   std::ofstream indexfile;
   indexfile.open(bench_name + "_savings_index.txt");
   /* Populate the tables */
@@ -76,6 +80,18 @@ void SmallBank::PopulateSavingsTable() {
                 (table_id_t)SmallBankTableType::kSavingsTable,
                 indexfile);
   }
+
+  int fd1 = rm_manager->get_diskmanager()->open_file(bench_name + "_savings" + "_fsm");
+  rm_manager->get_diskmanager()->write_page(fd1, RM_FILE_HDR_PAGE, (char *)&table_file_fsm->file_hdr_, sizeof(table_file_fsm->file_hdr_));
+  int leftrecords = num_accounts_global % num_records_per_page;//最后一页的记录数
+  fsm_trees[0]->update_page_space(num_pages-1, (num_records_per_page - leftrecords) * (sizeof(DataItem) + sizeof(itemkey_t)));//更新最后一页的空间信息,free space为可插入的元组数量*（key+value）
+  for(int id=num_pages;id<3*num_pages;id++){
+      fsm_trees[0]->update_page_space(id,num_records_per_page * (sizeof(DataItem) + sizeof(itemkey_t)));//初始化所有页面空间信息为0，之后运行时再更新
+  }
+  fsm_trees[0]->flush_all_pages();
+  rm_manager->get_diskmanager()->close_file(fd1);
+
+
   // head page页面需要直接写入磁盘不经过newPage()所以需要手动刷页
   int fd = rm_manager->get_diskmanager()->open_file(bench_name + "_savings");
   rm_manager->get_diskmanager()->write_page(fd, RM_FILE_HDR_PAGE, (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));
@@ -85,7 +101,9 @@ void SmallBank::PopulateSavingsTable() {
 
 void SmallBank::PopulateCheckingTable( ) {
   rm_manager->create_file(bench_name + "_checking", sizeof(DataItem));
+  rm_manager->create_file(bench_name + "_checking_fsm" , sizeof(DataItem));
   std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(bench_name + "_checking");
+  std::unique_ptr<RmFileHandle> table_file_fsm = rm_manager->open_file(bench_name + "_checking_fsm");
   std::ofstream indexfile;
   indexfile.open(bench_name + "_checking_index.txt");
   /* Populate the tables */
@@ -103,7 +121,19 @@ void SmallBank::PopulateCheckingTable( ) {
                 (table_id_t)SmallBankTableType::kCheckingTable,
                 indexfile);
   }
-    int fd = rm_manager->get_diskmanager()->open_file(bench_name + "_checking");
-    rm_manager->get_diskmanager()->write_page(fd, RM_FILE_HDR_PAGE, (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));
-    rm_manager->get_diskmanager()->close_file(fd);
+
+  int fd1 = rm_manager->get_diskmanager()->open_file(bench_name + "_checking" + "_fsm");
+  rm_manager->get_diskmanager()->write_page(fd1, RM_FILE_HDR_PAGE, (char *)&table_file_fsm->file_hdr_, sizeof(table_file_fsm->file_hdr_));
+  int leftrecords = num_accounts_global % num_records_per_page;//最后一页的记录数
+  fsm_trees[1]->update_page_space(num_pages-1, (num_records_per_page - leftrecords) * (sizeof(DataItem) + sizeof(itemkey_t)));//更新最后一页的空间信息,free space为可插入的元组数量*（key+value）
+  for(int id = num_pages;id<3*num_pages;id++){
+      fsm_trees[1]->update_page_space(id,num_records_per_page * (sizeof(DataItem) + sizeof(itemkey_t)));//初始化所有页面空间信息为0，之后运行时再更新
+  }
+  fsm_trees[1]->flush_all_pages();
+  rm_manager->get_diskmanager()->close_file(fd1);
+  
+
+  int fd = rm_manager->get_diskmanager()->open_file(bench_name + "_checking");
+  rm_manager->get_diskmanager()->write_page(fd, RM_FILE_HDR_PAGE, (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));
+  rm_manager->get_diskmanager()->close_file(fd);
 }
