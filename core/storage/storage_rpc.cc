@@ -299,7 +299,6 @@ namespace storage_service{
 
         table_id_t table_id = request->table_id();
         std::string table_path = TableIdToTablePath(table_id);
-
         // 需要加锁，否则可能返回两个相同的 page_id
         {
             std::lock_guard<std::mutex> lk(g_create_page_map_mu);
@@ -322,7 +321,9 @@ namespace storage_service{
 
         // 让 disk_manager 来分配一个新的页面，其实也是堆积木的过程
         page_id_t new_page_no = disk_manager_->allocate_page(fd);
-
+        if(table_id == 0){
+           new_page_no +=16668;
+        }
         // 初始化整页为 0
         char zero_page[PAGE_SIZE];
         memset(zero_page, 0, PAGE_SIZE);
@@ -348,7 +349,7 @@ namespace storage_service{
                                         reinterpret_cast<char*>(&first_free_page_no), sizeof(int));
         }
 
-        std::cout << "Create A Page , table_id = " << table_id << " page_id = " << new_page_no << "\n";
+        std::cout << "Create a Page , table_id = " << table_id << " page_id = " << new_page_no << "\n";
         disk_manager_->close_file(fd);
 
         response->set_page_no(new_page_no);

@@ -45,10 +45,10 @@ void YCSB::PopulateUserTable(){
     int fd1 = rm_manager->get_diskmanager()->open_file(table_name + "_fsm");
     rm_manager->get_diskmanager()->write_page(fd1, RM_FILE_HDR_PAGE, (char *)&table_file_fsm->file_hdr_, sizeof(table_file_fsm->file_hdr_));
     int leftrecords = record_count % num_records_per_page;//最后一页的记录数
-    fsm_trees[0]->update_page_space(num_pages-1, (num_records_per_page - leftrecords) * (sizeof(DataItem) + sizeof(itemkey_t)));//更新最后一页的空间信息,free space为可插入的元组数量*（key+value）
-    for(int id=num_pages;id<3*num_pages;id++){
-        fsm_trees[0]->update_page_space(id,num_records_per_page * (sizeof(DataItem) + sizeof(itemkey_t)));//初始化所有页面空间信息为0，之后运行时再更新
-    }
+    fsm_trees[0]->update_page_space(num_pages, (num_records_per_page - leftrecords) * (sizeof(DataItem) + sizeof(itemkey_t)));//更新最后一页的空间信息,free space为可插入的元组数量*（key+value）
+    // for(int id=num_pages+1;id<3*num_pages;id++){
+    //     fsm_trees[0]->update_page_space(id,num_records_per_page * (sizeof(DataItem) + sizeof(itemkey_t)));//初始化所有页面空间信息为0，之后运行时再更新
+    // }
     fsm_trees[0]->flush_all_pages();
     rm_manager->get_diskmanager()->close_file(fd1);
     

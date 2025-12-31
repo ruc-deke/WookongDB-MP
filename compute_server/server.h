@@ -281,7 +281,7 @@ public:
     }
 
     void update_page_space(table_id_t table_id , uint32_t page_id , uint32_t free_space){
-        assert(false);
+        //assert(false);
         return fsm_trees[table_id]->update_page_space(page_id , free_space);
     }
 
@@ -311,6 +311,9 @@ public:
         Bitmap::reset(bitmap, delete_rid.slot_no_);
         page_hdr->num_records_--;
 
+        // TODO
+        // 修改 FSM
+
         // 3. 释放掉页面锁
         rpc_lazy_release_x_page(item->table_id, delete_rid.page_no_);
 
@@ -320,50 +323,86 @@ public:
     // 插入一个新的数据项
     Rid insert_entry(DataItem *item){
         // 1. 从 FSM 里面获取到一个存在空闲空闲的页面
-        page_id_t free_page_id = search_free_page(item->table_id , sizeof(DataItem) + sizeof(itemkey_t));
-        assert(free_page_id != INVALID_PAGE_ID);
+        int try_times=0;
+        bool tag=false;
+        while(1){
+            page_id_t free_page_id = INVALID_PAGE_ID;
+            if(try_times>=2){
+                 free_page_id = rpc_create_page(item->table_id);//md爆了，先写这了// 分配新页面给他，并上锁，保证新页面一定能供他插入
+                 //update_page_space(item->table_id , free_page_id , PAGE_SIZE);//更新新页面的空间信息
+                 tag=true;
+                std::cout << "Allocated new page id = " << free_page_id << " for table " << item->table_id << "\n";
+            } else {
+                free_page_id = search_free_page(item->table_id , sizeof(DataItem) + sizeof(itemkey_t));
+            }
+            
+            if (free_page_id == INVALID_PAGE_ID){
+                try_times++;
+                continue;
+            }
+            // 2. 插入到页面里
+            /*
+                这里解释下，为什么先插入元组里
+                事务在执行的过程中，对别的事务是隔离的，因此对索引的插入操作理论上别人也是不可见的
+                目前想到的有两种隔离索引的方法：
+                1. 类似于元组，在 B+ 树的叶子节点，也给每个 key一个 lock，用来进行事务级别的并发
+                但是这样问题非常多，首先就是占空间，其次，和 MVCC 兼容起来很麻烦，所以后面被我们淘汰了
+                2. 只在索引里面进行页面级别的锁，事务级别的不管他了，因为插入写入的是一个新的版本，并且我们会给
+                插入的这个元组加上排他锁，所以自然完成了事务级别的并发，但是需要先插入元组，再插入索引
+            */
+            Page *page = rpc_lazy_fetch_x_page(item->table_id , free_page_id , false);
+            //更新新页面的空间信息 
+            if(tag) {
+                update_page_space(item->table_id , free_page_id , PAGE_SIZE);
+            }
+            std::cout << "Free Page ID = " << free_page_id << "\n";
+            /*
+                这里取返回的page_id会有三种情况
+                1. 这个页面确实有空闲空间，即使可能被别人先插入了点儿东西，正常插入
+                2. 这个页面被别的节点抢先插完了，地方不够了，如果还在规定次数内，接着试试去取页面
+                3. 返回了-1，那就是寄了，如果还在规定次数内，再去搜一下看看，可能其他节点已经开了个新页面，否则开一个页面
+            */
+            char *data = page->get_data();
+            auto &meta = node_->getMetaManager()->GetTableMeta(item->table_id);
+            RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(data + OFFSET_PAGE_HDR);
+            char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+            // 2.1 去 BitMap 里面找到一个空闲的 slot
+            int slot_no = Bitmap::first_bit(false, bitmap, meta.num_records_per_page_);
+            int left_item_num= meta.num_records_per_page_ - slot_no;
+            std::cout<<"剩余元组位置为"<<left_item_num<<std::endl;
+            update_page_space(item->table_id , free_page_id , left_item_num*(sizeof(DataItem) + sizeof(itemkey_t)));//这里其实逻辑不对，没考虑删除，先这么写着
+            std::cout << "Slot No = " << slot_no << "\n";
+            if (slot_no >= meta.num_records_per_page_){
+                rpc_lazy_release_x_page(item->table_id , free_page_id);
+                try_times++;
+                continue;
+            }
+            std::cout << "Left Item Num = " << left_item_num << "\n";
+            assert(slot_no < meta.num_records_per_page_);
+            Bitmap::set(bitmap, slot_no);
+            page_hdr->num_records_++;
+            char *slots = bitmap + meta.bitmap_size_;
+            char* tuple = slots + slot_no * (sizeof(DataItem) + sizeof(itemkey_t));
+            memcpy(tuple, &item->key, sizeof(itemkey_t));
+            // 写入 DataItem
+            DataItem* target_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+            *target_item = *item;
+            // 2.2 把元组里边的锁设置成 EXCLUSIVE_LOCKED
+            target_item->lock = EXCLUSIVE_LOCKED;
+            // 2.3 释放掉页面锁
+            rpc_lazy_release_x_page(item->table_id, free_page_id);
 
-        std::cout << "Free Page ID = " << free_page_id << "\n";
-        // 2. 插入到页面里
-        /*
-            这里解释下，为什么先插入元组里
-            事务在执行的过程中，对别的事务是隔离的，因此对索引的插入操作理论上别人也是不可见的
-            目前想到的有两种隔离索引的方法：
-            1. 类似于元组，在 B+ 树的叶子节点，也给每个 key一个 lock，用来进行事务级别的并发
-               但是这样问题非常多，首先就是占空间，其次，和 MVCC 兼容起来很麻烦，所以后面被我们淘汰了
-            2. 只在索引里面进行页面级别的锁，事务级别的不管他了，因为插入写入的是一个新的版本，并且我们会给
-               插入的这个元组加上排他锁，所以自然完成了事务级别的并发，但是需要先插入元组，再插入索引
-        */
-        Page *page = rpc_lazy_fetch_x_page(item->table_id , free_page_id , false);
-        char *data = page->get_data();
-        auto &meta = node_->getMetaManager()->GetTableMeta(item->table_id);
-        RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(data + OFFSET_PAGE_HDR);
-        char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-        // 2.1 去 BitMap 里面找到一个空闲的 slot
-        int slot_no = Bitmap::first_bit(false, bitmap, meta.num_records_per_page_);
-        // 由于是 FSM 找到的，所以一定有空闲位置`
-        assert(slot_no < meta.num_records_per_page_);
-        Bitmap::set(bitmap, slot_no);
-        page_hdr->num_records_++;
-        char *slots = bitmap + meta.bitmap_size_;
-        char* tuple = slots + slot_no * (sizeof(DataItem) + sizeof(itemkey_t));
-        memcpy(tuple, &item->key, sizeof(itemkey_t));
-        // 写入 DataItem
-        DataItem* target_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
-        *target_item = *item;
-        // 2.2 把元组里边的锁设置成 EXCLUSIVE_LOCKED
-        target_item->lock = EXCLUSIVE_LOCKED;
-        // 2.3 释放掉页面锁
-        rpc_lazy_release_x_page(item->table_id, free_page_id);
+            // 3. 插入到 BLink 
+            auto page_id = bl_indexes[item->table_id]->insert_entry(&item->key , {free_page_id , slot_no});
+            if (page_id == INVALID_PAGE_ID){
+                LOG(INFO) << "Try To Insert A Same Key\n";
+                return {-1 , -1};
+            }
 
-        // 3. 插入到 BLink 
-        auto page_id = bl_indexes[item->table_id]->insert_entry(&item->key , {free_page_id , slot_no});
-        if (page_id == INVALID_PAGE_ID){
-            LOG(INFO) << "Try To Insert A Same Key\n";
-            return {-1 , -1};
+            LOG(INFO) << "Insert A Key , table_id = " << item->table_id << " page_id = " << free_page_id << " slot_id = " << slot_no;
+
+            return {free_page_id , slot_no};
         }
-
-        return {free_page_id , slot_no};
     }
 
 

@@ -267,7 +267,7 @@ uint32_t S_SecFSM::search_in_leaf_page(S_FSMPageData& leaf_page, uint8_t require
 
 void S_SecFSM::update_page_space(uint32_t page_id, uint32_t free_space) {
     std::lock_guard<std::mutex> lock(mutex_);
-    assert(false);
+   // assert(false);
     
     if (!initialized_ || page_id >= meta_.total_heap_pages) {
         return;
@@ -723,11 +723,12 @@ bool S_SecFSM::deserialize_page(S_FSMPageData& page_data, const char* buffer, ui
 
 // 工具函数
 uint8_t S_SecFSM::space_to_category(uint32_t free_space) const {
+    if (free_space == 0) return static_cast<uint8_t>(S_SpaceCategory::NO_SPACE);
     if (free_space >= PAGE_SIZE * 9 / 10) return static_cast<uint8_t>(S_SpaceCategory::EMPTY);
     if (free_space >= PAGE_SIZE * 2 / 3) return static_cast<uint8_t>(S_SpaceCategory::ALMOST_EMPTY);
     if (free_space >= PAGE_SIZE / 3) return static_cast<uint8_t>(S_SpaceCategory::HALF_FULL);
     if (free_space >= PAGE_SIZE / 10) return static_cast<uint8_t>(S_SpaceCategory::ALMOST_FULL);
-    return static_cast<uint8_t>(S_SpaceCategory::FULL);
+    return static_cast<uint8_t>(S_SpaceCategory::ALMOST_FULL);
 }
 
 uint32_t S_SecFSM::category_to_space(uint8_t category) const {
@@ -736,7 +737,7 @@ uint32_t S_SecFSM::category_to_space(uint8_t category) const {
         case S_SpaceCategory::ALMOST_EMPTY: return PAGE_SIZE * 2 / 3;
         case S_SpaceCategory::HALF_FULL: return PAGE_SIZE / 3;
         case S_SpaceCategory::ALMOST_FULL: return PAGE_SIZE / 10;
-        case S_SpaceCategory::FULL: return 0;
+        case S_SpaceCategory::NO_SPACE: return 0;
         default: return 0;
     }
 }

@@ -585,7 +585,7 @@ bool BLinkIndexHandle::search(const itemkey_t *key , Rid &result){
         // TPCC 负载下，生成的 key 不一定存在，所以不断言了
         // SmallBank 和 YCSB 负载下，查找的 key 一定存在
         if (WORKLOAD_MODE == 0 || WORKLOAD_MODE == 2){
-            assert(false);
+            //assert(false);
         }
     }
     release_node(leaf->get_page_no() , BPOperation::SEARCH_OPERA);

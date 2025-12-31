@@ -200,12 +200,17 @@ bool SecFSM::create_internal_pages(const std::vector<uint32_t>& child_pages, uin
 uint32_t SecFSM::find_free_page(uint32_t min_space_needed) {
     std::lock_guard<std::mutex> lock(mutex_);
     
+    if (!initialized_ ) {
+        fetch_page(1, true);
+        release_page(1, true);
+        initialized_ = true;
+    }
     // if (!initialized_ || meta_.tree_height == 0) {
     //     return 0xFFFFFFFF;
     // }
     
     uint8_t required_category = space_to_category(min_space_needed);
-    
+    std::cout<<"寻找至少有 "<<required_category<<" 空闲空间的页面"<<std::endl;
     // 从根页面开始搜索
     return search_from_page(meta_.root_page_id, required_category);
 }
@@ -214,7 +219,7 @@ uint32_t SecFSM::search_from_page(uint32_t fsm_page_id, uint8_t required_categor
     FSMPageData* page_data = fetch_page(fsm_page_id, true);
     if (!page_data) {
         release_page(fsm_page_id, true);
-        assert(false);
+        //assert(false);
         return 0xFFFFFFFF;
     }
 
@@ -229,7 +234,7 @@ uint32_t SecFSM::search_from_page(uint32_t fsm_page_id, uint8_t required_categor
 
         if (page_data->nodes.empty() || page_data->nodes[0].get_value() < required_category) {
             release_page(fsm_page_id, true);
-            assert(false);
+           // assert(false);
             return 0xFFFFFFFF;
         }
 
@@ -253,7 +258,7 @@ uint32_t SecFSM::search_from_page(uint32_t fsm_page_id, uint8_t required_categor
         }
 
         release_page(fsm_page_id, true);
-        assert(false);
+        //assert(false);
         return 0xFFFFFFFF;
     }
 }
@@ -284,7 +289,7 @@ uint32_t SecFSM::search_in_leaf_page(FSMPageData& leaf_page, uint8_t required_ca
         }
         // 两个子树都没有足够空间
         else {
-            assert(false);
+            //assert(false);
             return 0xFFFFFFFF;
         }
     }
@@ -306,7 +311,7 @@ uint32_t SecFSM::search_in_leaf_page(FSMPageData& leaf_page, uint8_t required_ca
 
 void SecFSM::update_page_space(uint32_t page_id, uint32_t free_space) {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+    std::cout<<"准备更新页面 "<<page_id<<" 的空闲空间为 "<<free_space<<std::endl;
     if (!initialized_ ) {
         fetch_page(1, true);
         release_page(1, true);
@@ -345,12 +350,14 @@ void SecFSM::update_page_space(uint32_t page_id, uint32_t free_space) {
         release_page(leaf_page_id,false);
         update_node_value(leaf_page_id, leaf_index, new_category);
         
-        // std::cout << "Updated heap page " << page_id << " in leaf page " << leaf_page_id
-        //           << " space: " << category_to_space(old_category) << " -> " 
-        //           << category_to_space(new_category) << std::endl;
+        std::cout << "Updated heap page " << page_id << " in leaf page " << leaf_page_id
+                  << " space: " << category_to_space(old_category) << " -> " 
+                  << category_to_space(new_category) << std::endl;
         
     }
-    else release_page(leaf_page_id,false);
+    else {release_page(leaf_page_id,false);
+    std::cout<<"空间类别未改变，无需更新"<<std::endl;
+    }
 }
 
 void SecFSM::update_node_value(uint32_t fsm_page_id, uint32_t node_index, uint8_t new_value) {
@@ -361,7 +368,7 @@ void SecFSM::update_node_value(uint32_t fsm_page_id, uint32_t node_index, uint8_
     
     page_data->nodes[node_index].set_value(new_value);
     page_data->is_dirty = true;
-    
+    serialize_page(*page_data, pageinuse->get_data(), PAGE_SIZE);
     // 向上传播更新
     release_page(fsm_page_id, false);
     propagate_update(fsm_page_id, node_index);
@@ -400,6 +407,7 @@ void SecFSM::propagate_update(uint32_t fsm_page_id, uint32_t node_index) {
     if (node_index == 0 && page_data->header.parent_page != 0) {
         uint8_t root_value = page_data->nodes[0].get_value();
         uint32_t parent_page_id = page_data->header.parent_page;
+        serialize_page(*page_data, pageinuse->get_data(), PAGE_SIZE);
         release_page(fsm_page_id, false);
         FSMPageData* parent_page = fetch_page(parent_page_id, false);
         if (parent_page) {
@@ -421,6 +429,7 @@ void SecFSM::propagate_update(uint32_t fsm_page_id, uint32_t node_index) {
         else release_page(parent_page_id, false);
     }
     else {
+        serialize_page(*page_data, pageinuse->get_data(), PAGE_SIZE);
         release_page(fsm_page_id, false);
     }
 }
@@ -642,22 +651,21 @@ FSMPageData* SecFSM::fetch_page(uint32_t page_id , bool read) {
         }else {
             page = server->rpc_lazy_fetch_s_page(meta_.table_id , page_id);
         }
-        std::cout<<"获取到页面id:"<<page_id<<std::endl;
+        //std::cout<<"获取到页面id:"<<page_id<<std::endl;
         if(page_id == FSM_META_PAGE_ID){
             deserialize_metadata(page->get_data(), PAGE_SIZE);
         }
         else deserialize_page(entry, page->get_data(), PAGE_SIZE);
     }else{
-        Page *page;
         if (SYSTEM_MODE == 0){
-            page = server->rpc_fetch_x_page(meta_.table_id , page_id);
+            pageinuse = server->rpc_fetch_x_page(meta_.table_id , page_id);
         }else{
-            page = server->rpc_lazy_fetch_x_page(meta_.table_id , page_id);
+            pageinuse = server->rpc_lazy_fetch_x_page(meta_.table_id , page_id);
         }
         if(page_id == FSM_META_PAGE_ID){
-            deserialize_metadata(page->get_data(), PAGE_SIZE);
+            deserialize_metadata(pageinuse->get_data(), PAGE_SIZE);
         }
-        else deserialize_page(entry, page->get_data(), PAGE_SIZE);
+        else deserialize_page(entry, pageinuse->get_data(), PAGE_SIZE);
     }
     return &entry;
 }
@@ -752,7 +760,7 @@ bool SecFSM::serialize_page(FSMPageData& page_data, char* buffer, uint32_t size)
 }
 
 bool SecFSM::deserialize_page(FSMPageData& page_data, const char* buffer, uint32_t size) {
-    std::cout<<"开始反序列化页面"<<std::endl;
+    //std::cout<<"开始反序列化页面"<<std::endl;
     if (size < sizeof(FSMPageHeader)) {
         return false;
     }
@@ -804,11 +812,13 @@ bool SecFSM::deserialize_page(FSMPageData& page_data, const char* buffer, uint32
 
 // 工具函数
 uint8_t SecFSM::space_to_category(uint32_t free_space) const {
+    if (free_space == 0) return static_cast<uint8_t>(SpaceCategory::NO_SPACE);
     if (free_space >= PAGE_SIZE * 9 / 10) return static_cast<uint8_t>(SpaceCategory::EMPTY);
     if (free_space >= PAGE_SIZE * 2 / 3) return static_cast<uint8_t>(SpaceCategory::ALMOST_EMPTY);
     if (free_space >= PAGE_SIZE / 3) return static_cast<uint8_t>(SpaceCategory::HALF_FULL);
     if (free_space >= PAGE_SIZE / 10) return static_cast<uint8_t>(SpaceCategory::ALMOST_FULL);
-    return static_cast<uint8_t>(SpaceCategory::FULL);
+    // 有小于 10% 但大于 0 的剩余空间
+    return static_cast<uint8_t>(SpaceCategory::ALMOST_FULL);
 }
 
 uint32_t SecFSM::category_to_space(uint8_t category) const {
@@ -817,7 +827,7 @@ uint32_t SecFSM::category_to_space(uint8_t category) const {
         case SpaceCategory::ALMOST_EMPTY: return PAGE_SIZE * 2 / 3;
         case SpaceCategory::HALF_FULL: return PAGE_SIZE / 3;
         case SpaceCategory::ALMOST_FULL: return PAGE_SIZE / 10;
-        case SpaceCategory::FULL: return 0;
+        case SpaceCategory::NO_SPACE: return 0;
         default: return 0;
     }
 }

@@ -30,11 +30,11 @@ enum class S_FSMPageType : uint8_t {
 
 // 空间分类
 enum class S_SpaceCategory : uint8_t {
-    FULL = 0,           // 0-10% 空闲
-    ALMOST_FULL = 64,   // 11-35% 空闲  
-    HALF_FULL = 128,    // 36-65% 空闲
-    ALMOST_EMPTY = 192, // 66-90% 空闲
-    EMPTY = 255         // 91-100% 空闲
+    NO_SPACE = 0,       // 0 bytes 空闲（没有剩余空间）
+    ALMOST_FULL = 64,   // 很少空间（>0 且 <= 10% 空闲）
+    HALF_FULL = 128,    // 中等空间（约 33%-66%）
+    ALMOST_EMPTY = 192, // 较多空间（大约 66%-90%）
+    EMPTY = 255         // 几乎全空（>90% 空闲）
 };
 
 // FSM元数据
@@ -78,7 +78,7 @@ struct S_FSMPageHeader {
 // FSM树节点
 class S_FSMNode {
 public:
-    S_FSMNode() : value(static_cast<uint8_t>(S_SpaceCategory::FULL)), is_dirty(false) {}
+    S_FSMNode() : value(static_cast<uint8_t>(S_SpaceCategory::NO_SPACE)), is_dirty(false) {}
     explicit S_FSMNode(S_SpaceCategory cat) : value(static_cast<uint8_t>(cat)), is_dirty(false) {}
     
     uint8_t get_value() const { return value; }
@@ -123,7 +123,7 @@ public:
         header.child_count = 0;
         
         calculate_leaf_structure();
-        nodes.resize(header.node_count, S_FSMNode(S_SpaceCategory::FULL));
+        nodes.resize(header.node_count, S_FSMNode(S_SpaceCategory::NO_SPACE));
         is_loaded = true;
         is_dirty = true;
     }
@@ -141,7 +141,7 @@ public:
         header.first_child_page = child_pages.empty() ? 0 : child_pages.front();
         
         calculate_internal_structure();
-        nodes.resize(header.node_count, S_FSMNode(S_SpaceCategory::FULL));
+        nodes.resize(header.node_count, S_FSMNode(S_SpaceCategory::NO_SPACE));
         child_page_ids = child_pages;
         is_loaded = true;
         is_dirty = true;
