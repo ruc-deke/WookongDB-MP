@@ -399,7 +399,9 @@ public:
                 return {-1 , -1};
             }
 
-            LOG(INFO) << "Insert A Key , table_id = " << item->table_id << " page_id = " << free_page_id << " slot_id = " << slot_no;
+            LOG(INFO) << "Insert A Key , table_id = " << item->table_id << " page_id = " << 
+                free_page_id << " slot_id = " << slot_no
+                << " insert key = " << item->key;
 
             return {free_page_id , slot_no};
         }
