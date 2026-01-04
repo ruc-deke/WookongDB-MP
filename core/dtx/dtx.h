@@ -56,18 +56,16 @@ class DTX {
   void TxBegin(tx_id_t txid);
 
   void AddToReadOnlySet(DataItemPtr item);
-
   void AddToReadWriteSet(DataItemPtr item, bool release_imme = false);
-
   void AddToInsertSet(DataItemPtr item);
+  void AddToOldSet(DataItem *item);
+  void AddToDeleteSet(DataItemPtr item);
 
   void RemoveLastROItem();
 
   void ClearReadOnlySet();
 
   void ClearReadWriteSet();
-
-  void ClearInsertSet();
 
   bool TxExe(coro_yield_t& yield, bool fail_abort = true);
 
@@ -269,6 +267,7 @@ class DTX {
   std::vector<DataSetItem> read_only_set;     // 本事务读取过的数据项集合
   std::vector<DataSetItem> read_write_set;    // 本事务修改的数据项集合
   std::vector<DataSetItem> insert_set;        // 本事务插入的数据项集合
+  std::vector<DataItem*> old_set;
   std::vector<DataSetItem> delete_set;        // 本事务删除的页面集合
 
   IndexCache* index_cache;
@@ -360,6 +359,17 @@ void DTX::AddToInsertSet(DataItemPtr item) {
 }
 
 ALWAYS_INLINE
+void DTX::AddToOldSet(DataItem *item) {
+  old_set.emplace_back(item);
+}
+
+ALWAYS_INLINE
+void DTX::AddToDeleteSet(DataItemPtr item_ptr){
+  DataSetItem data_set_item(item_ptr);
+  delete_set.emplace_back(data_set_item);
+}
+
+ALWAYS_INLINE
 void DTX::ClearReadOnlySet() {
   read_only_set.clear();
 }
@@ -370,15 +380,12 @@ void DTX::ClearReadWriteSet() {
 }
 
 ALWAYS_INLINE
-void DTX::ClearInsertSet() {
-  insert_set.clear();
-}
-
-ALWAYS_INLINE
 void DTX::Clean() {
   read_only_set.clear();
   read_write_set.clear();
   insert_set.clear();
+  delete_set.clear();
+  old_set.clear();
   tx_status = TXStatus::TX_INIT;
   participants.clear();
 }

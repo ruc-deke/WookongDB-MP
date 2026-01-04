@@ -156,6 +156,20 @@ int DiskManager::open_file(const std::string &path) {
     if (fd < 0) {
         throw UnixError();
     }
+
+    // 记录 fd 与路径的映射，并将 fd2pageno 校正为当前文件大小对应的页数。
+    // 如果不校正，当内核复用 fd 值时会沿用上一份文件的页计数，导致分配的新页号跳变。
+    fd2path_[fd] = path;
+    path2fd_[path] = fd;
+
+    off_t end_off = lseek(fd, 0, SEEK_END);
+    if (end_off < 0) {
+        throw UnixError();
+    }
+    fd2pageno_[fd] = static_cast<page_id_t>(end_off / PAGE_SIZE);
+    // 归位文件指针，避免影响后续读写（调用者通常会自行定位，这里防御性重置）。
+    lseek(fd, 0, SEEK_SET);
+
     return fd;
 }
 
@@ -166,6 +180,13 @@ int DiskManager::open_file(const std::string &path) {
 void DiskManager::close_file(int fd) {
     if (close(fd) != 0) {
         throw UnixError();
+    }
+
+    // 清理 fd ↔ path 映射，避免后续 destroy_file 误判为仍在打开状态。
+    auto it = fd2path_.find(fd);
+    if (it != fd2path_.end()) {
+        path2fd_.erase(it->second);
+        fd2path_.erase(it);
     }
 }
 

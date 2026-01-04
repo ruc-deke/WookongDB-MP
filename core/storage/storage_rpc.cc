@@ -216,8 +216,6 @@ namespace storage_service{
                        ::google::protobuf::Closure* done){
         brpc::ClosureGuard done_guard(done);
 
-        // std::cout << "Got Here\n";
-
         std::string table_name = request->page_id().table_name();
         int fd = disk_manager_->open_file(table_name);
         page_id_t page_no = request->page_id().page_no();
@@ -306,29 +304,18 @@ namespace storage_service{
             if (!mu_ptr) mu_ptr = std::make_unique<std::mutex>();
         }
         std::lock_guard<std::mutex> per_table_guard(*g_create_page_mu[table_id]);
-
         int fd = disk_manager_->open_file(table_path);
-
         // 判断是否为 B+ 索引文件
         bool is_bp_index = (table_path.find("_bl") != std::string::npos);
 
-        // 创建索引页
-        if (is_bp_index) {
-            off_t end_off = lseek(fd, 0, SEEK_END);
-            int current_pages = static_cast<int>(end_off / PAGE_SIZE);
-            disk_manager_->set_fd2pageno(fd, current_pages);
-        }
-
         // 让 disk_manager 来分配一个新的页面，其实也是堆积木的过程
         page_id_t new_page_no = disk_manager_->allocate_page(fd);
-        if(table_id == 0){
-           new_page_no +=16668;
-        }
+
         // 初始化整页为 0
         char zero_page[PAGE_SIZE];
         memset(zero_page, 0, PAGE_SIZE);
         disk_manager_->write_page(fd, new_page_no, zero_page, PAGE_SIZE);
-
+        
         if (is_bp_index) {
             // 索引页：正确写入 BPNodeHdr::next_free_page_no，避免覆盖 parent
             int next_free = INVALID_PAGE_ID;

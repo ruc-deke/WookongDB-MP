@@ -295,43 +295,137 @@ public:
     }
 
     Rid delete_entry(DataItem *item){
-        // 1. 修改 FSM
-
-        // 不删除 BLink 里面的 key，因为MVCC 可以读历史版本，如果删了就不可见了
+        // 其实 BLink 也应该有版本机制，目前还没实现，先实现一个简易版本的 delete 和 insert，验证 FSM 功能的可行性
         Rid delete_rid = get_rid_from_blink(item->table_id , item->key);
         if (delete_rid.page_no_ == -1){
             return {-1 , -1};
         }
 
-        // 2. 修改 BitMap
-        Page *page = rpc_lazy_fetch_x_page(item->table_id , delete_rid.page_no_ , false);
+        Page *page = nullptr;
+
+        // 目前只支持 lazy 模式删除数据项
+        if (SYSTEM_MODE == 1){
+            page = rpc_lazy_fetch_x_page(item->table_id , delete_rid.page_no_ , true);
+        }else {
+            assert(false);
+        }
+        
         char *data = page->get_data();
         RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(data + OFFSET_PAGE_HDR);
         char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+        if (!Bitmap::is_set(bitmap , delete_rid.slot_no_)){
+            LOG(INFO) << "Delete Entry , Exist In BLink , But Tuple Has been deleted";
+            return {-1 , -1};
+        }
+
+        // 检查元组是否已经上锁了，如果上锁了，返回 {-1 , -1}
+        auto &meta = node_->getMetaManager()->GetTableMeta(item->table_id);
+        char *slots = bitmap + meta.bitmap_size_;
+        char* tuple = slots + delete_rid.slot_no_ * (sizeof(DataItem) + sizeof(itemkey_t));
+        DataItem* target_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+        if (target_item->lock == EXCLUSIVE_LOCKED){
+            LOG(INFO) << "Delete Entry , But Tuple Is Exclusive Locked";
+            if (SYSTEM_MODE == 1){
+                rpc_lazy_release_x_page(item->table_id , delete_rid.page_no_);
+            }else {
+                assert(false);
+            }
+            return {-1 , -1};
+        }
+
+        // 走到这里，说明一定可以删除这个数据项了
+        // 只做两个事情，其一是把这个数据项的 BitMap 给 reset 了，其二是修改 FSM
         Bitmap::reset(bitmap, delete_rid.slot_no_);
         page_hdr->num_records_--;
-
+        
         // TODO
         // 修改 FSM
 
         // 3. 释放掉页面锁
-        rpc_lazy_release_x_page(item->table_id, delete_rid.page_no_);
-
+        if (SYSTEM_MODE == 1){
+            rpc_lazy_release_x_page(item->table_id , delete_rid.page_no_);
+        }else {
+            assert(false);
+        }
+        
         return delete_rid;
     }
 
-    // 插入一个新的数据项
-    Rid insert_entry(DataItem *item){
-        // 1. 从 FSM 里面获取到一个存在空闲空闲的页面
+    // 还没实现 B+ 树的 MVCC ，所以先实现一个简易版本的 insert
+    Rid insert_entry(DataItem *item , DataItem *old_item){
+        // 目前的删除策略里，不会去删除 B+ 树里面的 key，只会把元组的 BitMap 给置为 false，所以如果在 B+ 树里边找到了 key，就去检查下元组是否真的存在
+        Rid rid = get_rid_from_blink(item->table_id , item->key);
+        if (rid.page_no_ != -1){
+            Page *page = nullptr;
+            if (SYSTEM_MODE == 1){
+                page = rpc_lazy_fetch_x_page(item->table_id , rid.page_no_ , false);
+            }else {
+                assert(false);
+            }
+
+            char *data = page->get_data();
+            auto &meta = node_->getMetaManager()->GetTableMeta(item->table_id);
+            RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(data + OFFSET_PAGE_HDR);
+            char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+
+            // 如果这个位置已经被逻辑删除了，那就可以复用这个位置
+            if (!Bitmap::is_set(bitmap , rid.slot_no_)){
+                // 1. 设置 BitMap
+                Bitmap::set(bitmap, rid.slot_no_);
+                page_hdr->num_records_++;
+
+                // 2. 写入数据
+                char *slots = bitmap + meta.bitmap_size_;
+                char* tuple = slots + rid.slot_no_ * (sizeof(DataItem) + sizeof(itemkey_t));
+                DataItem* target_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+                assert(target_item->key > 0);
+                assert(target_item->key == item->key);
+
+                // 3. 检查是否有残留锁（虽然逻辑删除后应该没有锁，但防御性检查一下）
+                if (target_item->lock == EXCLUSIVE_LOCKED){
+                    LOG(INFO) << "Try To Reuse A Slot Which is Locked , Need To RollBack";
+                    if (SYSTEM_MODE == 1){
+                        rpc_lazy_release_x_page(item->table_id , rid.page_no_);
+                    } else{
+                        assert(false);
+                    }
+                    return {-1 , -1};
+                }
+
+                *old_item = *target_item;
+
+                *target_item = *item;
+                memcpy(tuple, &item->key, sizeof(itemkey_t));
+                target_item->lock = EXCLUSIVE_LOCKED;
+
+                // 4. 释放页面锁
+                if (SYSTEM_MODE == 1){
+                    rpc_lazy_release_x_page(item->table_id , rid.page_no_);
+                }else {
+                    assert(false);
+                }
+                
+                return rid;
+            } else {
+                // 如果位置被占用，说明 key 冲突了
+                if (SYSTEM_MODE == 1){
+                    rpc_lazy_release_x_page(item->table_id , rid.page_no_);
+                }else {
+                    assert(false);
+                }
+                LOG(INFO) << "Insert Key Conflict , key = " << item->key;
+                return {-1 , -1};
+            }
+        }
+
         int try_times=0;
         bool tag=false;
         while(1){
             page_id_t free_page_id = INVALID_PAGE_ID;
             if(try_times>=2){
                  free_page_id = rpc_create_page(item->table_id);//md爆了，先写这了// 分配新页面给他，并上锁，保证新页面一定能供他插入
-                 //update_page_space(item->table_id , free_page_id , PAGE_SIZE);//更新新页面的空间信息
+                 std::cout<<"创建新页面id为"<<free_page_id<<std::endl;
                  tag=true;
-                std::cout << "Allocated new page id = " << free_page_id << " for table " << item->table_id << "\n";
             } else {
                 free_page_id = search_free_page(item->table_id , sizeof(DataItem) + sizeof(itemkey_t));
             }
@@ -340,6 +434,7 @@ public:
                 try_times++;
                 continue;
             }
+
             // 2. 插入到页面里
             /*
                 这里解释下，为什么先插入元组里
@@ -350,11 +445,19 @@ public:
                 2. 只在索引里面进行页面级别的锁，事务级别的不管他了，因为插入写入的是一个新的版本，并且我们会给
                 插入的这个元组加上排他锁，所以自然完成了事务级别的并发，但是需要先插入元组，再插入索引
             */
-            Page *page = rpc_lazy_fetch_x_page(item->table_id , free_page_id , false);
+            Page *page = nullptr;
+            // 目前只支持 lazy 模式下插入数据
+            if (SYSTEM_MODE == 1){
+                page = rpc_lazy_fetch_x_page(item->table_id , free_page_id , false);
+            }else {
+                assert(false);
+            }
+
             //更新新页面的空间信息 
             if(tag) {
                 update_page_space(item->table_id , free_page_id , PAGE_SIZE);
             }
+
             std::cout << "Free Page ID = " << free_page_id << "\n";
             /*
                 这里取返回的page_id会有三种情况
@@ -369,39 +472,71 @@ public:
             // 2.1 去 BitMap 里面找到一个空闲的 slot
             int slot_no = Bitmap::first_bit(false, bitmap, meta.num_records_per_page_);
             int left_item_num= meta.num_records_per_page_ - slot_no;
-            std::cout<<"剩余元组位置为"<<left_item_num<<std::endl;
-            update_page_space(item->table_id , free_page_id , left_item_num*(sizeof(DataItem) + sizeof(itemkey_t)));//这里其实逻辑不对，没考虑删除，先这么写着
-            std::cout << "Slot No = " << slot_no << "\n";
+
             if (slot_no >= meta.num_records_per_page_){
-                rpc_lazy_release_x_page(item->table_id , free_page_id);
+                if (SYSTEM_MODE == 1){
+                    rpc_lazy_release_x_page(item->table_id , free_page_id);
+                }else {
+                    assert(false);
+                }
                 try_times++;
+                update_page_space(item->table_id , free_page_id , 0);
                 continue;
             }
-            std::cout << "Left Item Num = " << left_item_num << "\n";
             assert(slot_no < meta.num_records_per_page_);
-            Bitmap::set(bitmap, slot_no);
+
             page_hdr->num_records_++;
             char *slots = bitmap + meta.bitmap_size_;
             char* tuple = slots + slot_no * (sizeof(DataItem) + sizeof(itemkey_t));
-            memcpy(tuple, &item->key, sizeof(itemkey_t));
+            
             // 写入 DataItem
             DataItem* target_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+            if (target_item && target_item->lock == EXCLUSIVE_LOCKED){
+                LOG(INFO) << "Try To Insert A Key Which is Locked , Need To RollBack";
+                if (SYSTEM_MODE == 1){
+                    rpc_lazy_release_x_page(item->table_id , free_page_id);
+                } else{
+                    assert(false);
+                }
+                return {-1 , -1};
+            }
+
             *target_item = *item;
+            memcpy(tuple, &item->key, sizeof(itemkey_t));
+
+            // 通过了再设置 BitMap
+            Bitmap::set(bitmap, slot_no);
             // 2.2 把元组里边的锁设置成 EXCLUSIVE_LOCKED
+            // LOG(INFO) << "Set EXCLUSIVE LOCKED , key = " << item->key;
             target_item->lock = EXCLUSIVE_LOCKED;
-            // 2.3 释放掉页面锁
-            rpc_lazy_release_x_page(item->table_id, free_page_id);
 
             // 3. 插入到 BLink 
             auto page_id = bl_indexes[item->table_id]->insert_entry(&item->key , {free_page_id , slot_no});
             if (page_id == INVALID_PAGE_ID){
+                target_item->lock = 0;
+                Bitmap::reset(bitmap , slot_no);
+
+                if (SYSTEM_MODE == 1){
+                    rpc_lazy_release_x_page(item->table_id , free_page_id);
+                }else {
+                    assert(false);
+                }
                 LOG(INFO) << "Try To Insert A Same Key\n";
                 return {-1 , -1};
             }
 
-            LOG(INFO) << "Insert A Key , table_id = " << item->table_id << " page_id = " << 
-                free_page_id << " slot_id = " << slot_no
-                << " insert key = " << item->key;
+
+            update_page_space(item->table_id , free_page_id , (left_item_num-1)*(sizeof(DataItem) + sizeof(itemkey_t)));//这里其实逻辑不对，没考虑删除，先这么写着
+
+            if (SYSTEM_MODE == 1){
+                rpc_lazy_release_x_page(item->table_id , free_page_id);
+            }else {
+                assert(false);
+            }
+            
+            LOG(INFO) << "Insert A key : " << item->key 
+                    << " Into Page , page id = " << free_page_id
+                    << " Slot No = " << slot_no;
 
             return {free_page_id , slot_no};
         }
@@ -591,7 +726,10 @@ public:
         return nullptr;
     }
 
+    // 已经在缓冲区内的，更新其数据
+    // 只有 eager 和 ts 模式下会调用这个
     bool checkIfDirectlyUpdate(table_id_t table_id , page_id_t page_id , const void *data){
+        assert(SYSTEM_MODE == 0 || SYSTEM_MODE == 12 || SYSTEM_MODE == 13);
         return node_->getBufferPoolByIndex(table_id)->checkIfDirectlyUpdate(page_id , data);
     }
 
@@ -626,7 +764,7 @@ public:
         }
 
         // 作为一个参数传入淘汰窗口中，目标是锁定一个页面，确保页面淘汰过程中别的线程无法访问本页面
-        auto try_begin_evict = ([this , table_id](page_id_t victim_page_id) {
+        static auto try_begin_evict = ([this , table_id](page_id_t victim_page_id) {
             return this->node_->lazy_local_page_lock_tables[table_id]->GetLock(victim_page_id)->TryBeginEvict();
         });
         
@@ -671,21 +809,7 @@ public:
                     2. 测试了一下，远程不同意的概率是很低的，几万分之一(缓冲区不是很小的时候)，因此就算先刷下去也没关系，即使远程解锁失败了，对性能的影响也不是很大 
                 */
                 // LOG(INFO) << "Flush To Disk Because It Might be replaced , table_id = " << table_id << " page_id = " << replaced_page_id;
-                Page *old_page = node_->fetch_page(table_id , replaced_page_id);
-                storage_service::StorageService_Stub storage_stub(get_storage_channel());
-                brpc::Controller cntl_wp;
-                storage_service::WritePageRequest req;
-                storage_service::WritePageResponse resp;
-                auto* pid = req.mutable_page_id();
-                pid->set_table_name(table_name_meta[table_id]);
-                pid->set_page_no(replaced_page_id);
-                req.set_data(old_page->get_data(), PAGE_SIZE);
-                storage_stub.WritePage(&cntl_wp, &req, &resp, NULL);
-                if (cntl_wp.Failed()) {
-                    LOG(ERROR) << "WritePage RPC failed for table_id=" << table_id
-                                << " page_id=" << replaced_page_id
-                                << " err=" << cntl_wp.ErrorText();
-                }
+                rpc_flush_page_to_storage(table_id , replaced_page_id);
             }
             // 写回到磁盘后，再解锁，防止别人拿到锁之后把页面换了
             lr_local_lock->UnlockMtx();
@@ -702,7 +826,7 @@ public:
             node_id_t page_belong_node = get_node_id_by_page_id(table_id , replaced_page_id);
             if (page_belong_node == node_->node_id){
                 this->page_table_service_impl_->BufferReleaseUnlock_LocalCall(request , response);
-            }else{
+            }else {
                 brpc::Channel* page_table_channel =  this->nodes_channel + page_belong_node;
                 page_table_service::PageTableService_Stub pagetable_stub(page_table_channel);
                 brpc::Controller cntl;

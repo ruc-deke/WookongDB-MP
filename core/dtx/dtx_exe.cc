@@ -117,12 +117,14 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
     } else if (SYSTEM_MODE == 2){
       // 2pc TODO
     } else {
-      Rid insert_rid = compute_server->insert_entry(insert_set[i].item_ptr.get());
-      // 如果插入的 key 已经存在了，那就 Abort 
+      // insert 有可能是覆盖了旧的数据，所以把旧的给记下来
+      DataItem *old_item = nullptr;
+      Rid insert_rid = compute_server->insert_entry(insert_set[i].item_ptr.get() , old_item);
       if (insert_rid.page_no_ == -1){
         tx_status = TXStatus::TX_ABORTING;
         break;
       }
+      AddToOldSet(old_item);
       item.is_fetched = true;
     }
   }
@@ -139,8 +141,10 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
       // 2pc TODO
     } else {
       Rid delete_rid = compute_server->delete_entry(delete_set[i].item_ptr.get());
+      // 如果删除的元组不存在，先按回滚处理
       if (delete_rid.page_no_ == -1){
-        continue;
+        tx_status = TXStatus::TX_ABORTING;
+        break;
       }
       item.is_fetched = true;
     }
@@ -326,6 +330,7 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
     // 验证在 TxExe 阶段读取到的数据，和我现在读取到的数据是一致的
     assert(orginal_item->key == data_item.item_ptr->key);
     orginal_item->version = commit_ts;
+    LOG(INFO) << "Item Unlock Commit , key = " << orginal_item->key;
     orginal_item->lock = UNLOCKED;  
     struct timespec start_time2, end_time2;
     clock_gettime(CLOCK_REALTIME, &start_time2);
@@ -367,6 +372,7 @@ void DTX::TxAbort(coro_yield_t& yield) {
       }
     }
 
+    LOG(INFO) << "Tx Abort , Inserted Key = : ";
     // 需要把之前插入的数据给删掉
     for (size_t i = 0 ; i < insert_set.size() ; i++){
       DataSetItem &data_item = insert_set[i];
@@ -378,7 +384,11 @@ void DTX::TxAbort(coro_yield_t& yield) {
         Rid rid = compute_server->get_rid_from_blink(data_item.item_ptr->table_id , data_item.item_ptr->key);
         assert(rid.page_no_ != -1);
 
-        compute_server->update_page_space(data_item.item_ptr->table_id , rid.page_no_ , sizeof(DataItem) + sizeof(itemkey_t));
+        // TODO FSM 恢复
+
+        // 恢复页面数据，分类
+        // 1. old_set[i] == nullptr，表明之前没有旧的数据项，插入的是一个全新的数据项，把 BitMap 设置为 false 即可
+        // 2. old_set[i] != nullptr，此时需要把数据项给恢复成 old_page_data
 
         struct timespec start_time1 , end_time1;
         clock_gettime(CLOCK_REALTIME , &start_time1);
@@ -389,6 +399,7 @@ void DTX::TxAbort(coro_yield_t& yield) {
         // 在 BitMap 里把这个页面给抹掉，逻辑上给它删了
         RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(page + OFFSET_PAGE_HDR);
         char *bitmap = page + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+        assert(Bitmap::is_set(bitmap , rid.slot_no_));
         Bitmap::reset(bitmap, rid.slot_no_);
         page_hdr->num_records_--;
 
@@ -396,6 +407,13 @@ void DTX::TxAbort(coro_yield_t& yield) {
         GetDataItemFromPageRW(data_item.item_ptr->table_id , page , rid , original_item);
         assert(original_item->key == data_item.item_ptr->key);
         assert(original_item->lock == EXCLUSIVE_LOCKED);
+        LOG(INFO) << "TxAbort , inserted key = " << original_item->key;
+
+        // TODO，感觉也不用覆盖，把 BitMap 设置为 false 就行了，先不管了
+        if (old_set[i] != nullptr){
+
+        }
+
         original_item->lock = UNLOCKED;
 
         struct timespec start_time2, end_time2;
@@ -410,12 +428,7 @@ void DTX::TxAbort(coro_yield_t& yield) {
     for (size_t i = 0 ; i < delete_set.size() ; i++){
       DataSetItem &data_item = delete_set[i];
       if (data_item.is_fetched){
-        Rid rid = compute_server->insert_entry(data_item.item_ptr.get());
-        // 之前本事务删掉了这个 key，但是另外一个事务又插入了这个 key，这种情况就不管了
-        if (rid.page_no_ == -1){
-          continue;
-        }
-        
+
       }
     }
   } else if(SYSTEM_MODE == 2){

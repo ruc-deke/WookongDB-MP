@@ -46,6 +46,7 @@ void YCSB::PopulateUserTable(){
     rm_manager->get_diskmanager()->write_page(fd1, RM_FILE_HDR_PAGE, (char *)&table_file_fsm->file_hdr_, sizeof(table_file_fsm->file_hdr_));
     int leftrecords = record_count % num_records_per_page;//最后一页的记录数
     fsm_trees[0]->update_page_space(num_pages, (num_records_per_page - leftrecords) * (sizeof(DataItem) + sizeof(itemkey_t)));//更新最后一页的空间信息,free space为可插入的元组数量*（key+value）
+    //std::cout<<"num_pages:"<<num_pages<<" leftrecords:"<<leftrecords<<std::endl;
     // for(int id=num_pages+1;id<3*num_pages;id++){
     //     fsm_trees[0]->update_page_space(id,num_records_per_page * (sizeof(DataItem) + sizeof(itemkey_t)));//初始化所有页面空间信息为0，之后运行时再更新
     // }
@@ -73,10 +74,8 @@ void YCSB::LoadRecord(RmFileHandle *file_handle ,
 
 
 void YCSB::VerifyData() {
-    std::cout << "Start verifying YCSB data...\n";
+    // std::cout << "Start verifying YCSB data...\n";
     std::string table_name = bench_name + "_user_table";
-    // We reuse the existing file if it's open, but rm_manager->open_file returns a unique_ptr.
-    // If we call open_file it might reopen it.
     std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(table_name);
     
     int verified_count = 0;
@@ -94,8 +93,6 @@ void YCSB::VerifyData() {
         
         std::unique_ptr<RmRecord> record = table_file->get_record(rid, nullptr);
         if (record != nullptr) {
-            // record->value_ points to the DataItem serialized data
-            // We need to interpret it as DataItem
             DataItem* data_item = reinterpret_cast<DataItem*>(record->value_);
             
             // Check size
@@ -110,10 +107,10 @@ void YCSB::VerifyData() {
             assert(false);
         }
         
-        if (id % 10000 == 0 && id > 0) {
-            std::cout << "Verified " << id << " records...\n";
-        }
+        // if (id % 10000 == 0 && id > 0) {
+        //     std::cout << "Verified " << id << " records...\n";
+        // }
     }
-    std::cout << "Verification complete \n";
+    // std::cout << "Verification complete \n";
     rm_manager->close_file(table_file.get());
 }

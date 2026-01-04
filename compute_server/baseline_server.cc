@@ -177,7 +177,7 @@ void ComputeServer::rpc_release_x_page(table_id_t table_id, page_id_t page_id) {
     bool unlock_remote = node_->eager_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockExclusive();
     assert(unlock_remote);
     if(unlock_remote){
-        // 先刷盘
+        // 
         rpc_flush_page_to_storage(table_id , page_id);
         
         // rpc release page

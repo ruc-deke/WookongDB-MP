@@ -103,8 +103,8 @@ bool S_SecFSM::build_fsm_tree() {
         fsm_pages_[leaf_page_id] = leaf_page;
         current_level_pages.push_back(leaf_page_id);
         
-        std::cout << "Created leaf page " << leaf_page_id << " managing heap pages " 
-                  << first_heap_page << " to " << (first_heap_page + heap_pages_count - 1) << std::endl;
+        // std::cout << "Created leaf page " << leaf_page_id << " managing heap pages " 
+        //           << first_heap_page << " to " << (first_heap_page + heap_pages_count - 1) << std::endl;
     }
     meta_.tree_height = 1; // 至少有一层叶子页面
     
@@ -256,9 +256,9 @@ uint32_t S_SecFSM::search_in_leaf_page(S_FSMPageData& leaf_page, uint8_t require
     
     // 验证堆页面ID在有效范围内
     if (heap_page_id < meta_.total_heap_pages) {
-        std::cout << "Found free page: " << heap_page_id 
-                  << " with space: " << category_to_space(leaf_page.nodes[current_index].get_value()) 
-                  << " in leaf page " << leaf_page.header.page_id << std::endl;
+        // std::cout << "Found free page: " << heap_page_id 
+        //           << " with space: " << category_to_space(leaf_page.nodes[current_index].get_value()) 
+        //           << " in leaf page " << leaf_page.header.page_id << std::endl;
         return heap_page_id;
     }
     

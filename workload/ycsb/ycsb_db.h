@@ -110,24 +110,28 @@ public:
     // 事务生成函数，生成多个读集和写集
     bool YCSB_Multi_RW(uint64_t *seed , tx_id_t tx_id , DTX *dtx , coro_yield_t& yield , bool is_partitioned = false){
         dtx->TxBegin(tx_id);
+
         // 1. 生成 10 个 key，放在 vec 里
-        std::vector<itemkey_t> keys(10);
-        generate_ten_keys(keys , seed , is_partitioned , dtx);
+        // std::vector<itemkey_t> keys(10);
+        // generate_ten_keys(keys , seed , is_partitioned , dtx);
 
+        // for (int i = 0 ; i < 10 ; i++){
+        //     if (rw_flags[i]){
+        //         // 读事务
+        //         auto ro_user_id_i = std::make_shared<DataItem>(0 , keys[i]);
+        //         dtx->AddToReadOnlySet(ro_user_id_i);
+        //     }else {
+        //         auto rw_user_id_i = std::make_shared<DataItem>(0 , keys[i]);
+        //         dtx->AddToReadWriteSet(rw_user_id_i);
+        //     }
+        // }
+
+        static std::atomic<int> now_node_account_begin{10000000 * dtx->compute_server->getNodeID() + 10000000};
+        static std::atomic<int> delete_begin{10000000 * dtx->compute_server->getNodeID() + 10000000};
+
+        // 插入 10 个 key
         for (int i = 0 ; i < 10 ; i++){
-            if (rw_flags[i]){
-                // 读事务
-                auto ro_user_id_i = std::make_shared<DataItem>(0 , keys[i]);
-                dtx->AddToReadOnlySet(ro_user_id_i);
-            }else {
-                auto rw_user_id_i = std::make_shared<DataItem>(0 , keys[i]);
-                dtx->AddToReadWriteSet(rw_user_id_i);
-            }
-        }
-
-        // 随机执行三个插入试试
-        for (int i = 0 ; i < 3 ; i++){
-            int gen_id = now_account.fetch_add(1);
+            int gen_id = now_node_account_begin.fetch_add(1);
             auto insert_item = std::make_shared<DataItem>(0, sizeof(ycsb_user_table_val), gen_id, 1);
             ycsb_user_table_val* val = (ycsb_user_table_val*)insert_item->value;
             
@@ -146,7 +150,18 @@ public:
             dtx->AddToInsertSet(insert_item);
         }
 
+        // 随机删除 3 个
+        // for (int i = 0 ; i < 3 ; i++){
+        //     int delete_id = delete_begin.fetch_add(1);
+        //     auto delete_item = std::make_shared<DataItem>(0 , sizeof(ycsb_user_table_val) , delete_id , 1);
+        //     ycsb_user_table_val *val = (ycsb_user_table_val*)delete_item->value;
+            
+        //     dtx->AddToDeleteSet(delete_item);
+        // }
+
+        // 现在的 insert 和 delete 应该是不会回滚的
         if (!(dtx->TxExe(yield))){
+            assert(false);
             return false;
         }
         

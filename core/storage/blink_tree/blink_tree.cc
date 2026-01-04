@@ -218,7 +218,7 @@ void S_BLinkIndexHandle::insert_into_parent(S_BLinkNodeHandle *old_node , const 
     if (old_node->is_root()){
         page_id_t new_root_id = create_node();
         S_BLinkNodeHandle *new_root = fetch_node(new_root_id , BPOperation::INSERT_OPERA);
-        std::cout << "Create A New Root , page_no = " << new_root_id << "\n";
+        std::cout << "Storage BLink Create A New Root , page_no = " << new_root_id << "\n";
 
         new_root->set_is_leaf(false);
         new_root->set_next_leaf(INVALID_PAGE_ID);

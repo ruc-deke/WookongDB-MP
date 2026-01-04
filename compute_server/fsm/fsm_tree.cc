@@ -125,8 +125,8 @@ bool SecFSM::build_fsm_tree() {
         fsm_pages_[leaf_page_id] = leaf_page;
         current_level_pages.push_back(leaf_page_id);
         
-        std::cout << "Created leaf page " << leaf_page_id << " managing heap pages " 
-                  << first_heap_page << " to " << (first_heap_page + heap_pages_count - 1) << std::endl;
+        // std::cout << "Created leaf page " << leaf_page_id << " managing heap pages " 
+        //           << first_heap_page << " to " << (first_heap_page + heap_pages_count - 1) << std::endl;
     }
     meta_.tree_height = 1; // 至少有一层叶子页面
     
@@ -166,7 +166,7 @@ bool SecFSM::build_fsm_tree() {
     // 设置根页面
     if (current_level_pages.size() == 1) {
         meta_.root_page_id = current_level_pages[0];
-        std::cout << "Root page set to: " << meta_.root_page_id << std::endl;
+        // std::cout << "Root page set to: " << meta_.root_page_id << std::endl;
     } else {
         std::cerr << "Error: Expected exactly one root page, got " 
                   << current_level_pages.size() << std::endl;
@@ -210,7 +210,7 @@ uint32_t SecFSM::find_free_page(uint32_t min_space_needed) {
     // }
     
     uint8_t required_category = space_to_category(min_space_needed);
-    std::cout<<"寻找至少有 "<<required_category<<" 空闲空间的页面"<<std::endl;
+    // std::cout<<"寻找至少有 "<<required_category<<" 空闲空间的页面"<<std::endl;
     // 从根页面开始搜索
     return search_from_page(meta_.root_page_id, required_category);
 }
@@ -300,9 +300,9 @@ uint32_t SecFSM::search_in_leaf_page(FSMPageData& leaf_page, uint8_t required_ca
     
     // 验证堆页面ID在有效范围内
     if (heap_page_id < meta_.total_heap_pages) {
-        std::cout << "Found free page: " << heap_page_id 
-                  << " with space: " << category_to_space(leaf_page.nodes[current_index].get_value()) 
-                  << " in leaf page " << leaf_page.header.page_id << std::endl;
+        // std::cout << "Found free page: " << heap_page_id 
+        //           << " with space: " << category_to_space(leaf_page.nodes[current_index].get_value()) 
+        //           << " in leaf page " << leaf_page.header.page_id << std::endl;
         return heap_page_id;
     }
     
@@ -311,7 +311,7 @@ uint32_t SecFSM::search_in_leaf_page(FSMPageData& leaf_page, uint8_t required_ca
 
 void SecFSM::update_page_space(uint32_t page_id, uint32_t free_space) {
     std::lock_guard<std::mutex> lock(mutex_);
-    std::cout<<"准备更新页面 "<<page_id<<" 的空闲空间为 "<<free_space<<std::endl;
+    // std::cout<<"准备更新页面 "<<page_id<<" 的空闲空间为 "<<free_space<<std::endl;
     if (!initialized_ ) {
         fetch_page(1, true);
         release_page(1, true);
@@ -349,14 +349,18 @@ void SecFSM::update_page_space(uint32_t page_id, uint32_t free_space) {
         // 更新叶子节点
         release_page(leaf_page_id,false);
         update_node_value(leaf_page_id, leaf_index, new_category);
-        
-        std::cout << "Updated heap page " << page_id << " in leaf page " << leaf_page_id
-                  << " space: " << category_to_space(old_category) << " -> " 
-                  << category_to_space(new_category) << std::endl;
+        if(page_id==16667){
+            std::cout << "Updated  page " << page_id << " in leaf page " << leaf_page_id
+                      << " space: " << static_cast<int>(old_category) << " -> " 
+                      << static_cast<int>(new_category) << std::endl;
+        }
+        // std::cout << "Updated heap page " << page_id << " in leaf page " << leaf_page_id
+        //           << " space: " << category_to_space(old_category) << " -> " 
+        //           << category_to_space(new_category) << std::endl;
         
     }
     else {release_page(leaf_page_id,false);
-    std::cout<<"空间类别未改变，无需更新"<<std::endl;
+    // std::cout<<"空间类别未改变，无需更新"<<std::endl;
     }
 }
 

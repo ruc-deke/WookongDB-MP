@@ -627,14 +627,13 @@ page_id_t BLinkIndexHandle::insert_entry(const itemkey_t *key , const Rid &value
         page_id_t ret = leaf->get_page_no();
         release_node(leaf->get_page_no() , BPOperation::INSERT_OPERA);
         delete leaf;
-        return ret;
+        return INVALID_PAGE_ID;
     }
 
     int old_size = leaf->get_size();
     int new_size = leaf->insert(key , value);
-    if (old_size == new_size){
-        return INVALID_PAGE_ID;
-    }
+    assert(old_size != new_size);
+
     page_id_t ret = leaf->get_page_no();
 
     if (leaf->get_size() == leaf->get_max_size()){
