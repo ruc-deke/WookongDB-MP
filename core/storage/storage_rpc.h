@@ -54,11 +54,6 @@ class StoragePoolImpl : public StorageService{
                         ::storage_service::DeletePageResponse *response ,
                         ::google::protobuf::Closure *done);
 
-    virtual void InsertRecord(::google::protobuf::RpcController *controller , 
-                        const ::storage_service::InsertRecordRequest *request ,
-                        ::storage_service::InsertRecordResponse *response ,
-                        ::google::protobuf::Closure *done);
-
   private:
     LogManager* log_manager_;
     DiskManager* disk_manager_;

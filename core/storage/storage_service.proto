@@ -57,6 +57,7 @@ message WritePageResponse {}
 // 创建页面请求
 message CreatePageRequest {
     int32 table_id = 1;
+    bytes table_name = 2;
 }
 message CreatePageResponse{
     int32 page_no = 1 ; //新创建的页面号
@@ -67,21 +68,10 @@ message CreatePageResponse{
 message DeletePageRequest {
     int32 table_id = 1;
     int32 page_no = 2;
+    bytes table_name = 3;
 }
 message DeletePageResponse {
     bool successs = 1;
-}
-
-message InsertRecordRequest {
-    int32 table_id = 1;
-    int32 page_id = 2;
-    int32 slot_no = 3;
-    uint64 key = 4;
-    bytes data = 5;
-}
-
-message InsertRecordResponse {
-    bool success = 1;
 }
 
 service StorageService {
@@ -94,5 +84,4 @@ service StorageService {
     rpc WritePage(WritePageRequest) returns (WritePageResponse);
     rpc CreatePage(CreatePageRequest) returns (CreatePageResponse);
     rpc DeletePage(DeletePageRequest) returns (DeletePageResponse);
-    rpc InsertRecord(InsertRecordRequest) returns (InsertRecordResponse);
 };

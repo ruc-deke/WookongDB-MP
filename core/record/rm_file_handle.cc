@@ -38,12 +38,6 @@ std::unique_ptr<RmRecord> RmFileHandle::get_record(const Rid& rid, TxnLog* txn) 
     return record;
 }
 
-/**
- * @description: 在当前表中插入一条记录，不指定插入位置
- * @param {char*} buf 要插入的记录的数据
- * @param {Context*} context
- * @return {Rid} 插入的记录的记录号（位置）
- */
 Rid RmFileHandle::insert_record(itemkey_t key, char* buf, TxnLog* txn) {
     // Todo:
     // 1. 获取当前未满的page handle
@@ -57,9 +51,6 @@ Rid RmFileHandle::insert_record(itemkey_t key, char* buf, TxnLog* txn) {
     int slot_no = Bitmap::first_bit(false, page_handle.bitmap, file_hdr_.num_records_per_page_);
     assert(slot_no < file_hdr_.num_records_per_page_);
     Rid rid{.page_no_ = page_handle.page->get_page_id().page_no, .slot_no_ = slot_no};
-
-    // if(context != nullptr)
-    //     context->lock_mgr_->lock_exclusive_on_record(context->txn_, rid, fd_);
 
     // update bitmap 将此位置1
     Bitmap::set(page_handle.bitmap, slot_no);

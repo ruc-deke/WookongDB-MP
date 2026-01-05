@@ -110,14 +110,11 @@ char* DTX::FetchXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_i
         page = compute_server->local_fetch_x_page(table_id,page_id);
     }
     else if(SYSTEM_MODE == 3){
+        // TODO
+        assert(false);
         page = compute_server->single_fetch_x_page(table_id,page_id);
     }else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
         page = compute_server->rpc_ts_fetch_x_page(table_id , page_id);
-        // if (compute_server->is_hot_page(table_id, page_id)){
-        //     page = compute_server->rpc_lazy_fetch_x_page(table_id, page_id, true);
-        // } else {
-        //     page = compute_server->rpc_ts_fetch_x_page(table_id , page_id);
-        // }
     }
     else assert(false);
     return page->get_data();

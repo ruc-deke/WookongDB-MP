@@ -480,11 +480,14 @@ public:
 
     // 存储层用的，只负责插入初始化的那些数据
     std::vector<S_BLinkIndexHandle*> bl_indexes;
-
+    //fsm 使用
+    int num_records_per_page;
+    int num_pages;
 
 
     // For server and client usage: Provide interfaces to servers for loading tables
     TPCC(RmManager* rm_manager): rm_manager(rm_manager) {
+        
         if (rm_manager){
             // 11 颗 B+ 树
             // for (int i = 0 ; i < 11 ; i++){

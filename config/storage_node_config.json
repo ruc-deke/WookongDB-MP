@@ -5,7 +5,7 @@
     "local_rpc_port": 15980,
     "local_meta_port": 15981,
     "use_rdma": false,
-    "workload": "YCSB"
+    "workload": "SmallBank"
   },
   "remote_compute_nodes": {
     "compute_node_ips": [

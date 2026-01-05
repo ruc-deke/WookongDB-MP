@@ -106,8 +106,8 @@ bool SecFSM::build_fsm_tree() {
     // 计算需要的叶子页面数
     uint32_t leaf_pages_needed = (meta_.total_heap_pages + LEAVES_PER_PAGE - 1) / LEAVES_PER_PAGE;
     
-    std::cout << "Building FSM tree: " << meta_.total_heap_pages << " heap pages, " 
-              << leaf_pages_needed << " leaf pages needed" << std::endl;
+    // std::cout << "Building FSM tree: " << meta_.total_heap_pages << " heap pages, " 
+    //           << leaf_pages_needed << " leaf pages needed" << std::endl;
     
     // 创建叶子页面
     std::vector<uint32_t> current_level_pages;
@@ -159,8 +159,8 @@ bool SecFSM::build_fsm_tree() {
         meta_.tree_height++;
         current_level++;
         
-        std::cout << "Created level " << current_level << " with " 
-                  << current_level_pages.size() << " internal pages" << std::endl;
+        // std::cout << "Created level " << current_level << " with " 
+        //           << current_level_pages.size() << " internal pages" << std::endl;
     }
     
     // 设置根页面

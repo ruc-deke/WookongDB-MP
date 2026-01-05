@@ -50,8 +50,8 @@ std::unique_ptr<RmFileHandle> RmManager::open_file(const std::string& filename) 
 void RmManager::close_file(const RmFileHandle* file_handle) {
     disk_manager_->write_page(file_handle->fd_, RM_FILE_HDR_PAGE, (char *)&file_handle->file_hdr_,
                                 sizeof(file_handle->file_hdr_));
-    // 缓冲区的所有页刷到磁盘，注意这句话必须写在close_file前面
-    buffer_pool_manager_->flush_all_pages(file_handle->fd_);
+    // 缓冲区的所有页刷到磁盘，并从缓冲池中清除，注意这句话必须写在close_file前面
+    buffer_pool_manager_->clear_file_pages(file_handle->fd_);
     disk_manager_->close_file(file_handle->fd_);
 }
 

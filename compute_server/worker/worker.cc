@@ -433,13 +433,10 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
 
     uint64_t iter = ++tx_id_generator;  // Global atomic transaction id
     stat_attempted_tx_total++;
-
-    // TLOG(INFO, thread_gid) << "tx: " << iter << " coroutine: " << coro_id << " tx_type: " << (int)tx_type;
     
     Txn_request_info txn_meta;
     clock_gettime(CLOCK_REALTIME, &txn_meta.start_time);
     tx_type = SmallBankTxType::kBalance;
-    
     switch (tx_type) {
       case SmallBankTxType::kAmalgamate: {
           thread_local_try_times[uint64_t(tx_type)]++;
@@ -723,7 +720,7 @@ void initThread(thread_params* params,
         for (int i = 0 ; i < ComputeNodeCount ; i++){
           int par_size_this_node = meta_man->GetPageNumPerNode(i , table_id_ , ComputeNodeCount);
           (*zipfan_gens)[i][table_id_] = new ZipFanGen(par_size_this_node, 0.50 , zipf_seed & zipf_seed_mask);
-          std::cout << "Table ID = " << table_id_ << " Node ID = " << i << " Size = " << par_size_this_node << "\n";
+          // std::cout << "Table ID = " << table_id_ << " Node ID = " << i << "Par Size = " << par_size_this_node << "\n";
         }
       }
     }else if (WORKLOAD_MODE == 2){
@@ -880,7 +877,6 @@ void run_thread(thread_params* params,
       for (int i = 0 ; i < ComputeNodeCount ; i++){
         int par_size_this_node = meta_man->GetPageNumPerNode(i , table_id_ , ComputeNodeCount);
         (*zipfan_gens)[i][table_id_] = new ZipFanGen(par_size_this_node, 0.50 , zipf_seed & zipf_seed_mask);
-        std::cout << "Table ID = " << table_id_ << " Node ID = " << i << " Size = " << par_size_this_node << "\n";
       }
     }
   }else if (bench_name == "tpcc"){

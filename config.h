@@ -14,7 +14,7 @@
 // 8: smallbank
 // 664: tpcc
 // 1008: yscb
-#define MAX_ITEM_SIZE 1008
+#define MAX_ITEM_SIZE 8
 
 enum class TsPhase{
     BEGIN = 0,          // 初始化

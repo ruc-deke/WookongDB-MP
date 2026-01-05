@@ -64,5 +64,4 @@ void IndexManager::create_primary(const std::string &file_name){
     }
 
     disk_manager->set_fd2pageno(fd , BP_INIT_PAGE_NUM);
-    disk_manager->close_file(fd);
 }

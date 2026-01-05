@@ -170,6 +170,7 @@ public:
                 ycsb_user_table_val* val = (ycsb_user_table_val*)item.item_ptr->value;
                 if (val->magic != ycsb_user_table_magic){
                     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+                    assert(false);
                 }
             }
         }
@@ -179,6 +180,7 @@ public:
                 ycsb_user_table_val* val = (ycsb_user_table_val*)item.item_ptr->value;
                 if (val->magic != ycsb_user_table_magic){
                     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+                    assert(false);
                 }
                 // 写 item 的 file_0 为随机的字符串
                 std::string rand_str = ramdom_string(field_len); 

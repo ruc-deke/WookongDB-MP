@@ -12,16 +12,16 @@
 #include "util/json_config.h"
 #include "util/bitmap.h"
 
-// All servers need to load data
 void LoadData(node_id_t machine_id,
                       node_id_t machine_num,  // number of memory nodes
                       std::string& workload,
                       RmManager* rm_manager) {
-  /************************************* Load Data ***************************************/
-  // LOG(INFO) << "Start loading database data...";
   if (workload == "SmallBank") {
     SmallBank* smallbank_server = new SmallBank(rm_manager);
     smallbank_server->LoadTable(machine_id, machine_num);
+
+    // rm_manager->get_bufferPoolManager()->clear_all_pages();
+    // smallbank_server->VerifyData();
   } else if (workload == "TPCC") {
       TPCC* tpcc_server = new TPCC(rm_manager);
       tpcc_server->LoadTable(machine_id, machine_num);
@@ -36,7 +36,6 @@ void LoadData(node_id_t machine_id,
     LOG(ERROR) << "Unsupported workload: " << workload;
     assert(false);
   }
-  // LOG(INFO) << "Loading table successfully!";
 }
 
 void Server::SendMeta(node_id_t machine_id, size_t compute_node_num, std::string workload) {
@@ -296,15 +295,14 @@ int main(int argc, char* argv[]) {
     // Init table in disk
     auto buffer_mgr = std::make_shared<StorageBufferPoolManager>(RM_BUFFER_POOL_SIZE, disk_manager.get());
     auto rm_manager = std::make_shared<RmManager>(disk_manager.get(), buffer_mgr.get());
-
+    
     LoadData(machine_id, machine_num, workload, rm_manager.get());
-    // std::unique_ptr<RmFileHandle> table_file1 = rm_manager->open_file("smallbank_savings");
-    buffer_mgr->flush_all_pages();
-    // std::unique_ptr<RmFileHandle> table_file2 = rm_manager->open_file("smallbank_savings");
+    // buffer_mgr->flush_all_pages();
+    // buffer_mgr = std::make_shared<StorageBufferPoolManager>(RM_BUFFER_POOL_SIZE, disk_manager.get());
 
     auto server = std::make_shared<Server>(machine_id, local_rpc_port, local_meta_port, use_rdma, 
-      compute_node_num, compute_ip_list, compute_ports_list,
-      disk_manager.get(), log_manager.get(), rm_manager.get(), workload);
+    compute_node_num, compute_ip_list, compute_ports_list,
+    disk_manager.get(), log_manager.get(), rm_manager.get(), workload);
     
     return 0;
 }

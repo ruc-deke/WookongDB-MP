@@ -5,7 +5,7 @@ void YCSB::PopulateUserTable(){
     std::string table_name = bench_name + "_user_table";
     rm_manager->create_file(table_name , sizeof(DataItem));
     rm_manager->create_file(table_name + "_fsm", sizeof(DataItem));
-
+    
     std::cout << "单个元组大小为: " << sizeof(DataItem) << "\n";
     std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(table_name);
     std::unique_ptr<RmFileHandle> table_file_fsm = rm_manager->open_file(table_name + "_fsm");
@@ -46,15 +46,11 @@ void YCSB::PopulateUserTable(){
     rm_manager->get_diskmanager()->write_page(fd1, RM_FILE_HDR_PAGE, (char *)&table_file_fsm->file_hdr_, sizeof(table_file_fsm->file_hdr_));
     int leftrecords = record_count % num_records_per_page;//最后一页的记录数
     fsm_trees[0]->update_page_space(num_pages, (num_records_per_page - leftrecords) * (sizeof(DataItem) + sizeof(itemkey_t)));//更新最后一页的空间信息,free space为可插入的元组数量*（key+value）
-    //std::cout<<"num_pages:"<<num_pages<<" leftrecords:"<<leftrecords<<std::endl;
-    // for(int id=num_pages+1;id<3*num_pages;id++){
-    //     fsm_trees[0]->update_page_space(id,num_records_per_page * (sizeof(DataItem) + sizeof(itemkey_t)));//初始化所有页面空间信息为0，之后运行时再更新
-    // }
     fsm_trees[0]->flush_all_pages();
     rm_manager->get_diskmanager()->close_file(fd1);
-    
+
     rm_manager->close_file(table_file.get());
-    indexfile.close();
+    indexfile.close(); 
 }
 
 void YCSB::LoadRecord(RmFileHandle *file_handle ,
@@ -74,7 +70,6 @@ void YCSB::LoadRecord(RmFileHandle *file_handle ,
 
 
 void YCSB::VerifyData() {
-    // std::cout << "Start verifying YCSB data...\n";
     std::string table_name = bench_name + "_user_table";
     std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(table_name);
     
@@ -92,25 +87,16 @@ void YCSB::VerifyData() {
         }
         
         std::unique_ptr<RmRecord> record = table_file->get_record(rid, nullptr);
-        if (record != nullptr) {
-            DataItem* data_item = reinterpret_cast<DataItem*>(record->value_);
+        assert(record != nullptr);
+        DataItem* data_item = reinterpret_cast<DataItem*>(record->value_);
             
-            // Check size
-            if (data_item->value_size == sizeof(ycsb_user_table_val)) {
-                assert(data_item->key == key.item_key);
-                assert(data_item->lock == 0);
-            } else {
-                assert(false);
-            }
+        // Check size
+        if (data_item->value_size == sizeof(ycsb_user_table_val)) {
+            assert(data_item->key == key.item_key);
+            assert(data_item->lock == 0);
         } else {
-            std::cout << "Key " << id << " record not found in table file" << "\n";
             assert(false);
         }
-        
-        // if (id % 10000 == 0 && id > 0) {
-        //     std::cout << "Verified " << id << " records...\n";
-        // }
     }
-    // std::cout << "Verification complete \n";
     rm_manager->close_file(table_file.get());
 }

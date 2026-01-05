@@ -123,18 +123,11 @@ public:
         disk_manager->create_file(index_path);
 
         int fd = disk_manager->open_file(index_path);
-        // PageId.table_id 在存储侧语义上是 fd，这里用真实 fd 覆盖
+        assert(fd >= 0);
         table_id = fd;
 
         int file_size = disk_manager->get_file_size(index_path);
         assert(file_size == 0);
-
-        // char abs_path[1000];
-        // if (realpath(index_path.c_str() , abs_path) != nullptr){
-        //     std::cout << "Absolute path: " << abs_path << "\n";
-        // }else {
-        //     assert(false);
-        // }
 
         int key_size = sizeof(itemkey_t);
         {
@@ -226,6 +219,10 @@ public:
     void release_node(page_id_t page_id , BPOperation opera);
     page_id_t create_node();
     void destroy_node(page_id_t page_id);
+
+    int getFD() const {
+        return table_id;
+    }
 
     // 查找与插入
     S_BLinkNodeHandle* find_leaf(const itemkey_t * key , BPOperation opera , std::vector<page_id_t> &trace);

@@ -70,7 +70,11 @@ class StorageBufferPoolManager {
 
     void flush_all_pages(int fd);
 
+    void clear_file_pages(int fd);
+
     void flush_all_pages();
+    
+    void clear_all_pages();
    private:
     bool find_victim_page(frame_id_t* frame_id);
 

@@ -19,7 +19,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
   // 存储要真正去读和写的任务
   std::vector<std::pair<size_t , std::pair<Rid , DataSetItem*>>> ro_fetch_tasks;  // record the index and rid of read-only items
   std::vector<std::pair<size_t , std::pair<Rid , DataSetItem*>>> rw_fetch_tasks;  // record the index and rid of read-write items-
-
+  
   // 读操作
   for (size_t i=0; i<read_only_set.size(); i++) {
     DataSetItem& item = read_only_set[i];
@@ -258,10 +258,6 @@ bool DTX::TxCommit(coro_yield_t& yield){
 }
 
 bool DTX::TxCommitSingle(coro_yield_t& yield) {
-  // get commit timestamp
-    //  // LOG(INFO) << "TxCommit" ;
-  // // LOG(INFO) << "DTX: " << tx_id << " TxCommit. coro: " << coro_id;
-
   struct timespec start_time, end_ts_time;
   clock_gettime(CLOCK_REALTIME, &start_time);
   commit_ts = GetTimestampRemote(); // 先拿到一个全局的时间戳
@@ -324,14 +320,41 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
     auto page = FetchXPage(yield, data_item.item_ptr->table_id, rid.page_no_);
     clock_gettime(CLOCK_REALTIME, &end_time1);
     tx_fetch_commit_time += (end_time1.tv_sec - start_time1.tv_sec) + (double)(end_time1.tv_nsec - start_time1.tv_nsec) / 1000000000;
+
     DataItem* orginal_item = nullptr;
     // 让 original_item 指向 Page 中的 rid 部分的数据
     GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid, orginal_item);
     // 验证在 TxExe 阶段读取到的数据，和我现在读取到的数据是一致的
     assert(orginal_item->key == data_item.item_ptr->key);
     orginal_item->version = commit_ts;
-    LOG(INFO) << "Item Unlock Commit , key = " << orginal_item->key;
     orginal_item->lock = UNLOCKED;  
+
+    struct timespec start_time2, end_time2;
+    clock_gettime(CLOCK_REALTIME, &start_time2);
+    ReleaseXPage(yield, data_item.item_ptr->table_id, rid.page_no_);
+    clock_gettime(CLOCK_REALTIME, &end_time2);
+    tx_release_commit_time += (end_time2.tv_sec - start_time2.tv_sec) + (double)(end_time2.tv_nsec - start_time2.tv_nsec) / 1000000000;
+  }
+
+  for (size_t i = 0 ; i < delete_set.size() ; i++){
+    DataSetItem &data_item = delete_set[i];
+    assert(data_item.is_fetched);
+    Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , data_item.item_ptr->key);
+
+    struct timespec start_time1, end_time1;
+    clock_gettime(CLOCK_REALTIME, &start_time1);
+    auto page = FetchXPage(yield, data_item.item_ptr->table_id, rid.page_no_);
+    clock_gettime(CLOCK_REALTIME, &end_time1);
+    tx_fetch_commit_time += (end_time1.tv_sec - start_time1.tv_sec) + (double)(end_time1.tv_nsec - start_time1.tv_nsec) / 1000000000;
+
+    DataItem* orginal_item = nullptr;
+    // 让 original_item 指向 Page 中的 rid 部分的数据
+    GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid, orginal_item);
+    // 验证在 TxExe 阶段读取到的数据，和我现在读取到的数据是一致的
+    assert(orginal_item->key == data_item.item_ptr->key);
+    orginal_item->version = commit_ts;
+    orginal_item->lock = UNLOCKED;  
+
     struct timespec start_time2, end_time2;
     clock_gettime(CLOCK_REALTIME, &start_time2);
     ReleaseXPage(yield, data_item.item_ptr->table_id, rid.page_no_);
@@ -348,7 +371,7 @@ void DTX::TxAbort(coro_yield_t& yield) {
     clock_gettime(CLOCK_REALTIME, &start_time);
   if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3 || SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
     // // LOG(INFO) << "TxAbort";
-    for(size_t i=0; i<read_write_set.size(); i++){
+    for(size_t i = 0; i < read_write_set.size(); i++){
       DataSetItem& data_item = read_write_set[i];
       // item.is_fetched 代表了这个元组已经被修改过了，需要回退对其的修改操作
       if(data_item.is_fetched){ 
@@ -377,18 +400,15 @@ void DTX::TxAbort(coro_yield_t& yield) {
     for (size_t i = 0 ; i < insert_set.size() ; i++){
       DataSetItem &data_item = insert_set[i];
       if (data_item.is_fetched){
-        // 不删 B+ 树，因为 MVCC
-        // Rid rid = compute_server->delete_from_blink(data_item.item_ptr->table_id , data_item.item_ptr->key);
-        
         // 之前插入的，现在一定找得到
         Rid rid = compute_server->get_rid_from_blink(data_item.item_ptr->table_id , data_item.item_ptr->key);
         assert(rid.page_no_ != -1);
 
         // TODO FSM 恢复
-
-        // 恢复页面数据，分类
-        // 1. old_set[i] == nullptr，表明之前没有旧的数据项，插入的是一个全新的数据项，把 BitMap 设置为 false 即可
-        // 2. old_set[i] != nullptr，此时需要把数据项给恢复成 old_page_data
+        // 1. 
+        // 2. 447 行
+        // 3. Rid delete_entry
+        // 4. TPCC 
 
         struct timespec start_time1 , end_time1;
         clock_gettime(CLOCK_REALTIME , &start_time1);
@@ -400,6 +420,9 @@ void DTX::TxAbort(coro_yield_t& yield) {
         RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(page + OFFSET_PAGE_HDR);
         char *bitmap = page + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
         assert(Bitmap::is_set(bitmap , rid.slot_no_));
+        //fsm抹掉这个记录，更新空间
+        
+
         Bitmap::reset(bitmap, rid.slot_no_);
         page_hdr->num_records_--;
 
@@ -428,7 +451,38 @@ void DTX::TxAbort(coro_yield_t& yield) {
     for (size_t i = 0 ; i < delete_set.size() ; i++){
       DataSetItem &data_item = delete_set[i];
       if (data_item.is_fetched){
+        // data_item.is_fetched 代表了这个 slot 之前一定是有数据的
+        // 但是由于有 MVCC，所以其实也只需要把 BitMap 置为空即可
+        Rid rid = compute_server->get_rid_from_blink(data_item.item_ptr->table_id , data_item.item_ptr->key);
+        assert(rid.page_no_ != -1);
 
+        struct timespec start_time1 , end_time1;
+        clock_gettime(CLOCK_REALTIME , &start_time1);
+        auto page = FetchXPage(yield , data_item.item_ptr->table_id , rid.page_no_);
+        clock_gettime(CLOCK_REALTIME , &end_time1);
+        tx_fetch_abort_time += (end_time1.tv_sec - start_time1.tv_sec) + (double)(end_time1.tv_nsec - start_time1.tv_nsec) / 1000000000;
+
+
+        RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(page + OFFSET_PAGE_HDR);
+        char *bitmap = page + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+        assert(!Bitmap::is_set(bitmap , rid.slot_no_));
+        Bitmap::set(bitmap, rid.slot_no_);
+        page_hdr->num_records_--;
+
+        // TODO 通知 FSM 空闲空间少了
+
+        DataItem *original_item = nullptr;
+        GetDataItemFromPageRW(data_item.item_ptr->table_id , page , rid , original_item);
+        assert(original_item->key == data_item.item_ptr->key);
+        assert(original_item->lock == EXCLUSIVE_LOCKED);
+        LOG(INFO) << "TxAbort , Deleted key = " << original_item->key;
+        original_item->lock = UNLOCKED;
+
+        struct timespec start_time2, end_time2;
+        clock_gettime(CLOCK_REALTIME, &start_time2);
+        ReleaseXPage(yield, data_item.item_ptr->table_id, rid.page_no_);
+        clock_gettime(CLOCK_REALTIME, &end_time2);
+        tx_release_abort_time += (end_time2.tv_sec - start_time2.tv_sec) + (double)(end_time2.tv_nsec - start_time2.tv_nsec) / 1000000000;
       }
     }
   } else if(SYSTEM_MODE == 2){

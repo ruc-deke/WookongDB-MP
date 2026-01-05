@@ -146,7 +146,7 @@ bool SmallBankDTX::ReTxAmalgamate(coro_yield_t& yield) {
   smallbank_checking_val_t* chk_val_1 = (smallbank_checking_val_t*)a1.chk_obj_1->value;
   if (sav_val_0->magic != smallbank_savings_magic) {
     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << dtx->tx_id;
-    // assert(false);
+    assert(false);
   }
   if (chk_val_0->magic != smallbank_checking_magic) {
     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << dtx->tx_id;
@@ -179,8 +179,8 @@ bool SmallBankDTX::ReTxBalance(coro_yield_t& yield) {
   smallbank_savings_val_t* sav_val = (smallbank_savings_val_t*)b1.sav_obj->value;
   smallbank_checking_val_t* chk_val = (smallbank_checking_val_t*)b1.chk_obj->value;
   if (dtx->read_only_set[0].is_fetched == true && sav_val->magic != smallbank_savings_magic) {
-    // LOG(INFO) << "read value: " << sav_val;
     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << dtx->tx_id;
+    assert(false);
   } 
   // if (sav_val->magic != smallbank_savings_magic) {
   //   // LOG(INFO) << "read value: " << sav_val;
@@ -188,6 +188,7 @@ bool SmallBankDTX::ReTxBalance(coro_yield_t& yield) {
   // }
   if (dtx->read_only_set[0].is_fetched == true && chk_val->magic != smallbank_checking_magic) {
     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << dtx->tx_id;
+    assert(false);
   }
   // assert(sav_val->magic == smallbank_savings_magic);
   // assert(chk_val->magic == smallbank_checking_magic);
@@ -207,6 +208,7 @@ bool SmallBankDTX::ReTxDepositChecking(coro_yield_t& yield) {
   smallbank_checking_val_t* chk_val = (smallbank_checking_val_t*)d1.chk_obj->value;
   if (chk_val->magic != smallbank_checking_magic) {
     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << dtx->tx_id;
+    assert(false);
   }
   // assert(chk_val->magic == smallbank_checking_magic);
 
@@ -264,6 +266,7 @@ bool SmallBankDTX::ReTxTransactSaving(coro_yield_t& yield) {
   smallbank_savings_val_t* sav_val = (smallbank_savings_val_t*)t1.sav_obj->value;
   if (sav_val->magic != smallbank_savings_magic) {
     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << dtx->tx_id;
+    assert(false);
   }
   // assert(sav_val->magic == smallbank_savings_magic);
 
@@ -284,9 +287,11 @@ bool SmallBankDTX::ReTxWriteCheck(coro_yield_t& yield) {
   if (dtx->read_only_set[0].is_fetched == true && sav_val->magic != smallbank_savings_magic) {
     // LOG(INFO) << "read value: " << sav_val;
     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << dtx->tx_id;
+    assert(false);
   }
   if (dtx->read_write_set[0].is_fetched == true && chk_val->magic != smallbank_checking_magic) {
     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << dtx->tx_id;
+    assert(false);
   }
   // assert(sav_val->magic == smallbank_savings_magic);
   // assert(chk_val->magic == smallbank_checking_magic);
@@ -355,7 +360,7 @@ bool SmallBankDTX::TxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, cor
   chk_key_1.acct_id = acct_id_1;
   auto chk_obj_1 = std::make_shared<DataItem>((table_id_t)SmallBankTableType::kCheckingTable, chk_key_1.item_key);
   dtx->AddToReadWriteSet(chk_obj_1, true);
-
+  
   // 执行事务，其实就是去读取和修改页面
   if (!dtx->TxExe(yield)) return false;
   
@@ -364,19 +369,22 @@ bool SmallBankDTX::TxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, cor
   smallbank_checking_val_t* chk_val_0 = (smallbank_checking_val_t*)chk_obj_0->value;
   smallbank_checking_val_t* chk_val_1 = (smallbank_checking_val_t*)chk_obj_1->value;
   if (sav_val_0->magic != smallbank_savings_magic) {
-    LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+    LOG(FATAL) << "[FATAL] Read unmatch, saving 0 magic = " << sav_val_0->magic << " Original Magic = " << smallbank_savings_magic; 
+    assert(false);
   }
   if (chk_val_0->magic != smallbank_checking_magic) {
     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+    assert(false);
   }
   if (chk_val_1->magic != smallbank_checking_magic) {
     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+    assert(false);
   }
-  // assert(sav_val_0->magic == smallbank_savings_magic);
-  // assert(chk_val_0->magic == smallbank_checking_magic);
-  // assert(chk_val_1->magic == smallbank_checking_magic);
+  assert(sav_val_0->magic == smallbank_savings_magic);
+  assert(chk_val_0->magic == smallbank_checking_magic);
+  assert(chk_val_1->magic == smallbank_checking_magic);
 
-  /* Increase acct_id_1's kBalance and set acct_id_0's balances to 0 */
+  // 事务要做的事情
   chk_val_1->bal += (sav_val_0->bal + chk_val_0->bal);
 
   sav_val_0->bal = 0;
@@ -385,14 +393,11 @@ bool SmallBankDTX::TxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, cor
   bool commit_status = dtx->TxCommit(yield);
   
   return commit_status;
-
-  // return true;
 }
 
 /* Calculate the sum of saving and checking kBalance */
 bool SmallBankDTX::TxBalance(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , std::vector<std::vector<ZipFanGen*>> *zip_fans) {
   dtx->TxBegin(tx_id);
-    //  // LOG(INFO) << "TxBalance";
   /* Transaction parameters */
   uint64_t acct_id;
 #if UniformHot
@@ -415,38 +420,50 @@ bool SmallBankDTX::TxBalance(SmallBank* smallbank_client, uint64_t* seed, coro_y
 #endif
 
   /* Read from savings and checking tables */
-  smallbank_savings_key_t sav_key;
-  sav_key.acct_id = acct_id;
-  auto sav_obj = std::make_shared<DataItem>((table_id_t)SmallBankTableType::kSavingsTable, sav_key.item_key);
-  dtx->AddToReadOnlySet(sav_obj);
-
-  // 插入功能测试
-  {  static std::atomic<int> now_account(3000000);
-    int cur_account = now_account.fetch_add(1);
-    auto insert_item = std::make_shared<DataItem>(0, sizeof(smallbank_savings_val_t), cur_account, 1);
-    smallbank_savings_val_t *insert_val = (smallbank_savings_val_t*)(insert_item->value);
-    insert_val->bal = 102.23;
-    dtx->AddToInsertSet(insert_item);
-  }
+  // smallbank_savings_key_t sav_key;
+  // sav_key.acct_id = acct_id;
+  // auto sav_obj = std::make_shared<DataItem>((table_id_t)SmallBankTableType::kSavingsTable, sav_key.item_key);
+  // dtx->AddToReadOnlySet(sav_obj);
 
   // smallbank_checking_key_t chk_key;
   // chk_key.acct_id = acct_id;
   // auto chk_obj = std::make_shared<DataItem>((table_id_t)SmallBankTableType::kCheckingTable, chk_key.item_key);
   // dtx->AddToReadOnlySet(chk_obj);
 
-    if (!dtx->TxExe(yield)) return false;
-
-  smallbank_savings_val_t* sav_val = (smallbank_savings_val_t*)sav_obj->value;
-  // smallbank_checking_val_t* chk_val = (smallbank_checking_val_t*)chk_obj->value;
-  if (sav_val->magic != smallbank_savings_magic) {
-    // LOG(INFO) << "read value: " << sav_val;
-    LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+  static std::atomic<int> node_begin_account{100000000 * dtx->compute_server->getNodeID() + 300001};
+  static std::atomic<int> node_now_account{100000000 * dtx->compute_server->getNodeID() + 300001};
+  // 测试插入
+  {  
+    // 插入 10 个
+    for (int i = 0 ; i < 10 ; i++){
+      int insert_account = node_now_account.fetch_add(1);
+      auto insert_item = std::make_shared<DataItem>(0, sizeof(smallbank_savings_val_t), insert_account, 1);
+      smallbank_savings_val_t *insert_val = (smallbank_savings_val_t*)(insert_item->value);
+      insert_val->bal = 102.23;
+      dtx->AddToInsertSet(insert_item);
+    }
   }
-  // if (chk_val->magic != smallbank_checking_magic) {
+
+  // 测试删除
+  {
+    if (node_now_account > node_begin_account + 500) {
+      int delete_account = node_now_account.load() - 100;
+      auto delete_item = std::make_shared<DataItem>(0, sizeof(smallbank_savings_val_t), delete_account, 1);
+      dtx->AddToDeleteSet(delete_item);
+    }
+  }
+
+  
+
+  if (!dtx->TxExe(yield)) return false;
+
+  // smallbank_savings_val_t* sav_val = (smallbank_savings_val_t*)sav_obj->value;
+  // // smallbank_checking_val_t* chk_val = (smallbank_checking_val_t*)chk_obj->value;
+  // if (sav_val->magic != smallbank_savings_magic) {
+  //   // LOG(INFO) << "read value: " << sav_val;
   //   LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+  //   assert(false);
   // }
-  // assert(sav_val->magic == smallbank_savings_magic);
-  // assert(chk_val->magic == smallbank_checking_magic);
 
   bool commit_status = dtx->TxCommit(yield);
   
@@ -493,8 +510,8 @@ bool SmallBankDTX::TxDepositChecking(SmallBank* smallbank_client, uint64_t* seed
   smallbank_checking_val_t* chk_val = (smallbank_checking_val_t*)chk_obj->value;
   if (chk_val->magic != smallbank_checking_magic) {
     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+    assert(false);
   }
-  // assert(chk_val->magic == smallbank_checking_magic);
 
   chk_val->bal += amount; /* Update checking kBalance */
 
@@ -555,12 +572,12 @@ bool SmallBankDTX::TxSendPayment(SmallBank* smallbank_client, uint64_t* seed, co
   smallbank_checking_val_t* chk_val_1 = (smallbank_checking_val_t*)chk_obj_1->value;
   if (chk_val_0->magic != smallbank_checking_magic) {
     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+    assert(false);
   }
   if (chk_val_1->magic != smallbank_checking_magic) {
     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+    assert(false);
   }
-  // assert(chk_val_0->magic == smallbank_checking_magic);
-  // assert(chk_val_1->magic == smallbank_checking_magic);
 
   if (chk_val_0->bal < amount) {
       // std::cout << "Insufficient balance cause Abort" ;
@@ -616,6 +633,7 @@ bool SmallBankDTX::TxTransactSaving(SmallBank* smallbank_client, uint64_t* seed,
   smallbank_savings_val_t* sav_val = (smallbank_savings_val_t*)sav_obj->value;
   if (sav_val->magic != smallbank_savings_magic) {
     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+    assert(false);
   }
   // assert(sav_val->magic == smallbank_savings_magic);
 
@@ -671,7 +689,7 @@ bool SmallBankDTX::TxWriteCheck(SmallBank* smallbank_client, uint64_t* seed, cor
   if (sav_val->magic != smallbank_savings_magic) {
     // LOG(INFO) << "read value: " << sav_val;
     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
-    // assert(false);
+    assert(false);
   }
   if (chk_val->magic != smallbank_checking_magic) {
     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
@@ -736,12 +754,15 @@ bool SmallBankDTX::LongTxAmalgamate(SmallBank* smallbank_client, uint64_t* seed,
     smallbank_checking_val_t* chk_val_1 = (smallbank_checking_val_t*)chk_obj_1[i]->value;
     if (sav_val_0->magic != smallbank_savings_magic) {
       LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+      assert(false);
     }
     if (chk_val_0->magic != smallbank_checking_magic) {
       LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+      assert(false);
     }
     if (chk_val_1->magic != smallbank_checking_magic) {
       LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+      assert(false);
     }
     // assert(sav_val_0->magic == smallbank_savings_magic);
     // assert(chk_val_0->magic == smallbank_checking_magic);
@@ -792,9 +813,11 @@ bool SmallBankDTX::LongTxBalance(SmallBank* smallbank_client, uint64_t* seed, co
     if (sav_val->magic != smallbank_savings_magic) {
       // LOG(INFO) << "read value: " << sav_val;
       LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+      assert(false);
     }
     if (chk_val->magic != smallbank_checking_magic) {
       LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+      assert(false);
     }
     // assert(sav_val->magic == smallbank_savings_magic);
     // assert(chk_val->magic == smallbank_checking_magic);
@@ -832,8 +855,8 @@ bool SmallBankDTX::LongTxDepositChecking(SmallBank* smallbank_client, uint64_t* 
     smallbank_checking_val_t* chk_val = (smallbank_checking_val_t*)chk_obj[i]->value;
     if (chk_val->magic != smallbank_checking_magic) {
       LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+      assert(false);
     }
-    // assert(chk_val->magic == smallbank_checking_magic);
 
     chk_val->bal += amount; /* Update checking kBalance */
   }
@@ -877,9 +900,11 @@ bool SmallBankDTX::LongTxSendPayment(SmallBank* smallbank_client, uint64_t* seed
     smallbank_checking_val_t* chk_val_1 = (smallbank_checking_val_t*)chk_obj_1[i]->value;
     if (chk_val_0->magic != smallbank_checking_magic) {
       LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+      assert(false);
     }
     if (chk_val_1->magic != smallbank_checking_magic) {
       LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+      assert(false);
     }
     // assert(chk_val_0->magic == smallbank_checking_magic);
     // assert(chk_val_1->magic == smallbank_checking_magic);
@@ -931,6 +956,7 @@ bool SmallBankDTX::LongTxTransactSaving(SmallBank* smallbank_client, uint64_t* s
     smallbank_savings_val_t* sav_val = (smallbank_savings_val_t*)sav_obj[i]->value;
     if (sav_val->magic != smallbank_savings_magic) {
       LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+      assert(false);
     }
     // assert(sav_val->magic == smallbank_savings_magic);
     sav_val->bal += amount; /* Update saving kBalance */
@@ -976,9 +1002,11 @@ bool SmallBankDTX::LongTxWriteCheck(SmallBank* smallbank_client, uint64_t* seed,
     if (sav_val->magic != smallbank_savings_magic) {
       // LOG(INFO) << "read value: " << sav_val;
       LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+      assert(false);
     }
     if (chk_val->magic != smallbank_checking_magic) {
       LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
+      assert(false);
     }
     // assert(sav_val->magic == smallbank_savings_magic);
     // assert(chk_val->magic == smallbank_checking_magic);

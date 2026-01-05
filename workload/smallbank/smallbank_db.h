@@ -103,7 +103,7 @@ const std::string SmallBank_TX_NAME[SmallBank_TX_TYPES] = {"Amalgamate", "Balanc
 // Table id
 enum class SmallBankTableType : uint64_t {
   kSavingsTable = 0,
-  kCheckingTable,
+  kCheckingTable = 1,
 };
 
 class SmallBank {
@@ -401,6 +401,7 @@ class SmallBank {
     }
 
     void LoadTable(node_id_t node_id, node_id_t num_server);
+    void VerifyData();
 
     void PopulateSavingsTable();
     void PopulateCheckingTable();

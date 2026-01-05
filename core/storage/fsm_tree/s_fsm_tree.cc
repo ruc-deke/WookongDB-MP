@@ -84,8 +84,8 @@ bool S_SecFSM::build_fsm_tree() {
     // 计算需要的叶子页面数
     uint32_t leaf_pages_needed = (meta_.total_heap_pages + S_LEAVES_PER_PAGE - 1) / S_LEAVES_PER_PAGE;
     
-    std::cout << "Building FSM tree: " << meta_.total_heap_pages << " heap pages, " 
-              << leaf_pages_needed << " leaf pages needed" << std::endl;
+    // std::cout << "Building FSM tree: " << meta_.total_heap_pages << " heap pages, " 
+    //           << leaf_pages_needed << " leaf pages needed" << std::endl;
     
     // 创建叶子页面
     std::vector<uint32_t> current_level_pages;
@@ -137,14 +137,14 @@ bool S_SecFSM::build_fsm_tree() {
         meta_.tree_height++;
         current_level++;
         
-        std::cout << "Created level " << current_level << " with " 
-                  << current_level_pages.size() << " internal pages" << std::endl;
+        // std::cout << "Created level " << current_level << " with " 
+        //           << current_level_pages.size() << " internal pages" << std::endl;
     }
     
     // 设置根页面
     if (current_level_pages.size() == 1) {
         meta_.root_page_id = current_level_pages[0];
-        std::cout << "Root page set to: " << meta_.root_page_id << std::endl;
+        // std::cout << "Root page set to: " << meta_.root_page_id << std::endl;
     } else {
         std::cerr << "Error: Expected exactly one root page, got " 
                   << current_level_pages.size() << std::endl;
@@ -433,15 +433,6 @@ bool S_SecFSM::flush_all_pages() {
     }
 
     PageId meta_pid{meta_.table_id, S_FSM_META_PAGE_ID};
-    // if (!buffer_pool_->set_page_data(meta_pid, meta_buffer, PAGE_SIZE)) {
-    //     return false;
-    // }
-    // if (!buffer_pool_->flush_page(meta_pid)) {
-    //     buffer_pool_->unpin_page(meta_pid, false);
-    //     return false;
-    // }
-    // buffer_pool_->unpin_page(meta_pid, false);
-    //保存meta页
 
     dm_->write_page(fsm_fd_,meta_pid.page_no, meta_buffer, PAGE_SIZE);
     // 保存所有页面
@@ -453,8 +444,8 @@ bool S_SecFSM::flush_all_pages() {
             }
         //}
     }
-    dm_->close_file(fsm_fd_);
-    std::cout << "Flushed " << fsm_pages_.size() << " FSM pages to storage" << std::endl;
+    // dm_->close_file(fsm_fd_);
+    // std::cout << "Flushed " << fsm_pages_.size() << " FSM pages to storage" << std::endl;
     return true;
 }
 

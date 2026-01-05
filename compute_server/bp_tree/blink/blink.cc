@@ -270,33 +270,42 @@ void BLinkIndexHandle::find_leaf_for_search_with_print(const itemkey_t *key , st
 
     while (!node->is_leaf()){
         while (node->need_to_right(*key)){
-            ss << "Need To Right Sibling , page_id = " << node->get_page_no() << " node_size = " << node->get_size() << "\n";
+            page_id_t sib = node->get_right_sibling();
+
+            ss << "Need To Right Sibling , page_id = " << node->get_page_no() << " node_size = " << node->get_size() << " Search Key = " << *key << "\n";
             for (int i = 0 ; i < node->get_size() ; i++){
                 ss << *node->get_key(i) << " ";
             }
             ss << "\n\n";
 
-            page_id_t sib = node->get_right_sibling();
             release_node(node->get_page_no() , BPOperation::SEARCH_OPERA);
             delete node; // 先删旧句柄
+
             node = fetch_node(sib , BPOperation::SEARCH_OPERA); // 再取兄弟
         }
 
-        ss << "Internal Look Up , page_id = " << node->get_page_no() << " Node Size = " << node->get_size() << "\n";
+        int pos = node->upper_bound(key);
+        page_id_t child_page_no = node->value_at(pos - 1);
+
+        ss << "Internal Look Up , page_id = " << node->get_page_no() << 
+            " Node Size = " << node->get_size() << " Search Key = " << *key 
+            << " pos = " << pos
+            << " chosen key = " << *node->get_key(pos - 1)
+            << " child page no = " << child_page_no << "\n";
         for (int i = 0 ; i < node->get_size() ; i++){
             ss << *node->get_key(i) << " ";
         }
         ss << "\n\n";
 
-        int pos = node->upper_bound(key);
-        page_id_t child_page_no = node->value_at(pos - 1);
         release_node(node->get_page_no() , BPOperation::SEARCH_OPERA);
         delete node;
+
         node = fetch_node(child_page_no , BPOperation::SEARCH_OPERA);
     }
 
     while (node->need_to_right(*key)){
-        ss << "Leaf Need To Right Sibling , page_id = " << node->get_page_no() << " node_size = " << node->get_size() << "\n";
+        ss << "Leaf Need To Right Sibling , page_id = " 
+            << node->get_page_no() << " node_size = " << node->get_size() << "\n";
         for (int i = 0 ; i < node->get_size() ; i++){
             ss << *node->get_key(i) << " ";
         }
@@ -581,12 +590,6 @@ bool BLinkIndexHandle::search(const itemkey_t *key , Rid &result){
         key2leaf[*key] = leaf->get_page_no();
         key2leaf_mtx.unlock();
         result = *rid;
-    }else {
-        // TPCC 负载下，生成的 key 不一定存在，所以不断言了
-        // SmallBank 和 YCSB 负载下，查找的 key 一定存在
-        if (WORKLOAD_MODE == 0 || WORKLOAD_MODE == 2){
-            //assert(false);
-        }
     }
     release_node(leaf->get_page_no() , BPOperation::SEARCH_OPERA);
     delete leaf;
