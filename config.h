@@ -16,6 +16,8 @@
 // 1008: yscb
 #define MAX_ITEM_SIZE 8
 
+#define BUFFER_LENGTH 8192
+
 enum class TsPhase{
     BEGIN = 0,          // 初始化
     RUNNING = 1,        // 在时间片内

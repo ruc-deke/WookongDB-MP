@@ -4,6 +4,8 @@
 #include <vector>
 #include <utility>
 
+#include "sql_executor/parser/parser_defs.h"
+
 int socket_start_client(std::string ip, int port){
     // 创建套接字
     int clientSocket = socket(AF_INET, SOCK_STREAM, 0);
@@ -45,6 +47,68 @@ int socket_start_client(std::string ip, int port){
     close(clientSocket);
 
     return 0;
+}
+
+struct ExecResult {
+    bool success{true};
+    std::string output;
+    std::string error;
+};
+
+
+ExecResult run_sql(const std::string &sql){
+    ExecResult res;
+    char buf[64*1024];
+    int offset = 0;
+
+    {
+        // YY_BUFFER_STATE b = yy_scan_string(sql.c_str());
+        // // 语法分析：将 token 流解析为抽象语法树 (AST)
+        // if (yyparse() != 0) {
+        //     yy_delete_buffer(b);
+        //     res.success = false;
+        //     res.error = "Syntax error";
+        //     return res;
+        // }
+
+
+
+    }
+}
+
+void begin_sql_execution(){
+    std::vector<std::string> sql_history_str;
+    // init_history_storage(sql_history_str);
+
+    std::cout << ".exit / .quit. quit database \n";
+    
+    std::string line;
+    std::string accum;
+    
+
+    while (true) {
+        std::cout << "SQL> ";
+        if (!std::getline(std::cin, line)) {
+            break;
+        }
+        if (line == ".exit" || line == ".quit") {
+            break;
+        }
+        accum += line;
+        accum += "\n";
+        size_t pos = std::string::npos;
+        if ((pos = accum.find(';')) != std::string::npos) {
+            std::string stmt = accum.substr(0, pos);
+            if (!stmt.empty()) {
+                sql_history_str.push_back(stmt);
+            }
+            accum.erase(0, pos + 1);
+        }
+
+        // 解析 accum
+        // run_sql(accum);
+    }
+
 }
 
 int socket_finish_client(std::string ip, int port){

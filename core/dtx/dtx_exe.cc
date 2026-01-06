@@ -326,6 +326,7 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
     GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid, orginal_item);
     // 验证在 TxExe 阶段读取到的数据，和我现在读取到的数据是一致的
     assert(orginal_item->key == data_item.item_ptr->key);
+    assert(orginal_item->lock == EXCLUSIVE_LOCKED);
     orginal_item->version = commit_ts;
     orginal_item->lock = UNLOCKED;  
 
@@ -336,6 +337,9 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
     tx_release_commit_time += (end_time2.tv_sec - start_time2.tv_sec) + (double)(end_time2.tv_nsec - start_time2.tv_nsec) / 1000000000;
   }
 
+  static std::atomic<int> delete_cnt{0};
+  int delete_cnt_now = delete_cnt.fetch_add(delete_set.size());
+  LOG(INFO) << "Delete Cnt = " << delete_cnt_now;
   for (size_t i = 0 ; i < delete_set.size() ; i++){
     DataSetItem &data_item = delete_set[i];
     assert(data_item.is_fetched);
@@ -352,6 +356,7 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
     GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid, orginal_item);
     // 验证在 TxExe 阶段读取到的数据，和我现在读取到的数据是一致的
     assert(orginal_item->key == data_item.item_ptr->key);
+    assert(orginal_item->lock == EXCLUSIVE_LOCKED);
     orginal_item->version = commit_ts;
     orginal_item->lock = UNLOCKED;  
 
@@ -395,7 +400,7 @@ void DTX::TxAbort(coro_yield_t& yield) {
       }
     }
 
-    LOG(INFO) << "Tx Abort , Inserted Key = : ";
+    // LOG(INFO) << "Tx Abort , Inserted Key = : ";
     // 需要把之前插入的数据给删掉
     for (size_t i = 0 ; i < insert_set.size() ; i++){
       DataSetItem &data_item = insert_set[i];
@@ -403,12 +408,6 @@ void DTX::TxAbort(coro_yield_t& yield) {
         // 之前插入的，现在一定找得到
         Rid rid = compute_server->get_rid_from_blink(data_item.item_ptr->table_id , data_item.item_ptr->key);
         assert(rid.page_no_ != -1);
-
-        // TODO FSM 恢复
-        // 1. 
-        // 2. 447 行
-        // 3. Rid delete_entry
-        // 4. TPCC 
 
         struct timespec start_time1 , end_time1;
         clock_gettime(CLOCK_REALTIME , &start_time1);
@@ -420,10 +419,10 @@ void DTX::TxAbort(coro_yield_t& yield) {
         RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(page + OFFSET_PAGE_HDR);
         char *bitmap = page + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
         assert(Bitmap::is_set(bitmap , rid.slot_no_));
-        //fsm抹掉这个记录，更新空间
-        
-
         Bitmap::reset(bitmap, rid.slot_no_);
+        //fsm抹掉这个记录，更新空间
+        int count=Bitmap::getfreeposnum(bitmap,compute_server->get_node()->getMetaManager()->GetTableMeta(data_item.item_ptr->table_id).num_records_per_page_ );
+        UpdatePageSpaceFromFSM(data_item.item_ptr->table_id,rid.page_no_,(sizeof(data_item)+sizeof(itemkey_t))*count);
         page_hdr->num_records_--;
 
         DataItem *original_item = nullptr;
@@ -451,6 +450,7 @@ void DTX::TxAbort(coro_yield_t& yield) {
     for (size_t i = 0 ; i < delete_set.size() ; i++){
       DataSetItem &data_item = delete_set[i];
       if (data_item.is_fetched){
+        std::cout << "rollback delete , key = " << data_item.item_ptr->key << "\n";
         // data_item.is_fetched 代表了这个 slot 之前一定是有数据的
         // 但是由于有 MVCC，所以其实也只需要把 BitMap 置为空即可
         Rid rid = compute_server->get_rid_from_blink(data_item.item_ptr->table_id , data_item.item_ptr->key);
@@ -467,9 +467,9 @@ void DTX::TxAbort(coro_yield_t& yield) {
         char *bitmap = page + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
         assert(!Bitmap::is_set(bitmap , rid.slot_no_));
         Bitmap::set(bitmap, rid.slot_no_);
-        page_hdr->num_records_--;
-
-        // TODO 通知 FSM 空闲空间少了
+        page_hdr->num_records_++;
+        int count=Bitmap::getfreeposnum(bitmap,compute_server->get_node()->getMetaManager()->GetTableMeta(data_item.item_ptr->table_id).num_records_per_page_ );
+        UpdatePageSpaceFromFSM(data_item.item_ptr->table_id,rid.page_no_,(sizeof(data_item)+sizeof(itemkey_t))*count);
 
         DataItem *original_item = nullptr;
         GetDataItemFromPageRW(data_item.item_ptr->table_id , page , rid , original_item);

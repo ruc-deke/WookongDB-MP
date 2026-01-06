@@ -9,8 +9,10 @@
 
 namespace storage_service{
 
-    StoragePoolImpl::StoragePoolImpl(LogManager* log_manager, DiskManager* disk_manager, RmManager* rm_manager, brpc::Channel* raft_channels, int raft_num)
-        :log_manager_(log_manager), disk_manager_(disk_manager), rm_manager_(rm_manager), raft_channels_(raft_channels), raft_num_(raft_num){};
+    StoragePoolImpl::StoragePoolImpl(LogManager* log_manager, DiskManager* disk_manager, RmManager* rm_manager, brpc::Channel* raft_channels, int raft_num , SmManager *sm_manager_)
+        :log_manager_(log_manager), disk_manager_(disk_manager), rm_manager_(rm_manager), raft_channels_(raft_channels), raft_num_(raft_num) , sm_manager(sm_manager_){
+
+        };
 
     StoragePoolImpl::~StoragePoolImpl(){};
 
@@ -200,6 +202,25 @@ namespace storage_service{
 
         return;
     };
+
+    void StoragePoolImpl::OpenDb(::google::protobuf::RpcController* controller,
+                       const ::storage_service::OpendbRequest* request,
+                       ::storage_service::OpendbResponse* response,
+                       ::google::protobuf::Closure* done){
+        assert(sm_manager);
+        std::string db_name = request->db_name();
+
+        int error_code = sm_manager->open_db(db_name);
+        response->set_error_code(error_code);
+
+        for (auto &entry : sm_manager->db.m_tabs) {
+            response->add_table_names(entry.first);
+        }
+
+        std::cout << "open DB : " << db_name << " error code : " << error_code << "\n";
+
+        return;
+    }
 
     void StoragePoolImpl::CreatePage(::google::protobuf::RpcController* controller , 
                         const ::storage_service::CreatePageRequest *request ,

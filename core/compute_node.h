@@ -51,7 +51,6 @@ public:
     */
     ComputeNode(int nodeid, std::string remote_server_ip, int remote_server_port, MetaManager* meta_manager = nullptr) :node_id(nodeid), meta_manager_(meta_manager) {
         // connect to remote pagetable&bufferpool server
-        // LOG(INFO) << "brpc connect to remote pagetable&bufferpool server: " << remote_server_ip << ":" << remote_server_port;
         brpc::ChannelOptions options;
         options.use_rdma = use_rdma;
         ts_cnt = node_id;       // 初始分配的时间片设置成 node_id
@@ -74,22 +73,8 @@ public:
             LOG(ERROR) << "Fail to init channel";
             exit(1);
         }
-        if (SYSTEM_MODE == 0){
-            eager_local_page_lock_table = nullptr;
-            lazy_local_page_lock_table = nullptr;
-        } else if (SYSTEM_MODE == 1){
-            lazy_local_page_lock_table = nullptr;
-        } else if (SYSTEM_MODE == 2 || SYSTEM_MODE == 3) {
-            local_page_lock_table = nullptr;
-        } else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
-            local_page_lock_table = nullptr;
-            lazy_local_page_lock_table = nullptr;
-        }
-        else {
-            LOG(ERROR) << "SYSTEM_MODE ERROR!";
-            exit(1);
-        }
-        // 每个表分配一段固定长度的缓冲池
+
+        // 配置每个表的缓冲区大小
         size_t table_pool_size_cfg = 0; 
         size_t blink_buffer_pool_cfg = 0;
         size_t fsm_pool_size_cfg = 0;
@@ -174,16 +159,11 @@ public:
         } else {
             assert(false);
         }
-
+        
         std::vector<int> max_page_per_table;
         std::copy(meta_manager->page_num_per_table.begin(), meta_manager->page_num_per_table.end(),
                     std::back_inserter(max_page_per_table));
         for (int i = 0 ; i < table_num ; i++){
-            // 按照每个表的大小切分
-            // meta_manager_->par_size_per_table[i] = meta_manager_->page_num_per_table[i] / ComputeNodeCount;
-            // meta_manager_->par_size_per_table[i + 10000] = meta_manager_->page_num_per_table[i + 10000] / ComputeNodeCount;
-            // meta_manager_->par_size_per_table[i + 20000] = meta_manager_->page_num_per_table[i + 20000] / ComputeNodeCount;
-
             // TPCC 负载比较特殊，某些表的页面数量太少了，所以按照页面数量来分区
             if (WORKLOAD_MODE == 1){
                 meta_manager_->par_size_per_table[i] = meta_manager_->page_num_per_table[i] / ComputeNodeCount;
@@ -228,8 +208,8 @@ public:
         }
 
 
-        // 不知道干啥的，这里先给他设置 10000 吧
-        local_buffer_pool = new BufferPool(ComputeNodeBufferPageSize , 10000);
+        // 不知道干啥的，这里先给他设置 100 吧
+        local_buffer_pool = new BufferPool(ComputeNodeBufferPageSize , 100);
         fetch_remote_cnt = 0;
         fetch_allpage_cnt = 0;
         fetch_from_remote_cnt = 0;
@@ -239,6 +219,116 @@ public:
         lock_remote_cnt = 0;
         hit_delayed_release_lock_cnt = 0;
         latency_vec = std::vector<double>();
+    }
+
+    ComputeNode(int nodeid, std::string remote_server_ip, int remote_server_port, MetaManager* meta_manager , std::string db_name , int thread_num){
+        // SQL 模式目前只支持 lazy
+        assert(SYSTEM_MODE == 1);
+        brpc::ChannelOptions options;
+        options.use_rdma = use_rdma;
+
+        // 初始化和 metaserver 的连接
+        options.timeout_ms = 0x7fffffff; // 2147483647ms
+        std::string remote_node = remote_server_ip + ":" + std::to_string(remote_server_port);
+        if (page_table_channel.Init(remote_node.c_str(), &options) != 0) {
+            LOG(ERROR) << "Fail to init channel";
+            exit(1);
+        }
+
+        // 初始化和 storage_server 的连接
+        brpc::ChannelOptions options2;
+        options2.use_rdma = use_rdma;
+        options2.timeout_ms = 0x7fffffff; // 2147483647ms
+        std::string storage_node = meta_manager->remote_storage_nodes[0].ip + ":" + std::to_string(meta_manager->remote_storage_nodes[0].port);
+        if (storage_channel.Init(storage_node.c_str(), &options2) != 0) {
+            LOG(ERROR) << "Fail to init channel";
+            exit(1);
+        }
+
+        // 配置每个表的缓冲区大小
+        size_t table_pool_size_cfg = 0; 
+        size_t blink_buffer_pool_cfg = 0;
+        size_t fsm_pool_size_cfg = 0;
+        size_t partition_size_cfg = 0;
+        {
+            std::string config_filepath = "../../config/compute_node_config.json";
+            auto json_config = JsonConfig::load_file(config_filepath);
+
+            auto pool_size_node = json_config.get("table_buffer_pool_size_per_table");
+            auto index_pool_size = json_config.get("index_buffer_pool_size_per_table");
+            auto fsm_pool_size = json_config.get("fsm_buffer_pool_size_per_table");
+            auto partition_size = json_config.get("partition_size_per_table");
+
+            if (pool_size_node.exists() && pool_size_node.is_int64()) {
+                table_pool_size_cfg = (size_t)pool_size_node.get_int64();
+            }
+            if (index_pool_size.exists() && index_pool_size.is_int64()){
+                blink_buffer_pool_cfg = (size_t)index_pool_size.get_int64();
+            }
+            if (fsm_pool_size.exists() && fsm_pool_size.is_int64()){
+                fsm_pool_size_cfg = (size_t)fsm_pool_size.get_int64();
+            }
+            if (partition_size.exists() && partition_size.is_int64()){
+                partition_size_cfg = (size_t)partition_size.get_int64();
+            }
+            std::cout << "Table BufferPool Size Per Table : " << table_pool_size_cfg << "\n";
+            std::cout << "Index BufferPool Size Per Table : " << blink_buffer_pool_cfg << "\n";
+        }
+
+        // meta_manager_->initParSize();
+        // 先预设只有一个数据库，打开的就是这个数据库
+        // 通知存储层，打开此数据库
+        storage_service::StorageService_Stub storage_stub(&storage_channel);
+        brpc::Controller cntl;
+        storage_service::OpendbRequest open_db_request;
+        storage_service::OpendbResponse open_db_response;
+        open_db_request.set_db_name(db_name);
+        storage_stub.OpenDb(&cntl , &open_db_request , &open_db_response , NULL);
+        if (cntl.Failed()){
+            LOG(ERROR) << "Fail To Open DB , DB_Name = " << db_name;
+            assert(false);
+        }
+
+        // 目前这个数据库里的表的数量
+        int table_num = open_db_response.table_num();
+        for (int i = 0 ; i < open_db_response.table_names_size() ; i++){
+            std::string table_name = open_db_response.table_names(i);
+            // TODO，表名有啥用后边想想 
+        }
+
+        // 根据目前表的数量，去初始化锁表和缓冲区
+        if (SYSTEM_MODE == 1){
+            lazy_local_page_lock_tables.resize(30000);
+            for(int i = 0; i < table_num; i++){
+                lazy_local_page_lock_tables[i] = new LRLocalPageLockTable();
+                lazy_local_page_lock_tables[i + 10000] = new LRLocalPageLockTable();
+                lazy_local_page_lock_tables[i + 20000] = new LRLocalPageLockTable();
+            }
+        }else {
+            assert(false);
+        }
+
+        for (int i = 0 ; i < table_num ; i++){
+            meta_manager_->par_size_per_table[i] = partition_size_cfg;
+            // 暂时先让 FSM 和 BLink 的页面分区大小为 100
+            meta_manager_->par_size_per_table[i + 10000] = 100;
+            meta_manager_->par_size_per_table[i + 20000] = 100;
+        }
+
+        local_buffer_pools = std::vector<BufferPool*>(30000 , nullptr);
+        for(int table_id = 0; table_id < table_num ; table_id++) {
+            assert(table_pool_size_cfg > 0 && blink_buffer_pool_cfg > 0 && fsm_pool_size_cfg > 0);
+            // 表本体
+            local_buffer_pools[table_id] = new BufferPool(table_pool_size_cfg , 10000);
+            // BLink 树
+            local_buffer_pools[table_id + 10000] = new BufferPool(blink_buffer_pool_cfg , 10000);
+            // FSM 
+            local_buffer_pools[table_id + 20000] = new BufferPool(fsm_pool_size_cfg , 5000);
+        }
+
+        // 调度器，负责处理事务
+        scheduler = new Scheduler(thread_num , true , "Scheduler");
+        scheduler->start();
     }
 
     ~ComputeNode(){

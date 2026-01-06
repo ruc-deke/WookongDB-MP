@@ -175,7 +175,7 @@ public:
             auto log_manager = std::make_shared<LogManager>(disk_manager.get(), nullptr, "Raft_Log" + std::to_string(node_->getNodeID()));
             compute_node_service::ComputeNodeServiceImpl compute_node_service_impl(this);
             twopc_service::TwoPCServiceImpl twoPC_service_impl(this);
-            storage_service::StoragePoolImpl storage_service_impl(log_manager.get(), disk_manager.get(), nullptr, nodes_channel, 0);
+            storage_service::StoragePoolImpl storage_service_impl(log_manager.get(), disk_manager.get(), nullptr, nodes_channel, 0, nullptr);
             // 和存储层的通信
             if (server.AddService(&storage_service_impl, brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
                 LOG(ERROR) << "Fail to add compute_node_service";
@@ -300,6 +300,7 @@ public:
         Rid delete_rid = get_rid_from_blink(item->table_id , item->key);
         // 如果 B+ 树里边都没有，那说明根本没插入过这个 key，直接删了就行
         if (delete_rid.page_no_ == -1){
+            std::cout << "Not Found On BLink , RollBack , key = " << item->key << "\n";
             return {-1 , -1};
         }
 
@@ -318,7 +319,12 @@ public:
         // 元组已经被删除了，所以不需要再删除
         // 留在这是为了 MVCC 读能够回滚到历史版本
         if (!Bitmap::is_set(bitmap , delete_rid.slot_no_)){
-            LOG(INFO) << "Delete Entry , Exist In BLink , But Tuple Has been deleted";
+            std::cout << "Delete Entry , Exist In BLink , But Tuple Has been deleted\n";
+            if (SYSTEM_MODE == 1){
+                rpc_lazy_release_x_page(item->table_id , delete_rid.page_no_);
+            }else{
+                assert(false);
+            }
             return {-1 , -1};
         }
 
@@ -328,7 +334,7 @@ public:
         char* tuple = slots + delete_rid.slot_no_ * (sizeof(DataItem) + sizeof(itemkey_t));
         DataItem* target_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
         if (target_item->lock == EXCLUSIVE_LOCKED){
-            LOG(INFO) << "Delete Entry , But Tuple Is Exclusive Locked";
+            std::cout << "Delete Entry , But Tuple Is Exclusive Locked\n";
             if (SYSTEM_MODE == 1){
                 rpc_lazy_release_x_page(item->table_id , delete_rid.page_no_);
             }else {
@@ -338,12 +344,16 @@ public:
         }
 
         // 走到这里，说明一定可以删除这个数据项了
-        // 只做两个事情，其一是把这个数据项的 BitMap 给 reset 了，其二是修改 FSM
+        // 做 3 个事情：加锁 + 逻辑删除 + FSM 回收空间
+        target_item->lock = EXCLUSIVE_LOCKED;
         Bitmap::reset(bitmap, delete_rid.slot_no_);
         page_hdr->num_records_--;
+
+        std::cout << "Delete , key = " << item->key << "\n";
         
         // TODO
-        // 修改 FSM
+        int count=Bitmap::getfreeposnum(bitmap,meta.num_records_per_page_ );
+        update_page_space(item->table_id,delete_rid.page_no_,(sizeof(DataItem)+sizeof(itemkey_t))*count);
 
         // 3. 释放掉页面锁
         if (SYSTEM_MODE == 1){
@@ -474,7 +484,6 @@ public:
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
             // 2.1 去 BitMap 里面找到一个空闲的 slot
             int slot_no = Bitmap::first_bit(false, bitmap, meta.num_records_per_page_);
-            int left_item_num= meta.num_records_per_page_ - slot_no;
 
             // 当前 page 内没有空闲空间了
             if (slot_no >= meta.num_records_per_page_){
@@ -516,14 +525,14 @@ public:
             // 2.2 把元组里边的锁设置成 EXCLUSIVE_LOCKED
             // LOG(INFO) << "Set EXCLUSIVE LOCKED , key = " << item->key;
             target_item->lock = EXCLUSIVE_LOCKED;
-
+            int count=Bitmap::getfreeposnum(bitmap,meta.num_records_per_page_ );
             // 3. 插入到 BLink 
             LOG(INFO) << "Insert Into BLink , table_id = " << item->table_id << " page_id = " << free_page_id << " slot no = " << slot_no;
             auto page_id = bl_indexes[item->table_id]->insert_entry(&item->key , {free_page_id , slot_no});
             // 前面排除过了，如果 BLink 里边有数据，那走的是另外一条路
             assert(page_id != INVALID_PAGE_ID);
 
-            update_page_space(item->table_id , free_page_id , (left_item_num-1)*(sizeof(DataItem) + sizeof(itemkey_t)));//这里其实逻辑不对，没考虑删除，先这么写着
+            update_page_space(item->table_id , free_page_id , count*(sizeof(DataItem) + sizeof(itemkey_t)));
 
             if (SYSTEM_MODE == 1){
                 rpc_lazy_release_x_page(item->table_id , free_page_id);

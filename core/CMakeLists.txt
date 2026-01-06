@@ -57,6 +57,7 @@ set(Storage_SRC
         storage/log_manager.cc
         storage/logreplay.cc
         storage/storage_rpc.cc
+        storage/sm_manager.cc
         storage/storage_service.pb.cc
         storage/blink_tree/blink_tree.cc    
         storage/fsm_tree/s_fsm_tree.cc

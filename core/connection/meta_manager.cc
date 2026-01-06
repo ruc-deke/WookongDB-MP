@@ -15,7 +15,7 @@
 #include "util/bitmap.h"
 #include "storage/storage_service.pb.h"
 
-MetaManager::MetaManager(std::string bench_name, IndexCache* index_cache , PageCache* page_cache) 
+MetaManager::MetaManager(std::string bench_name, IndexCache* index_cache , PageCache* page_cache , int node_id , int system_mode) 
   : index_cache_(index_cache), page_cache_(page_cache){
   // init table name and table id map
   if (bench_name == "smallbank") {
@@ -69,6 +69,9 @@ MetaManager::MetaManager(std::string bench_name, IndexCache* index_cache , PageC
     meta.num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (meta.record_size_ + sizeof(itemkey_t)) * BITMAP_WIDTH);
     meta.bitmap_size_ = (meta.num_records_per_page_ + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
     table_meta_map[0] = meta;
+  }else if (bench_name == ""){
+    // SQL
+
   }else {
     assert(false);
   }
@@ -77,8 +80,8 @@ MetaManager::MetaManager(std::string bench_name, IndexCache* index_cache , PageC
   std::string config_filepath = "../../config/compute_node_config.json";
   auto json_config = JsonConfig::load_file(config_filepath);
   auto local_node = json_config.get("local_compute_node");
-  local_machine_id = (node_id_t)local_node.get("machine_id").get_int64();
-  txn_system = local_node.get("txn_system").get_int64();
+  local_machine_id = node_id;
+  txn_system = system_mode;
 
   auto compute_nodes = json_config.get("remote_compute_nodes");
   auto remote_compute_ips = compute_nodes.get("remote_compute_node_ips");
@@ -114,32 +117,35 @@ MetaManager::MetaManager(std::string bench_name, IndexCache* index_cache , PageC
   for (size_t index = 0; index < remote_storage_ips.size(); index++) {
     std::string remote_ip = remote_storage_ips.get(index).get_str();
     int remote_meta_port = (int)remote_storage_meta_ports.get(index).get_int64();
-    node_id_t remote_machine_id = GetRemoteStorageMeta(remote_ip, remote_meta_port);
-    if (remote_machine_id == -1) {
-      LOG(ERROR) << "Thread " << std::this_thread::get_id() << " GetAddrStoreMeta() failed!, remote_machine_id = -1" << std::endl;
-      assert(false);
+    node_id_t remote_machine_id;
+    if (bench_name != ""){
+      // 如果是非 SQL 模式，需要从存储层获取到初始化的页面数量
+      remote_machine_id = GetRemoteStorageMeta(remote_ip, remote_meta_port);
+      if (remote_machine_id == -1) {
+        LOG(ERROR) << "Thread " << std::this_thread::get_id() << " GetAddrStoreMeta() failed!, remote_machine_id = -1" << std::endl;
+        assert(false);
+      }
     }
+    
     int remote_port = (int)remote_storage_ports.get(index).get_int64();
     remote_storage_nodes.push_back(RemoteNode{.node_id = remote_machine_id, .ip = remote_ip, .port = remote_port});
   }
-  // LOG(INFO) << "All storage meta received";
 
   // prefetch index
-  for (auto& table : table_name_map) {
-    // table.first ：table_id
-    PrefetchIndex(table.first);
+  if (bench_name != ""){
+    for (auto& table : table_name_map) {
+      // table.first ：table_id
+      PrefetchIndex(table.first);
+    }
+    for(auto &item : index_cache_->getRidsMap()) {
+        table_id_t item_table_id = item.first;
+        for(auto it : item.second) {
+            itemkey_t it_key = it.first;
+            Rid it_rid = it.second;
+            page_cache_->Insert(item_table_id,it_rid.page_no_,it_key);
+        }
+    }
   }
-
-  // key 都保存在 index_cache_ 里面了，那么就可以直接在主节点中读取 index_cache_，然后写入 B+ 树了
-  for(auto &item : index_cache_->getRidsMap()) {
-      table_id_t item_table_id = item.first;
-      for(auto it : item.second) {
-          itemkey_t it_key = it.first;
-          Rid it_rid = it.second;
-          page_cache_->Insert(item_table_id,it_rid.page_no_,it_key);
-      }
-  }
-  // LOG(INFO) << "All index prefetched";
 }
 
 node_id_t MetaManager::GetRemoteStorageMeta(std::string& remote_ip, int remote_port) {

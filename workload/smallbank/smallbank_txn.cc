@@ -446,9 +446,15 @@ bool SmallBankDTX::TxBalance(SmallBank* smallbank_client, uint64_t* seed, coro_y
 
   // 测试删除
   {
-    if (node_now_account > node_begin_account + 500) {
-      int delete_account = node_now_account.load() - 100;
-      auto delete_item = std::make_shared<DataItem>(0, sizeof(smallbank_savings_val_t), delete_account, 1);
+    // if (node_now_account > node_begin_account + 500) {
+    //   int delete_account = node_now_account.load() - 100;
+    //   auto delete_item = std::make_shared<DataItem>(0, sizeof(smallbank_savings_val_t), delete_account, 1);
+    //   dtx->AddToDeleteSet(delete_item);
+    // }
+
+    for (int i = 0 ; i < 3 ; i++){
+      int rand_account = FastRand(seed) % 300000;
+      auto delete_item = std::make_shared<DataItem>(0 , sizeof(smallbank_savings_val_t) , rand_account , 1);
       dtx->AddToDeleteSet(delete_item);
     }
   }

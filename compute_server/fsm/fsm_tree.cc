@@ -349,18 +349,13 @@ void SecFSM::update_page_space(uint32_t page_id, uint32_t free_space) {
         // 更新叶子节点
         release_page(leaf_page_id,false);
         update_node_value(leaf_page_id, leaf_index, new_category);
-        if(page_id==16667){
-            std::cout << "Updated  page " << page_id << " in leaf page " << leaf_page_id
-                      << " space: " << static_cast<int>(old_category) << " -> " 
-                      << static_cast<int>(new_category) << std::endl;
-        }
         // std::cout << "Updated heap page " << page_id << " in leaf page " << leaf_page_id
         //           << " space: " << category_to_space(old_category) << " -> " 
         //           << category_to_space(new_category) << std::endl;
         
     }
     else {release_page(leaf_page_id,false);
-    // std::cout<<"空间类别未改变，无需更新"<<std::endl;
+    // std::cout<<"Heap Page "<<page_id<<" in leaf page " << leaf_page_id << " 空间类别未改变，无需更新"<<std::endl;
     }
 }
 

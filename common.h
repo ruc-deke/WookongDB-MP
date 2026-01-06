@@ -1,6 +1,11 @@
 #pragma once
 #include <cstdint> 
 #include <time.h>
+#include "vector"
+
+#include "cstring"
+#include "map"
+#include "string"
 
 #define ALWAYS_INLINE inline __attribute__((always_inline))
 
@@ -35,6 +40,8 @@ const uint64_t MEM_STORE_META_END = 0xE0FF0E0F;
 // for log
 #define LOG_REPLAY_BUFFER_SIZE  (10 * 4096)                    // size of a log buffer in byte
 #define RM_BUFFER_POOL_SIZE 65536 // 256MB
+
+static const std::string DB_META_NAME = "db.meta";
 
 // for batch index prefetch
 #define BATCH_INDEX_PREFETCH_SIZE 1024
@@ -85,3 +92,130 @@ enum TXStatus : int {
   TX_ABORT,     // Aborted transaction
   TX_VAL_NOTFOUND // Value not found
 };
+
+enum ColType{
+    TYPE_INT = 0,
+    TYPE_FLOAT = 1,
+    TYPE_STRING = 2
+};
+
+// 目前只支持 B+ 树索引
+enum class IndexType{
+    BTREE_INDEX,
+    UNKNOW_INDEX
+};
+
+// 单个列
+struct TabCol{
+  std::string tab_name;
+  std::string col_name;
+
+  friend bool operator<(const TabCol& x, const TabCol& y) {
+      return std::make_pair(x.tab_name, x.col_name) < std::make_pair(y.tab_name, y.col_name);
+  }
+
+  void serialize(char* dest, int& offset) {
+      int tab_name_size = tab_name.size();
+      int col_name_size = col_name.size();
+      memcpy(dest + offset, &tab_name_size, sizeof(int));
+      offset += sizeof(int);
+      memcpy(dest + offset, tab_name.c_str(), tab_name_size);
+      offset += tab_name_size;
+      memcpy(dest + offset, &col_name_size, sizeof(int));
+      offset += sizeof(int);
+      memcpy(dest + offset, col_name.c_str(), col_name_size);
+      offset += col_name_size;
+  }
+
+  void deserialize(char* src, int& offset) {
+      int tab_name_size = *reinterpret_cast<const int*>(src + offset);
+      offset += sizeof(int);
+      tab_name = std::string(src + offset, tab_name_size);
+      offset += tab_name_size;
+      int col_name_size = *reinterpret_cast<const int*>(src + offset);
+      offset += sizeof(int);
+      col_name = std::string(src + offset, col_name_size);
+      offset += col_name_size;
+  }
+};
+
+struct Value{
+    ColType type;
+
+    int int_val;
+    float float_val;
+    std::string str_val;
+
+    void set_int(int int_val_) {
+        type = TYPE_INT;
+        int_val = int_val_;
+    }
+
+    void set_float(float float_val_) {
+        type = TYPE_FLOAT;
+        float_val = float_val_;
+    }
+
+    void set_str(std::string str_val_) {
+        type = TYPE_STRING;
+        str_val = std::move(str_val_);
+    }
+};
+
+inline std::string coltype2str(ColType type) {
+    std::map<ColType, std::string> m = {
+            {TYPE_INT,    "INT"},
+            {TYPE_FLOAT,  "FLOAT"},
+            {TYPE_STRING, "STRING"}
+    };
+    return m.at(type);
+}
+
+enum CompOp{
+    OP_EQ,
+    OP_NE,
+    OP_LT,
+    OP_GT,
+    OP_LE,
+    OP_GE
+};
+
+struct Condition{
+    TabCol lhs_col; // 左边列
+    CompOp op; // 操作符
+    bool is_rhs_val; // 如果右边是具体的值，那么这个等于 true
+    TabCol rhs_col; // 右边的列(如果是列的话)
+    Value rhs_val; // 右边的值
+    
+    // 默认构造函数
+    Condition() : op(OP_EQ), is_rhs_val(false) {}
+
+    // void serialize(char* dest, int& offset) {
+    //     lhs_col.serialize(dest, offset);
+    //     memcpy(dest + offset, &op, sizeof(CompOp));
+    //     offset += sizeof(CompOp);
+    //     memcpy(dest + offset, &is_rhs_val, sizeof(bool));
+    //     offset += sizeof(bool);
+    //     if(is_rhs_val) {
+    //         rhs_val.serialize(dest, offset);
+    //     }
+    //     else {
+    //         rhs_col.serialize(dest, offset);
+    //     }
+    // }
+
+    // void deserialize(char* src, int& offset) {
+    //     lhs_col.deserialize(src, offset);
+    //     op = *reinterpret_cast<const CompOp*>(src + offset);
+    //     offset += sizeof(CompOp);
+    //     is_rhs_val = *reinterpret_cast<const bool*>(src + offset);
+    //     offset += sizeof(bool);
+    //     if(is_rhs_val) {
+    //         rhs_val.deserialize(src, offset);
+    //     }
+    //     else {
+    //         rhs_col.deserialize(src, offset);
+    //     }
+    // }
+};
+

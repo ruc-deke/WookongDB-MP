@@ -15,8 +15,16 @@ message LogWriteRequest {
 message RaftLogWriteRequest{
     bytes raft_log = 1;
 }
-
 message LogWriteResponse{}
+
+message OpendbRequest{
+    bytes db_name = 1;
+};
+message OpendbResponse{
+    sint32 table_num = 1;
+    sint32 error_code = 2;
+    repeated bytes table_names = 3;
+};
 
 message GetPageRequest {
 	message PageID{
@@ -84,4 +92,7 @@ service StorageService {
     rpc WritePage(WritePageRequest) returns (WritePageResponse);
     rpc CreatePage(CreatePageRequest) returns (CreatePageResponse);
     rpc DeletePage(DeletePageRequest) returns (DeletePageResponse);
+
+    // SQL
+    rpc OpenDb(OpendbRequest) returns (OpendbResponse);
 };

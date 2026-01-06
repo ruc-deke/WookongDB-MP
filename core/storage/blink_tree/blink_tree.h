@@ -114,6 +114,57 @@ private:
 
 class S_BLinkIndexHandle : public std::enable_shared_from_this<S_BLinkIndexHandle>{
 public:
+    // SQL 用的，不指定 table_id
+    S_BLinkIndexHandle(DiskManager *dm, StorageBufferPoolManager *bpm, std::string table_name_)
+        :disk_manager(dm) , buffer_pool(bpm) , table_name(table_name_){
+        
+        int fd = disk_manager->open_file(index_path);
+        assert(fd >= 0);
+
+        int file_size = disk_manager->get_file_size(index_path);
+        assert(file_size == 0);
+
+        int key_size = sizeof(itemkey_t);
+        {
+            char buf[PAGE_SIZE];
+            memset(buf , 0 , PAGE_SIZE);
+            BLNodeHdr *header = reinterpret_cast<BLNodeHdr*>(buf);
+            header->is_leaf = true;
+            header->next_leaf = BP_INIT_ROOT_PAGE_ID;
+            header->num_key = 0;
+            // header->parent = INVALID_PAGE_ID;
+            header->prev_leaf = BP_INIT_ROOT_PAGE_ID;
+            header->high_key = -1;
+            header->has_high_key = false;
+            header->right_sibling = INVALID_PAGE_ID;
+            disk_manager->write_page(fd , BP_LEAF_HEADER_PAGE_ID , buf , PAGE_SIZE);
+        }
+
+        file_hdr = new BLFileHdr(BP_INIT_ROOT_PAGE_ID , BP_INIT_ROOT_PAGE_ID , BP_INIT_ROOT_PAGE_ID);
+        char *data = new char[PAGE_SIZE];
+        memset(data , 0 , PAGE_SIZE);
+        file_hdr->serialize(data);
+        disk_manager->write_page(fd , BP_HEAD_PAGE_ID , data , PAGE_SIZE);
+
+        {
+            char buf[PAGE_SIZE];
+            memset(buf , 0 , PAGE_SIZE);
+            BLNodeHdr *root = reinterpret_cast<BLNodeHdr*>(buf);
+            root->is_leaf = true;
+            root->next_leaf = BP_LEAF_HEADER_PAGE_ID;
+            root->num_key = 0;
+            // root->parent = INVALID_PAGE_ID;
+            root->prev_leaf = BP_LEAF_HEADER_PAGE_ID;
+            root->high_key = -1;
+            root->has_high_key = false;
+            root->right_sibling = INVALID_PAGE_ID;
+            root->is_root = true;
+            disk_manager->write_page(fd , BP_INIT_ROOT_PAGE_ID , buf , PAGE_SIZE);
+        }
+
+        disk_manager->set_fd2pageno(fd , BP_INIT_PAGE_NUM);
+    }
+
     S_BLinkIndexHandle(DiskManager *dm, StorageBufferPoolManager *bpm, table_id_t table_id_ , std::string bench_name)
         :disk_manager(dm) , buffer_pool(bpm) , table_id(table_id_){
         table2name(table_id , bench_name);
@@ -241,6 +292,7 @@ private:
     DiskManager *disk_manager;
     StorageBufferPoolManager *buffer_pool;
     table_id_t table_id;
+    std::string table_name;
     BLFileHdr *file_hdr;
     std::string index_path;
 };

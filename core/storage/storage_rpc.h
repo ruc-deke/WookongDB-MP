@@ -9,11 +9,12 @@
 #include "disk_manager.h"
 #include "record/rm_manager.h"
 #include "common.h"
+#include "sm_manager.h"
 
 namespace storage_service{
 class StoragePoolImpl : public StorageService{  
   public:
-    StoragePoolImpl(LogManager* log_manager, DiskManager* disk_manager, RmManager* rm_manager, brpc::Channel* raft_channels_, int raft_num);
+    StoragePoolImpl(LogManager* log_manager, DiskManager* disk_manager, RmManager* rm_manager, brpc::Channel* raft_channels_, int raft_num , SmManager *sm_manager);
 
     virtual ~StoragePoolImpl();
 
@@ -54,10 +55,17 @@ class StoragePoolImpl : public StorageService{
                         ::storage_service::DeletePageResponse *response ,
                         ::google::protobuf::Closure *done);
 
+    // SQL
+    virtual void OpenDb(::google::protobuf::RpcController* controller,
+                       const ::storage_service::OpendbRequest* request,
+                       ::storage_service::OpendbResponse* response,
+                       ::google::protobuf::Closure* done);
+
   private:
     LogManager* log_manager_;
     DiskManager* disk_manager_;
     RmManager* rm_manager_;
+    SmManager *sm_manager;
     brpc::Channel* raft_channels_;
     int raft_num_;
   };

@@ -28,7 +28,7 @@ struct RemoteNode {
 
 class MetaManager {
  public:
-  MetaManager(std::string bench_name, IndexCache* index_cache , PageCache* page_cache);
+  MetaManager(std::string bench_name, IndexCache* index_cache , PageCache* page_cache , int node_id , int system_mode);
 
   node_id_t GetRemoteStorageMeta(std::string& remote_ip, int remote_port); 
 

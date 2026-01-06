@@ -11,6 +11,7 @@
 
 #include "util/json_config.h"
 #include "util/bitmap.h"
+#include "storage/sm_manager.h"
 
 void LoadData(node_id_t machine_id,
                       node_id_t machine_num,  // number of memory nodes
@@ -263,10 +264,15 @@ bool Server::Run() {
 }
 
 int main(int argc, char* argv[]) {
+    // 默认以 SQL 交互模式启动
+    std::string mode = "sql";
+    if (argc > 1) {
+        mode = argv[1];
+    }
+    
     // Configure of this server
     std::string config_filepath = "../../config/storage_node_config.json";
     auto json_config = JsonConfig::load_file(config_filepath);
-
     auto local_node = json_config.get("local_storage_node");
     node_id_t machine_num = (node_id_t)local_node.get("machine_num").get_int64();
     node_id_t machine_id = (node_id_t)local_node.get("machine_id").get_int64();
@@ -274,11 +280,10 @@ int main(int argc, char* argv[]) {
     int local_rpc_port = (int)local_node.get("local_rpc_port").get_int64();
     int local_meta_port = (int)local_node.get("local_meta_port").get_int64();
     bool use_rdma = (bool)local_node.get("use_rdma").get_bool();
-    std::string workload = local_node.get("workload").get_str();
-
     auto compute_nodes = json_config.get("remote_compute_nodes");
     auto compute_node_ips = compute_nodes.get("compute_node_ips");  // Array
     size_t compute_node_num = compute_node_ips.size();
+
     std::vector<std::string> compute_ip_list;
     std::vector<int> compute_ports_list;
     for(size_t i=0; i<compute_node_ips.size(); i++){
@@ -286,23 +291,26 @@ int main(int argc, char* argv[]) {
       compute_ports_list.push_back(compute_nodes.get("compute_node_ports").get(i).get_int64());
     }
 
-    // 在这里开始构造disk_manager, log_manager, server
-    // 初始化整个数据库的数据
     auto disk_manager = std::make_shared<DiskManager>();
     auto log_replay = std::make_shared<LogReplay>(disk_manager.get()); 
     auto log_manager = std::make_shared<LogManager>(disk_manager.get(), log_replay.get());
-    
-    // Init table in disk
+
     auto buffer_mgr = std::make_shared<StorageBufferPoolManager>(RM_BUFFER_POOL_SIZE, disk_manager.get());
     auto rm_manager = std::make_shared<RmManager>(disk_manager.get(), buffer_mgr.get());
-    
-    LoadData(machine_id, machine_num, workload, rm_manager.get());
-    // buffer_mgr->flush_all_pages();
-    // buffer_mgr = std::make_shared<StorageBufferPoolManager>(RM_BUFFER_POOL_SIZE, disk_manager.get());
+    std::string workload = local_node.get("workload").get_str();
 
-    auto server = std::make_shared<Server>(machine_id, local_rpc_port, local_meta_port, use_rdma, 
-    compute_node_num, compute_ip_list, compute_ports_list,
-    disk_manager.get(), log_manager.get(), rm_manager.get(), workload);
+    if (mode == "sql"){
+      SmManager *sm_manager = new SmManager(rm_manager.get() , rm_manager->get_bufferPoolManager());
+      auto server = std::make_shared<Server>(machine_id, local_rpc_port, local_meta_port, use_rdma, 
+                      compute_node_num, compute_ip_list, compute_ports_list,
+                      disk_manager.get(), log_manager.get(), rm_manager.get(), sm_manager);
+    }else if (mode == "bench"){
+      // 如果是负载模式，那就硬加载数据到存储里
+      LoadData(machine_id, machine_num, workload, rm_manager.get());
+      auto server = std::make_shared<Server>(machine_id, local_rpc_port, local_meta_port, use_rdma, 
+                      compute_node_num, compute_ip_list, compute_ports_list,
+                      disk_manager.get(), log_manager.get(), rm_manager.get(), workload);
+    }
     
     return 0;
 }

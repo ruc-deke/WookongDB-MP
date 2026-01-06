@@ -49,12 +49,42 @@ double tx_fetch_exe_time=0, tx_fetch_commit_time=0, tx_release_exe_time=0, tx_re
 double tx_fetch_abort_time=0, tx_release_abort_time=0;
 int single_txn =0, distribute_txn=0;
 
-void Handler::ConfigureComputeNode(int argc, char* argv[]) {
+void Handler::ConfigureComputeNodeRunSQL(int argc , char *argv[]){
+  // 配置节点数量
+  std::string config_file = "../../config/compute_node_config.json";
+  auto json_config = JsonConfig::load_file(config_file);
+  auto local_compute_node = json_config.get("local_compute_node");
+  ComputeNodeCount = (int)local_compute_node.get("machine_num").get_int64();
+
+  // 配置 SYSTEM_MODE
+  std::string system_name = std::string(argv[2]);
+  int txn_system_value = 0;
+  if (system_name.find("eager") != std::string::npos) {
+    txn_system_value = 0;
+  } else if (system_name.find("lazy") != std::string::npos) {
+    txn_system_value = 1;
+  } else if (system_name.find("2pc") != std::string::npos) {
+    txn_system_value = 2;
+  } else if (system_name.find("single") != std::string::npos) {
+    txn_system_value = 3;
+  } else if (system_name.find("ts_sep_hot") != std::string::npos){
+    txn_system_value = 13;
+  } else if (system_name.find("ts_sep") != std::string::npos) {
+    txn_system_value = 12;
+  } else {
+    std::cerr << "UnSupported System Mode\n";
+    assert(false);
+  }
+
+  SYSTEM_MODE = txn_system_value;
+}
+
+
+void Handler::ConfigureComputeNodeRunBench(int argc, char* argv[]) {
   std::string config_file = "../../config/compute_node_config.json";
   std::string system_name = std::string(argv[2]);
-  // ./run <benchmark_name> <system_name> <thread_num> <coroutine_num> <read_only_ratio> <local_transaction_ratio>
-  if (argc == 7 || argc == 8) {
 
+  if (argc == 7 || argc == 8) {
     std::string s2 = "sed -i '5c \"thread_num_per_machine\": " + std::string(argv[3]) + ",' " + config_file;
     thread_num_per_node = std::stoi(argv[3]);
     std::string s3 = "sed -i '6c \"coroutine_num\": " + std::string(argv[4]) + ",' " + config_file;
@@ -91,13 +121,49 @@ void Handler::ConfigureComputeNode(int argc, char* argv[]) {
   } else if (system_name.find("ts_sep") != std::string::npos) {
     txn_system_value = 12;
   } else {
-    LOG(FATAL) << "Unsupported system name: " << system_name;
+    assert(false);
   }
   SYSTEM_MODE = txn_system_value;
   std::cout << "SYSTEM_MODE = " << SYSTEM_MODE << "\n";
   std::string s = "sed -i '7c \"txn_system\": " + std::to_string(txn_system_value) + ",' " + config_file;
   system(s.c_str());
   return;
+}
+
+void Handler::GenThreadAndCoro(node_id_t node_id , int thread_num, int sys_mode , const std::string db_name){
+  std::string config_filepath = "../../config/compute_node_config.json";
+  auto json_config = JsonConfig::load_file(config_filepath);
+  auto client_conf = json_config.get("local_compute_node");
+
+  node_id_t machine_num = (node_id_t)client_conf.get("machine_num").get_int64();  // 节点数量
+
+  assert(node_id >= 0 && node_id < machine_num);
+  tx_id_generator = 0;
+
+  auto thread_arr = new std::thread[thread_num];
+  auto* index_cache = new IndexCache();
+  auto* page_cache = new PageCache();
+  auto* global_meta_man = new MetaManager("", index_cache , page_cache , node_id , sys_mode);
+  auto* param_arr = new struct thread_params[thread_num];
+
+  std::string remote_server_ip = global_meta_man->remote_server_nodes[0].ip;
+  int remote_server_port = global_meta_man->remote_server_nodes[0].port;
+  std::string remote_storage_ip = global_meta_man->remote_storage_nodes[0].ip;
+  int remote_storage_port = global_meta_man->remote_storage_nodes[0].port;
+
+  auto* compute_node = new ComputeNode(node_id, remote_server_ip, remote_server_port, global_meta_man , db_name , thread_num);
+  
+  std::vector<std::string> compute_ips(machine_num);
+  std::vector<int> compute_ports(machine_num);
+  for (node_id_t i = 0; i < machine_num; i++) {
+    compute_ips[i] = global_meta_man->remote_compute_nodes[i].ip;
+    compute_ports[i] = global_meta_man->remote_compute_nodes[i].port;
+  }
+
+  auto* compute_server = new ComputeServer(compute_node, compute_ips, compute_ports);
+  socket_start_client(global_meta_man->remote_server_nodes[0].ip, global_meta_man->remote_server_meta_port);
+
+  
 }
 
 void Handler::GenThreads(std::string bench_name) {
@@ -133,7 +199,7 @@ void Handler::GenThreads(std::string bench_name) {
   auto thread_arr = new std::thread[thread_num_per_machine];
   auto* index_cache = new IndexCache();
   auto* page_cache = new PageCache();
-  auto* global_meta_man = new MetaManager(bench_name, index_cache , page_cache);
+  auto* global_meta_man = new MetaManager(bench_name, index_cache , page_cache , machine_id , SYSTEM_MODE);
   auto* param_arr = new struct thread_params[thread_num_per_machine];
 
   // Create a compute node object
@@ -166,8 +232,6 @@ void Handler::GenThreads(std::string bench_name) {
 
   // Send TCP requests to remote servers here, and the remote server establishes a connection with the compute node
   socket_start_client(global_meta_man->remote_server_nodes[0].ip, global_meta_man->remote_server_meta_port);
-
-
   std::cout << "finish start client\n";
 
   SmallBank* smallbank_client = nullptr;

@@ -5,27 +5,6 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "(gdb) compute-node-test",
-            "type": "cppdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build/compute_server/compute_node",
-            "args": [
-                "0.5", "0.5", "40000", "3"
-            ],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/build/compute_server/",
-            "environment": [],
-            "externalConsole": false,
-            "MIMode": "gdb",
-            "setupCommands": [
-                {
-                    "description": "Enable pretty-printing for gdb",
-                    "text": "-enable-pretty-printing",
-                    "ignoreFailures": true
-                }
-            ]
-        },
-        {
             "name": "(gdb) remote-server",
             "type": "cppdbg",
             "request": "launch",
@@ -160,14 +139,15 @@
                 }
             ]
         },
-        
+
         {
-            "name": "(gdb)coro_test",
+            "name": "(gdb)compute-server-sql0",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/coro_test",
+            "program": "${workspaceFolder}/build/compute_server/compute_server",
+            "args": ["3", "lazy", "0", "10", "test_db"],
             "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/build/",
+            "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
             "externalConsole": false,
             "MIMode": "gdb",
@@ -179,24 +159,5 @@
                 }
             ]
         },
-        {
-            "name": "(gdb) test-scheduler",
-            "type": "cppdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build/core/test/test_scheduler",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/build/",
-            "environment": [],
-            "externalConsole": false,
-            "MIMode": "gdb",
-            "setupCommands": [
-                {
-                    "description": "Enable pretty-printing for gdb",
-                    "text": "-enable-pretty-printing",
-                    "ignoreFailures": true
-                }
-            ]
-        }
     ]
 }
