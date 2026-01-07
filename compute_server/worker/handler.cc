@@ -246,6 +246,8 @@ void Handler::GenThreads(std::string bench_name) {
     smallbank_client = new SmallBank(nullptr , hot_rate);
     total_try_times.resize(SmallBank_TX_TYPES, 0);
     total_commit_times.resize(SmallBank_TX_TYPES, 0);
+
+    std::cout << "Running \nbench_name = " << " SmallBank\nhot rate = " << hot_rate << "\nAttempt Num = 600000\nNum Account = " << "3000000\nuse_zipfian = 1\n";  
   } else if(bench_name == "tpcc") {
     tpcc_client = new TPCC(nullptr);
     total_try_times.resize(TPCC_TX_TYPES, 0);

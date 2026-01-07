@@ -118,6 +118,7 @@ class SmallBank {
 
   int num_records_per_page;
   int num_pages;
+  int tuple_size;
 
   RmManager* rm_manager;
 
@@ -140,7 +141,8 @@ class SmallBank {
     num_hot_global = conf.get("num_hot_accounts").get_uint64();
     hot_rate = (double)num_hot_global / (double)num_accounts_global;
 
-    num_records_per_page = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (sizeof(DataItem) + sizeof(itemkey_t)) * BITMAP_WIDTH);
+    tuple_size = sizeof(DataItem) + sizeof(smallbank_savings_val_t);
+    num_records_per_page = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (tuple_size + sizeof(itemkey_t)) * BITMAP_WIDTH);
     num_pages = (num_accounts_global + num_records_per_page - 1) / num_records_per_page;
 
     if (rm_manager){
@@ -151,7 +153,7 @@ class SmallBank {
         }
 
         for (int i = 0 ; i < 2 ; i++){
-            fsm_trees.emplace_back(new S_SecFSM(rm_manager->get_diskmanager(),rm_manager->get_bufferPoolManager() , i+20000 , "SmallBank"));
+            fsm_trees.emplace_back(new S_SecFSM(rm_manager->get_diskmanager(),rm_manager->get_bufferPoolManager() , i+20000 , "smallbank"));
             fsm_trees[i]->initialize(i + 20000,num_pages * 3);
         }
     }

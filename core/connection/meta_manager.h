@@ -11,14 +11,12 @@
 #include "cache/index_cache.h"
 #include "record/rm_file_handle.h"
 
-// 这个结构体作用是在计算层维护Table的元信息, 用于计算层和内存层交互
-// 这个结构体不同于RmFileHandle，RmFileHandle是一个页，存放了一些固定的信息和动态的元信息比如next_free_page
-// 这里维护一个固定的元信息，以减少频繁去FileHandle中读取的开销
-struct TableMeta {
-  int record_size_;
-  int num_records_per_page_;
-  int bitmap_size_;
-};
+
+// struct TableMeta {
+//   int record_size_;
+//   int num_records_per_page_;
+//   int bitmap_size_;
+// };
 
 struct RemoteNode {
   node_id_t node_id;
@@ -49,9 +47,7 @@ class MetaManager {
   const std::string GetTableName(const table_id_t table_id) const {
     return table_name_map.at(table_id);
   }
-  const TableMeta& GetTableMeta(const table_id_t table_id) const {
-    return table_meta_map[table_id];
-  }
+
   int GetTablePageNum(const table_id_t table_id) const {
     return page_num_per_table[table_id];
   }
@@ -109,7 +105,7 @@ class MetaManager {
 
   std::unordered_map<table_id_t, std::string> table_name_map;
 
-  TableMeta table_meta_map[MAX_DB_TABLE_NUM];
+  // TableMeta table_meta_map[MAX_DB_TABLE_NUM];
 
  public:
   node_id_t local_machine_id;

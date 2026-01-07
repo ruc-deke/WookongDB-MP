@@ -23,6 +23,7 @@
 #include "scheduler/coroutine.h"
 #include "storage/txn_log.h"
 #include "base/data_item.h"
+#include "base/page.h"
 #include "cache/index_cache.h"
 #include "connection/meta_manager.h"
 #include "util/json_config.h"
@@ -219,15 +220,13 @@ class DTX {
   bool TxCommitSingle(coro_yield_t& yield);
 
   void ReleaseSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id);
-
   void ReleaseXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id); 
 
-  DataItemPtr GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid);
-
-  DataItemPtr GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid, DataItem*& orginal_item);
+  DataItemPtr GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr *file_hdr);
+  DataItemPtr GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid, DataItem*& orginal_item , RmFileHdr *file_hdr);
    
-  DataItemPtr UndoDataItem(DataItemPtr item);
-
+  DataItem* UndoDataItem(DataItem* item);
+  
  public:
   std::unordered_set<node_id_t> wait_ids;
   std::unordered_set<node_id_t> all_ids;

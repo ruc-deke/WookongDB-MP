@@ -42,7 +42,7 @@ void SmallBank::VerifyData(){
       assert(check_found);
 
       std::unique_ptr<RmRecord> sav_record = saving_table_file->get_record(sav_rid , nullptr);
-      std::unique_ptr<RmRecord> check_record = saving_table_file->get_record(check_rid , nullptr);
+      std::unique_ptr<RmRecord> check_record = checking_table_file->get_record(check_rid , nullptr);
       assert(sav_record != nullptr);
       assert(check_record != nullptr);
 
@@ -54,8 +54,8 @@ void SmallBank::VerifyData(){
       } else {
           assert(false);
       }
-
-      if (check_item->value_size == sizeof(smallbank_savings_val_t)) {
+      
+      if (check_item->value_size == sizeof(smallbank_checking_val_t)) {
           assert(check_item->key == sav_key.item_key);
           assert(check_item->lock == 0);
       } else {
@@ -74,9 +74,8 @@ int SmallBank::LoadRecord(RmFileHandle* file_handle,
                           table_id_t table_id,
                           std::ofstream& indexfile
                           ) {
-  assert(val_size <= MAX_ITEM_SIZE);
   /* Insert into Disk */
-  DataItem item_to_be_inserted(table_id, val_size, item_key, (uint8_t*)val_ptr);
+  DataItem item_to_be_inserted(table_id, item_key, (uint8_t*)val_ptr, val_size);
   char* item_char = (char*)malloc(item_to_be_inserted.GetSerializeSize());
   item_to_be_inserted.Serialize(item_char);
   Rid rid = file_handle->insert_record(item_key, item_char, nullptr);
@@ -91,14 +90,19 @@ int SmallBank::LoadRecord(RmFileHandle* file_handle,
 
 void SmallBank::PopulateSavingsTable() {
   // 创建文件
-  rm_manager->create_file(bench_name + "_savings", sizeof(DataItem));
-  rm_manager->create_file(bench_name + "_savings_fsm" , sizeof(DataItem));
+  rm_manager->create_file(bench_name + "_savings", tuple_size);
+  rm_manager->create_file(bench_name + "_savings_fsm" , tuple_size);
 
   std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(bench_name + "_savings");
   std::unique_ptr<RmFileHandle> table_file_fsm = rm_manager->open_file(bench_name + "_savings_fsm");
 
   std::ofstream indexfile;
   indexfile.open(bench_name + "_savings_index.txt");
+  
+  table_file->file_hdr_.record_size_ = tuple_size;
+  table_file->file_hdr_.num_records_per_page_ = num_records_per_page;
+  table_file->file_hdr_.bitmap_size_ = (num_records_per_page + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
+  rm_manager->get_diskmanager()->write_page(table_file->GetFd(), RM_FILE_HDR_PAGE, (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));
   /* Populate the tables */
   // 插入用户数据，num_accounts_global 在 smallbank_config.json 里面配置
   for (uint32_t acct_id = 0; acct_id < num_accounts_global; acct_id++) {
@@ -119,7 +123,7 @@ void SmallBank::PopulateSavingsTable() {
   int fd1 = rm_manager->get_diskmanager()->open_file(bench_name + "_savings" + "_fsm");
   rm_manager->get_diskmanager()->write_page(fd1, RM_FILE_HDR_PAGE, (char *)&table_file_fsm->file_hdr_, sizeof(table_file_fsm->file_hdr_));
   int leftrecords = num_accounts_global % num_records_per_page;//最后一页的记录数
-  fsm_trees[0]->update_page_space(num_pages, (num_records_per_page - leftrecords) * (sizeof(DataItem) + sizeof(itemkey_t)));//更新最后一页的空间信息,free space为可插入的元组数量*（key+value）
+  fsm_trees[0]->update_page_space(num_pages, (num_records_per_page - leftrecords) * (tuple_size + sizeof(itemkey_t)));//更新最后一页的空间信息,free space为可插入的元组数量*（key+value）
   fsm_trees[0]->flush_all_pages();
   rm_manager->get_diskmanager()->close_file(fd1);
 
@@ -134,12 +138,17 @@ void SmallBank::PopulateSavingsTable() {
 }
 
 void SmallBank::PopulateCheckingTable( ) {
-  rm_manager->create_file(bench_name + "_checking", sizeof(DataItem));
-  rm_manager->create_file(bench_name + "_checking_fsm" , sizeof(DataItem));
+  rm_manager->create_file(bench_name + "_checking", tuple_size);
+  rm_manager->create_file(bench_name + "_checking_fsm" , tuple_size);
   std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(bench_name + "_checking");
   std::unique_ptr<RmFileHandle> table_file_fsm = rm_manager->open_file(bench_name + "_checking_fsm");
   std::ofstream indexfile;
   indexfile.open(bench_name + "_checking_index.txt");
+  
+  table_file->file_hdr_.record_size_ = tuple_size;
+  table_file->file_hdr_.num_records_per_page_ = num_records_per_page;
+  table_file->file_hdr_.bitmap_size_ = (num_records_per_page + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
+  rm_manager->get_diskmanager()->write_page(table_file->GetFd(), RM_FILE_HDR_PAGE, (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));
   /* Populate the tables */
   for (uint32_t acct_id = 0; acct_id < num_accounts_global; acct_id++) {
     // Checking
@@ -159,7 +168,7 @@ void SmallBank::PopulateCheckingTable( ) {
   int fd1 = rm_manager->get_diskmanager()->open_file(bench_name + "_checking" + "_fsm");
   rm_manager->get_diskmanager()->write_page(fd1, RM_FILE_HDR_PAGE, (char *)&table_file_fsm->file_hdr_, sizeof(table_file_fsm->file_hdr_));
   int leftrecords = num_accounts_global % num_records_per_page;//最后一页的记录数
-  fsm_trees[1]->update_page_space(num_pages, (num_records_per_page - leftrecords) * (sizeof(DataItem) + sizeof(itemkey_t)));//更新最后一页的空间信息,free space为可插入的元组数量*（key+value）
+  fsm_trees[1]->update_page_space(num_pages, (num_records_per_page - leftrecords) * (tuple_size + sizeof(itemkey_t)));//更新最后一页的空间信息,free space为可插入的元组数量*（key+value）
   fsm_trees[1]->flush_all_pages();
   rm_manager->get_diskmanager()->close_file(fd1);
   

@@ -3,7 +3,6 @@
     "local_rpc_port": 31508,
     "local_meta_port": 31509
   },
-  "WORKLOAD": "SmallBank",
   "remote_compute_nodes": {
     "compute_node_ips": [
       "127.0.0.1",

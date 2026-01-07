@@ -27,7 +27,7 @@ void TPCC::LoadTable(node_id_t node_id, node_id_t num_server) {
             sizeof(tpcc_order_line_val_t),
             sizeof(tpcc_item_val_t),
             sizeof(tpcc_stock_val_t),
-            DataItemSize);
+            sizeof(DataItem));
     // Initiate + Populate table for primary role
     if ((node_id_t)TPCCTableType::kWarehouseTable % num_server == node_id) {
         printf("Primary: Initializing Warehouse table\n");

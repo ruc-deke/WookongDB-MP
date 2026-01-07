@@ -22,15 +22,15 @@ MetaManager::MetaManager(std::string bench_name, IndexCache* index_cache , PageC
     table_name_map[0] = "smallbank_savings";
     table_name_map[1] = "smallbank_checking";
 
-    TableMeta meta;
-    meta.record_size_ = sizeof(DataItem);
+    // TableMeta meta;
+    // meta.record_size_ = sizeof(DataItem);
     // std::cout << "Record Size = " << sizeof(DataItem) << "\n";
-    meta.num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (meta.record_size_ + sizeof(itemkey_t)) * BITMAP_WIDTH);
-    meta.bitmap_size_ = (meta.num_records_per_page_ + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
+    // meta.num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (meta.record_size_ + sizeof(itemkey_t)) * BITMAP_WIDTH);
+    // meta.bitmap_size_ = (meta.num_records_per_page_ + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
     // std::cout << "Num Records Per Table = " << meta.num_records_per_page_ << "\n";
     
-    table_meta_map[0] = meta;
-    table_meta_map[1] = meta;
+    // table_meta_map[0] = meta;
+    // table_meta_map[1] = meta;
   } else if (bench_name == "tpcc") {
     table_name_map[0] = "TPCC_warehouse";
     table_name_map[1] = "TPCC_district";
@@ -44,31 +44,31 @@ MetaManager::MetaManager(std::string bench_name, IndexCache* index_cache , PageC
     table_name_map[9] = "TPCC_customerindex";
     table_name_map[10] = "TPCC_orderindex";
 
-    TableMeta meta;
-    meta.record_size_ = sizeof(DataItem);
-    meta.num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (meta.record_size_ + sizeof(itemkey_t)) * BITMAP_WIDTH);
-    meta.bitmap_size_ = (meta.num_records_per_page_ + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
+    // TableMeta meta;
+    // meta.record_size_ = sizeof(DataItem);
+    // meta.num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (meta.record_size_ + sizeof(itemkey_t)) * BITMAP_WIDTH);
+    // meta.bitmap_size_ = (meta.num_records_per_page_ + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
     // std::cout << "Record Size = " << sizeof(DataItem) << "\n";
     // std::cout << "Num Records Per Table = " << meta.num_records_per_page_ << "\n";
 
-    table_meta_map[0] = meta;
-    table_meta_map[1] = meta;
-    table_meta_map[2] = meta;
-    table_meta_map[3] = meta;
-    table_meta_map[4] = meta;
-    table_meta_map[5] = meta;
-    table_meta_map[6] = meta;
-    table_meta_map[7] = meta;
-    table_meta_map[8] = meta;
-    table_meta_map[9] = meta;
-    table_meta_map[10] = meta;
+    // table_meta_map[0] = meta;
+    // table_meta_map[1] = meta;
+    // table_meta_map[2] = meta;
+    // table_meta_map[3] = meta;
+    // table_meta_map[4] = meta;
+    // table_meta_map[5] = meta;
+    // table_meta_map[6] = meta;
+    // table_meta_map[7] = meta;
+    // table_meta_map[8] = meta;
+    // table_meta_map[9] = meta;
+    // table_meta_map[10] = meta;
   }else if (bench_name == "ycsb"){
     table_name_map[0] = "ycsb_user_table";
-    TableMeta meta;
-    meta.record_size_ = sizeof(DataItem);
-    meta.num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (meta.record_size_ + sizeof(itemkey_t)) * BITMAP_WIDTH);
-    meta.bitmap_size_ = (meta.num_records_per_page_ + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
-    table_meta_map[0] = meta;
+    // TableMeta meta;
+    // meta.record_size_ = sizeof(DataItem);
+    // meta.num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (meta.record_size_ + sizeof(itemkey_t)) * BITMAP_WIDTH);
+    // meta.bitmap_size_ = (meta.num_records_per_page_ + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
+    // table_meta_map[0] = meta;
   }else if (bench_name == ""){
     // SQL
 

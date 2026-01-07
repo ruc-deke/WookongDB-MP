@@ -2,6 +2,7 @@
 #include "record/rm_manager.h"
 #include "sql_executor/record_printer.h"
 #include "storage/blink_tree/blink_tree.h"
+#include "sql_executor/sql_common.h"
 
 #include <algorithm>
 
@@ -254,6 +255,9 @@ int SmManager::create_table(const std::string &table_name , const std::vector<Co
             return LJ::ErrorCode::UNKNOWN_ERROR;
         }
     }
+
+    // TODO 把单个元组大小写入 Page0 里
+    
 
     int curr_offset = 0;
     TabMeta tab;

@@ -22,7 +22,8 @@ namespace twopc_service{
             Page* page = server->local_fetch_x_page(table_id, page_id);
             char* data = page->get_data();
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-            char *slots = bitmap + server->get_node()->getMetaManager()->GetTableMeta(table_id).bitmap_size_;
+            RmFileHdr *file_hdr = server->get_tuple_size(table_id);
+            char *slots = bitmap + file_hdr->bitmap_size_;
             char* tuple = slots + slot_id * (sizeof(DataItem) + sizeof(itemkey_t));
 
             // 需要给这个元组加上排他锁
@@ -58,7 +59,8 @@ namespace twopc_service{
         Page* page = server->local_fetch_x_page(table_id, page_id);
         char* data = page->get_data();
         char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-        char *slots = bitmap + server->get_node()->getMetaManager()->GetTableMeta(table_id).bitmap_size_;
+        RmFileHdr *file_hdr = server->get_tuple_size(table_id);
+        char *slots = bitmap + file_hdr->bitmap_size_;
         char* tuple = slots + slot_id * (sizeof(DataItem) + sizeof(itemkey_t));
         DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
         assert(item->lock == EXCLUSIVE_LOCKED);
@@ -133,7 +135,8 @@ namespace twopc_service{
             Page* page = server->local_fetch_x_page(table_id, page_id);
             char* data = page->get_data();
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-            char *slots = bitmap + server->get_node()->getMetaManager()->GetTableMeta(table_id).bitmap_size_;
+            RmFileHdr *file_hdr = server->get_tuple_size(table_id);
+            char *slots = bitmap + file_hdr->bitmap_size_;
             char* tuple = slots + slot_id * (sizeof(DataItem) + sizeof(itemkey_t));
             DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
             assert(item->lock == EXCLUSIVE_LOCKED);
@@ -190,7 +193,9 @@ namespace twopc_service{
             Page* page = server->local_fetch_x_page(table_id, page_id);
             char* data = page->get_data();
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-            char *slots = bitmap + server->get_node()->getMetaManager()->GetTableMeta(table_id).bitmap_size_;
+            
+            RmFileHdr *file_hdr = server->get_tuple_size(table_id);
+            char *slots = bitmap + file_hdr->bitmap_size_;
             char* tuple = slots + slot_id * (sizeof(DataItem) + sizeof(itemkey_t));
             DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
             assert(item->lock == EXCLUSIVE_LOCKED);

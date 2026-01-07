@@ -3,15 +3,32 @@
 
 void YCSB::PopulateUserTable(){
     std::string table_name = bench_name + "_user_table";
-    rm_manager->create_file(table_name , sizeof(DataItem));
-    rm_manager->create_file(table_name + "_fsm", sizeof(DataItem));
+
+    // 单个元组的大小 = DataItem 各个数据结构的空间 + 实际数据的大小
+    // int tuple_size = sizeof(DataItem) + sizeof(ycsb_user_table_val); 
+    rm_manager->create_file(table_name , tuple_size);
+    rm_manager->create_file(table_name + "_fsm", tuple_size);
+
     
-    std::cout << "单个元组大小为: " << sizeof(DataItem) << "\n";
+    std::cout << "单个元组大小为: " << tuple_size << "\n";
     std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(table_name);
     std::unique_ptr<RmFileHandle> table_file_fsm = rm_manager->open_file(table_name + "_fsm");
 
     std::ofstream indexfile;
     indexfile.open(table_name + "_index.txt");
+
+    
+    table_file->file_hdr_.record_size_ = tuple_size;
+    table_file->file_hdr_.num_records_per_page_ = num_records_per_page;
+    table_file->file_hdr_.bitmap_size_ = (num_records_per_page + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
+
+    std::cout << "file_hdr_.record_size_ = " << table_file->file_hdr_.record_size_ << "\n";
+    std::cout << "file_hdr_.num_records_per_page_ = " << table_file->file_hdr_.num_records_per_page_ << "\n";
+    std::cout << "file_hdr_.bitmap_size_ = " << table_file->file_hdr_.bitmap_size_ << "\n";
+
+    
+    rm_manager->get_diskmanager()->write_page(table_file->GetFd(), RM_FILE_HDR_PAGE, (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));
+
     for (int id = 0 ; id < record_count ; id++){
         user_table_key_t key;
         key.user_id = (uint64_t)id;
@@ -45,7 +62,7 @@ void YCSB::PopulateUserTable(){
     int fd1 = rm_manager->get_diskmanager()->open_file(table_name + "_fsm");
     rm_manager->get_diskmanager()->write_page(fd1, RM_FILE_HDR_PAGE, (char *)&table_file_fsm->file_hdr_, sizeof(table_file_fsm->file_hdr_));
     int leftrecords = record_count % num_records_per_page;//最后一页的记录数
-    fsm_trees[0]->update_page_space(num_pages, (num_records_per_page - leftrecords) * (sizeof(DataItem) + sizeof(itemkey_t)));//更新最后一页的空间信息,free space为可插入的元组数量*（key+value）
+    fsm_trees[0]->update_page_space(num_pages, (num_records_per_page - leftrecords) * (tuple_size + sizeof(itemkey_t)));//更新最后一页的空间信息,free space为可插入的元组数量*（key+value）
     fsm_trees[0]->flush_all_pages();
     rm_manager->get_diskmanager()->close_file(fd1);
 
@@ -57,11 +74,14 @@ void YCSB::LoadRecord(RmFileHandle *file_handle ,
         itemkey_t item_key , void *val_ptr , 
         size_t val_size , table_id_t table_id ,
         std::ostream &index_file){
-    assert(val_size <= MAX_ITEM_SIZE);
-    DataItem item_to_be_insert(table_id , val_size , item_key , (uint8_t*)val_ptr);
+    DataItem item_to_be_insert(table_id , item_key , (uint8_t*)val_ptr , val_size);
+    
+    // 这里写的有点乱，在计算层看来，存储的数据是 DataItem，但是存储层看来，存储的就是一堆字符
+    // 其实应该和计算层对齐一下的，有时间再改改
     char *item_char = (char*)malloc(item_to_be_insert.GetSerializeSize());
     item_to_be_insert.Serialize(item_char);
     Rid rid = file_handle->insert_record(item_key , item_char , nullptr);
+
     index_file << item_key << " " << rid.page_no_ << " " << rid.slot_no_ << std::endl;
     bl_indexes[table_id]->insert_entry(&item_key , rid);
     
@@ -94,6 +114,10 @@ void YCSB::VerifyData() {
         if (data_item->value_size == sizeof(ycsb_user_table_val)) {
             assert(data_item->key == key.item_key);
             assert(data_item->lock == 0);
+            
+            // Verify magic value
+            ycsb_user_table_val* val = reinterpret_cast<ycsb_user_table_val*>(data_item->value);
+            assert(val->magic == ycsb_user_table_magic);
         } else {
             assert(false);
         }

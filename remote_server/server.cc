@@ -231,6 +231,15 @@ int main(int argc, char* argv[]) {
     // 解析命令行参数
     gflags::ParseCommandLineFlags(&argc, &argv, true);
 
+    if (argc != 2){
+        std::cerr << "Please Input Mode \n";
+        std::cerr << "Mode : sql , ycsb , smallbank , tpcc\n";
+        std::cerr << "Example : ./remote_node sql\n";
+        exit(-1);
+    }
+
+    std::string workload = std::string(argv[1]);
+
     std::string log_path = "LOG.log";
     if (std::ifstream(log_path)){
         std::remove(log_path.c_str());
@@ -247,12 +256,12 @@ int main(int argc, char* argv[]) {
 
     int table_num;
     auto server_config = JsonConfig::load_file("../../config/remote_server_config.json");
-    auto workload = server_config.get("WORKLOAD").get_str();
-    if (workload == "SmallBank"){
+
+    if (workload == "smallbank"){
         table_num = 2;
-    }else if (workload == "TPCC"){
+    }else if (workload == "tpcc"){
         table_num = 11;
-    }else if (workload == "YCSB"){
+    }else if (workload == "ycsb"){
         table_num = 1;
     }else {
         assert(false);

@@ -17,16 +17,16 @@ void LoadData(node_id_t machine_id,
                       node_id_t machine_num,  // number of memory nodes
                       std::string& workload,
                       RmManager* rm_manager) {
-  if (workload == "SmallBank") {
+  if (workload == "smallbank") {
     SmallBank* smallbank_server = new SmallBank(rm_manager);
     smallbank_server->LoadTable(machine_id, machine_num);
 
     // rm_manager->get_bufferPoolManager()->clear_all_pages();
     // smallbank_server->VerifyData();
-  } else if (workload == "TPCC") {
+  } else if (workload == "tpcc") {
       TPCC* tpcc_server = new TPCC(rm_manager);
       tpcc_server->LoadTable(machine_id, machine_num);
-  } else if (workload == "YCSB"){
+  } else if (workload == "ycsb"){
       std::string config_path = "../../config/ycsb_config.json";
       auto config = JsonConfig::load_file(config_path);
       int record_cnt = config.get("ycsb").get("num_record").get_int64();
@@ -61,11 +61,11 @@ void Server::PrepareStorageMeta(node_id_t machine_id, std::string workload, char
   // 我们项目里，每个表的 B+ 树和 FSM 都视为一个单独的表
   // 所以这里 table_num 是物理上的表数量，用户看到的数量是 table_num / 3
   // 也就是 smallbank 两张，saving 和 checking，tpcc 11 张，ycsb 1 张 user_table
-  if(workload == "SmallBank") {
+  if(workload == "smallbank") {
     table_num = 6;
-  }else if(workload == "TPCC") {
+  }else if(workload == "tpcc") {
     table_num = 33;
-  } else if (workload == "YCSB"){
+  } else if (workload == "ycsb"){
     table_num = 3;
   }else {
     assert(false);
@@ -76,7 +76,7 @@ void Server::PrepareStorageMeta(node_id_t machine_id, std::string workload, char
   int storage_meta_len = sizeof(int) + table_num * sizeof(int) + sizeof(int);
   char* storage_meta = new char[storage_meta_len];
 
-  if(workload == "SmallBank") {
+  if(workload == "smallbank") {
     std::vector<std::string> sb_tables = {"smallbank_savings", "smallbank_checking"};
     for(int i = 0; i < 2; ++i) {
         // 1. Data Table (ID: i)
@@ -101,7 +101,7 @@ void Server::PrepareStorageMeta(node_id_t machine_id, std::string workload, char
     memcpy(storage_meta + sizeof(int), init_page_num_per_table, table_num * sizeof(int));
     memcpy(storage_meta + sizeof(int) + table_num * sizeof(int), &record_per_page, sizeof(int));
 
-  }else if(workload == "TPCC") {
+  }else if(workload == "tpcc") {
       std::vector<std::string> tpcc_tables = {
         "TPCC_warehouse", "TPCC_district", "TPCC_customer", "TPCC_customerhistory",
         "TPCC_ordernew", "TPCC_order", "TPCC_orderline", "TPCC_item",
@@ -134,7 +134,7 @@ void Server::PrepareStorageMeta(node_id_t machine_id, std::string workload, char
       memcpy(storage_meta, &table_num, sizeof(int));
       memcpy(storage_meta + sizeof(int), init_page_num_per_table, table_num * sizeof(int));
       memcpy(storage_meta + sizeof(int) + table_num * sizeof(int), &record_per_page, sizeof(int));
-  } else if (workload == "YCSB"){
+  } else if (workload == "ycsb"){
     std::string ycsb_table = "ycsb_user_table";
     for (int i = 0 ; i < 1 ; i++){
         std::unique_ptr<RmFileHandle> table_file = rm_manager_->open_file(ycsb_table);
@@ -265,11 +265,24 @@ bool Server::Run() {
 
 int main(int argc, char* argv[]) {
     // 默认以 SQL 交互模式启动
-    std::string mode = "sql";
-    if (argc > 1) {
-        mode = argv[1];
+    std::string mode;
+    if (argc == 1){
+      std::cerr << "Please Input Mode\n";
+      std::cerr << "Mode : sql , smallbank , tpcc , ycsb\n";
+      std::cerr << "Example : ./storage_pool sql\n";
+      exit(-1);
+    } else if (argc > 2){
+      std::cerr << "Error\n";
+      exit(-1);
     }
-    
+
+    mode = std::string(argv[1]);
+    if (mode != "smallbank" && mode != "tpcc" && mode != "ycsb" && mode != "sql"){
+      std::cerr << "Invalid Mode\n";
+      std::cerr << "Mode : sql , smallbank , tpcc , ycsb\n";
+      exit(-1);
+    }
+
     // Configure of this server
     std::string config_filepath = "../../config/storage_node_config.json";
     auto json_config = JsonConfig::load_file(config_filepath);
@@ -297,19 +310,18 @@ int main(int argc, char* argv[]) {
 
     auto buffer_mgr = std::make_shared<StorageBufferPoolManager>(RM_BUFFER_POOL_SIZE, disk_manager.get());
     auto rm_manager = std::make_shared<RmManager>(disk_manager.get(), buffer_mgr.get());
-    std::string workload = local_node.get("workload").get_str();
 
     if (mode == "sql"){
       SmManager *sm_manager = new SmManager(rm_manager.get() , rm_manager->get_bufferPoolManager());
       auto server = std::make_shared<Server>(machine_id, local_rpc_port, local_meta_port, use_rdma, 
                       compute_node_num, compute_ip_list, compute_ports_list,
                       disk_manager.get(), log_manager.get(), rm_manager.get(), sm_manager);
-    }else if (mode == "bench"){
+    } else {
       // 如果是负载模式，那就硬加载数据到存储里
-      LoadData(machine_id, machine_num, workload, rm_manager.get());
+      LoadData(machine_id, machine_num, mode, rm_manager.get());
       auto server = std::make_shared<Server>(machine_id, local_rpc_port, local_meta_port, use_rdma, 
                       compute_node_num, compute_ip_list, compute_ports_list,
-                      disk_manager.get(), log_manager.get(), rm_manager.get(), workload);
+                      disk_manager.get(), log_manager.get(), rm_manager.get(), mode);
     }
     
     return 0;

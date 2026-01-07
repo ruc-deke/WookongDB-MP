@@ -252,7 +252,7 @@ private:
     uint32_t find_child_index(S_FSMPageData& parent_page, uint32_t child_page_id) const;
 
     std::string tableid2tableName(table_id_t table_id){
-        if (bench_name == "SmallBank"){
+        if (bench_name == "smallbank"){
             if (table_id == 20000){
                 return "smallbank_savings_fsm";
             }else if (table_id == 20001){
@@ -260,13 +260,13 @@ private:
             }else{
                 assert(false);
             }
-        }else if (bench_name == "YCSB"){
+        }else if (bench_name == "ycsb"){
             if (table_id == 20000){
                 return "ycsb_user_table_fsm";
             }else {
                 assert(false);
             }
-        }else if (bench_name == "TPCC"){
+        }else if (bench_name == "tpcc"){
 
         }else {
             assert(false);

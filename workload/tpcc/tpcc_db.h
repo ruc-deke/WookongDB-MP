@@ -497,7 +497,7 @@ public:
                 bl_indexes.emplace_back(new S_BLinkIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , i + 10000 , "tpcc"));
             }
         }
-        bench_name = "TPCC";
+        bench_name = "tpcc";
         index_cache = new IndexCache;
         std::string warehouse_config_filepath = "../../workload/tpcc/tpcc_tables/warehouse.json";
         auto warehouse_json_config = JsonConfig::load_file(warehouse_config_filepath);

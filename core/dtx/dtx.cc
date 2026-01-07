@@ -3,6 +3,7 @@
 
 #include "dtx/dtx.h"
 #include "config.h"
+#include "record.h"
 
 DTX::DTX(MetaManager* meta_man,
          t_id_t tid,
@@ -158,33 +159,75 @@ void DTX::ReleaseXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_
     
 }
 
-DataItemPtr DTX::GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid){
+DataItemPtr DTX::GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr *file_hdr){
   // Get data item from page
   char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-  char *slots = bitmap + global_meta_man->GetTableMeta(table_id).bitmap_size_;
-  char* tuple = slots + rid.slot_no_ * (sizeof(DataItem) + sizeof(itemkey_t));
-  // std::cout << "DTX GetData , table_id = " << table_id << " page_id = " << rid.page_no_ << " slot = " << rid.slot_no_ << "\n";
-  DataItemPtr itemPtr = std::make_shared<DataItem>(*reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t)));
-  // need to check if the data is visible in read only set
-  if(start_ts < itemPtr->version){
-    // Data is not visible
-    UndoDataItem(itemPtr);
-  }
-  return itemPtr; 
+  char *slots = bitmap + file_hdr->bitmap_size_;
+  char* tuple = slots + rid.slot_no_ * (file_hdr->record_size_ + sizeof(itemkey_t));
+//   DataItemPtr itemPtr = std::make_shared<DataItem>(*reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t)));
+
+    DataItem* disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+    DataItemPtr itemPtr = std::make_shared<DataItem>(disk_item->table_id, disk_item->key, disk_item->value_size);
+    itemPtr->lock = disk_item->lock;
+    itemPtr->version = disk_item->version;
+    itemPtr->prev_lsn = disk_item->prev_lsn;
+    itemPtr->valid = disk_item->valid;
+    itemPtr->user_insert = disk_item->user_insert;
+    memcpy(itemPtr->value, reinterpret_cast<char*>(disk_item) + sizeof(DataItem), itemPtr->value_size);
+
+    // DataItem *disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+    // disk_item->value = reinterpret_cast<uint8_t*>(disk_item) + sizeof(DataItem);
+    // if (table_id == 0) {
+    //     uint32_t magic = *reinterpret_cast<uint32_t*>(disk_item->value);
+    //     if (magic != 125){
+    //         std::cout << "magic = " << magic << "\n";
+    //     }
+    //     assert(magic == 125);
+    // }
+    
+    if(start_ts < disk_item->version){
+        // TODO，需要把元组回滚到对应的版本
+        UndoDataItem(disk_item);
+    }
+    return itemPtr; 
 }
 
-DataItemPtr DTX::GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid, DataItem*& orginal_item){
+// 从页面里读取数据，Load 到 itemPtr 里并返回
+DataItemPtr DTX::GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid, DataItem*& orginal_item , RmFileHdr *file_hdr){
   // Get data item from page
   char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-  char *slots = bitmap + global_meta_man->GetTableMeta(table_id).bitmap_size_;
-  char* tuple = slots + rid.slot_no_ * (sizeof(DataItem) + sizeof(itemkey_t));
-  // std::cout << "DTX GetData , table_id = " << table_id << " page_id = " << rid.page_no_ << " slot = " << rid.slot_no_ << "\n";
-  DataItemPtr itemPtr = std::make_shared<DataItem>(*reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t)));
-  orginal_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
-  return itemPtr; 
+  char *slots = bitmap + file_hdr->bitmap_size_;
+  char* tuple = slots + rid.slot_no_ * (file_hdr->record_size_ + sizeof(itemkey_t));
+
+  // 这里不能直接用指针转化，因为指针只能读到元组的开头，而不能读到元组的结尾
+  // 所以这里需要先把元组读到内存，然后再用内存构造 DataItem
+  //   DataItemPtr itemPtr = std::make_shared<DataItem>(*reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t)));
+  //   orginal_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+
+    DataItem* disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+    DataItemPtr itemPtr = std::make_shared<DataItem>(disk_item->table_id, disk_item->key, disk_item->value_size);
+    itemPtr->lock = disk_item->lock;
+    itemPtr->version = disk_item->version;
+    itemPtr->prev_lsn = disk_item->prev_lsn;
+    itemPtr->valid = disk_item->valid;
+    itemPtr->user_insert = disk_item->user_insert;
+    memcpy(itemPtr->value, reinterpret_cast<char*>(disk_item) + sizeof(DataItem), itemPtr->value_size);
+
+    // DataItem *disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+    // disk_item->value = reinterpret_cast<uint8_t*>(disk_item) + sizeof(DataItem);
+    // if (table_id == 0) {
+    //     uint32_t magic = *reinterpret_cast<uint32_t*>(disk_item->value);
+    //     if (magic != 125){
+    //         std::cout << "magic = " << magic << "\n";
+    //     }
+    //     assert(magic == 125);
+    // }
+
+    orginal_item = disk_item;
+    return itemPtr;
 }
 
-DataItemPtr DTX::UndoDataItem(DataItemPtr item) {
+DataItem* DTX::UndoDataItem(DataItem* item) {
   // TODO
   // 这里的目标是把 item 通过 undo 回滚到某个历史版本，实现读写隔离
   return item;

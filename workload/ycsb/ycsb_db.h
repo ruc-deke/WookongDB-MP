@@ -19,6 +19,7 @@
 #include "util/zipfan.h"
 
 #define YCSB_TX_TYPES 1     //只有一个事务类型
+
 union user_table_key_t {
   uint64_t user_id;
   uint64_t item_key;
@@ -31,7 +32,8 @@ union user_table_key_t {
 // 编译阶段检查
 static_assert(sizeof(user_table_key_t) == sizeof(uint64_t), "");
 
-#define YCSB_MAGIC 97
+// magic ，可以简单验证下读取上来的是这个表的数据
+#define YCSB_MAGIC 123
 #define ycsb_user_table_magic (YCSB_MAGIC + 2)
 
 // 表结构，magic 是用来检验的
@@ -72,7 +74,9 @@ public:
             rw_flags[i] = true;
         }
 
-        num_records_per_page = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (sizeof(DataItem) + sizeof(itemkey_t)) * BITMAP_WIDTH);
+        tuple_size = sizeof(DataItem) + sizeof(ycsb_user_table_val);
+
+        num_records_per_page = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (tuple_size + sizeof(itemkey_t)) * BITMAP_WIDTH);
         num_pages = (record_count + num_records_per_page - 1) / num_records_per_page;
 
         // 在整个项目会创建两个 YCSB 实例，一个是在存储层初始化，导入数据的时候，一个是在计算层，用来生成 YCSB 负载
@@ -81,7 +85,7 @@ public:
             bl_indexes.emplace_back(new S_BLinkIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , 10000 , "ycsb"));
 
             // fsm
-            fsm_trees.emplace_back(new S_SecFSM(rm_manager->get_diskmanager(),rm_manager->get_bufferPoolManager() , 20000 , "YCSB"));
+            fsm_trees.emplace_back(new S_SecFSM(rm_manager->get_diskmanager(),rm_manager->get_bufferPoolManager() , 20000 , "ycsb"));
             fsm_trees[0]->initialize(20000 , num_pages * 3);
         }else {
             // 计算层初始化 Zipfan
@@ -107,27 +111,9 @@ public:
     }
     void VerifyData();
 
-    // 事务生成函数，生成多个读集和写集
-    bool YCSB_Multi_RW(uint64_t *seed , tx_id_t tx_id , DTX *dtx , coro_yield_t& yield , bool is_partitioned = false){
+    bool YCSB_Inert_User(uint64_t *seed , tx_id_t tx_id , DTX *dtx , coro_yield_t& yield , bool is_partitioned = false){
         dtx->TxBegin(tx_id);
-
-        // 1. 生成 10 个 key，放在 vec 里
-        // std::vector<itemkey_t> keys(10);
-        // generate_ten_keys(keys , seed , is_partitioned , dtx);
-
-        // for (int i = 0 ; i < 10 ; i++){
-        //     if (rw_flags[i]){
-        //         // 读事务
-        //         auto ro_user_id_i = std::make_shared<DataItem>(0 , keys[i]);
-        //         dtx->AddToReadOnlySet(ro_user_id_i);
-        //     }else {
-        //         auto rw_user_id_i = std::make_shared<DataItem>(0 , keys[i]);
-        //         dtx->AddToReadWriteSet(rw_user_id_i);
-        //     }
-        // }
-
         static std::atomic<int> now_node_account_begin{10000000 * dtx->compute_server->getNodeID() + 10000000};
-        static std::atomic<int> delete_begin{10000000 * dtx->compute_server->getNodeID() + 10000000};
 
         // 插入 10 个 key
         for (int i = 0 ; i < 10 ; i++){
@@ -150,24 +136,64 @@ public:
             dtx->AddToInsertSet(insert_item);
         }
 
+        if (!dtx->TxExe(yield)){
+            return false;
+        }
+
+
+        bool commit_stat = dtx->TxCommit(yield);
+        return commit_stat;
+    }
+
+    bool YCSB_Delete_User(uint64_t *seed , tx_id_t tx_id , DTX *dtx , coro_yield_t& yield , bool is_partitioned = false){
+        dtx->TxBegin(tx_id);
+
+        static std::atomic<int> delete_begin{10000000 * dtx->compute_server->getNodeID() + 10000000};
         // 随机删除 3 个
-        // for (int i = 0 ; i < 3 ; i++){
-        //     int delete_id = delete_begin.fetch_add(1);
-        //     auto delete_item = std::make_shared<DataItem>(0 , sizeof(ycsb_user_table_val) , delete_id , 1);
-        //     ycsb_user_table_val *val = (ycsb_user_table_val*)delete_item->value;
+        for (int i = 0 ; i < 3 ; i++){
+            int delete_id = delete_begin.fetch_add(1);
+            auto delete_item = std::make_shared<DataItem>(0 , sizeof(ycsb_user_table_val) , delete_id , 1);
+            ycsb_user_table_val *val = (ycsb_user_table_val*)delete_item->value;
             
-        //     dtx->AddToDeleteSet(delete_item);
-        // }
+            dtx->AddToDeleteSet(delete_item);
+        }
+
+        if (!(dtx->TxExe(yield))){
+            return false;
+        }
+
+        bool commit_stat = dtx->TxCommit(yield);
+        return commit_stat;
+    }
+
+    // 事务生成函数，生成多个读集和写集
+    bool YCSB_Multi_RW(uint64_t *seed , tx_id_t tx_id , DTX *dtx , coro_yield_t& yield , bool is_partitioned = false){
+        dtx->TxBegin(tx_id);
+
+        // 1. 生成 10 个 key，放在 vec 里
+        std::vector<itemkey_t> keys(10);
+        generate_ten_keys(keys , seed , is_partitioned , dtx);
+
+        for (int i = 0 ; i < 10 ; i++){
+            if (rw_flags[i]){
+                // 读事务
+                auto ro_user_id = std::make_shared<DataItem>(0 , keys[i]);
+                dtx->AddToReadOnlySet(ro_user_id);
+            }else {
+                auto rw_user_id = std::make_shared<DataItem>(0 , keys[i]);
+                dtx->AddToReadWriteSet(rw_user_id);
+            }
+        }
 
         // 现在的 insert 和 delete 应该是不会回滚的
         if (!(dtx->TxExe(yield))){
-            assert(false);
             return false;
         }
         
         for (auto& item : dtx->read_only_set) {
             if (item.is_fetched) {
                 ycsb_user_table_val* val = (ycsb_user_table_val*)item.item_ptr->value;
+                assert(val);
                 if (val->magic != ycsb_user_table_magic){
                     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
                     assert(false);
@@ -197,7 +223,7 @@ public:
     // 2. 是否是跨分区访问数据
     void generate_ten_keys(std::vector<itemkey_t> &keys , uint64_t *seed , bool is_partitioned , const DTX *dtx){
         int belonged_node_id;
-         int target_node_id;
+        int target_node_id;
         if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
             belonged_node_id = dtx->compute_server->get_node()->ts_cnt;
         }else {
@@ -252,17 +278,9 @@ public:
             assert(page_id > 0);
             assert(page_id <= now_page_num);
 
-            int account_cnt_per_page = PAGE_SIZE / sizeof(DataItem);
+            // int tuple_size = sizeof(DataItem) + sizeof(ycsb_user_table_val);
+            int account_cnt_per_page = PAGE_SIZE / tuple_size;
             keys[i] = (page_id - 1) * account_cnt_per_page + (FastRand(seed) % account_cnt_per_page);
-
-            // LOG(INFO) << "Target Node ID = " << target_node_id 
-            //           << " chosen page ID = " << page_id
-            //           << " account cnt per page = " << account_cnt_per_page
-            //           << " par_cnt = " << par_cnt
-            //           << " node_page_num = " << node_page_num
-            //           << " is partitioned = " << is_partitioned
-            //           << " middle page id = " << debug_page_id
-            //           << " chosen key = " << keys[i];
         }
     }
 
@@ -308,6 +326,8 @@ private:
     int read_op_per_txn;        // 单个事务要做几次读操作，这个值是根据 read_percent 计算的
     int write_op_per_txn;       // 同上
     std::vector<bool> rw_flags; // 假如 read_op_per_txn = 9 , write_op_per_txn = 1，那这个数组的值就是 0000000001
+
+    int tuple_size;
 
     // zip_fans[i][j]：第 i 个节点的第 j 个表的 zipfans 账户生成
     std::vector<std::vector<ZipFanGen>> zip_fans;

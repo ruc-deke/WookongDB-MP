@@ -4,8 +4,7 @@
     "machine_id": 0,
     "local_rpc_port": 15980,
     "local_meta_port": 15981,
-    "use_rdma": false,
-    "workload": "SmallBank"
+    "use_rdma": false
   },
   "remote_compute_nodes": {
     "compute_node_ips": [
