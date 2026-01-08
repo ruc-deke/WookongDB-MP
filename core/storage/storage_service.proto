@@ -26,6 +26,18 @@ message OpendbResponse{
     repeated bytes table_names = 3;
 };
 
+message TableExistRequest{
+    bytes table_name = 1;
+};
+message TableExistResponse{
+    bool ans = 1;
+    repeated bytes col_names = 2;
+    repeated bytes col_types = 3;
+    repeated sint32 col_lens = 4;
+    repeated bytes primary = 5;
+};
+
+
 message GetPageRequest {
 	message PageID{
     	bytes table_name = 1;
@@ -95,4 +107,5 @@ service StorageService {
 
     // SQL
     rpc OpenDb(OpendbRequest) returns (OpendbResponse);
+    rpc TableExist(TableExistRequest) returns (TableExistResponse);
 };

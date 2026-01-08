@@ -222,6 +222,38 @@ namespace storage_service{
         return;
     }
 
+    void StoragePoolImpl::TableExist(::google::protobuf::RpcController* controller,
+                       const ::storage_service::TableExistRequest* request,
+                       ::storage_service::TableExistResponse* response,
+                       ::google::protobuf::Closure* done){
+        brpc::ClosureGuard done_guard(done);
+        assert(sm_manager);
+        std::string table_name = request->table_name();
+        bool exist = sm_manager->db.is_table(table_name);
+        response->set_ans(exist);
+        if (exist){
+            auto &tab = sm_manager->db.get_table(table_name);
+            for (auto &col : tab.cols){
+                response->add_col_names(col.name);
+                response->add_col_lens(col.len);
+                if (col.type == ColType::TYPE_FLOAT){
+                    response->add_col_types("TYPE_FLOAT");
+                }else if (col.type == ColType::TYPE_INT){
+                    response->add_col_types("TYPE_INT");
+                }else if (col.type == ColType::TYPE_STRING){
+                    response->add_col_types("TYPE_STRING");
+                }else {
+                    assert(false);
+                }
+            }
+
+            for (auto &p : tab.primary_keys){
+                response->add_primary(p);
+            }
+        }
+        return;
+    }
+
     void StoragePoolImpl::CreatePage(::google::protobuf::RpcController* controller , 
                         const ::storage_service::CreatePageRequest *request ,
                         ::storage_service::CreatePageResponse *response , 

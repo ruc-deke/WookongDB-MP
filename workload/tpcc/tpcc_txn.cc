@@ -103,20 +103,20 @@ bool TxNewOrder(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& y
 
     tpcc_warehouse_key_t ware_key;
     ware_key.w_id = warehouse_id;
-    auto ware_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kWarehouseTable, ware_key.item_key);
-    dtx->AddToReadOnlySet(ware_obj);
+    auto ware_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kWarehouseTable);
+    dtx->AddToReadOnlySet(ware_obj, ware_key.item_key);
 
     tpcc_customer_key_t cust_key;
     cust_key.c_id = c_key;
-    auto cust_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kCustomerTable, cust_key.item_key);
-    dtx->AddToReadOnlySet(cust_obj);
+    auto cust_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kCustomerTable);
+    dtx->AddToReadOnlySet(cust_obj, cust_key.item_key);
 
     // read and update district value
     uint64_t d_key = tpcc_client->MakeDistrictKey(warehouse_id, district_id);
     tpcc_district_key_t dist_key;
     dist_key.d_id = d_key;
-    auto dist_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kDistrictTable, dist_key.item_key);
-    dtx->AddToReadOnlySet(dist_obj);
+    auto dist_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kDistrictTable);
+    dtx->AddToReadOnlySet(dist_obj, dist_key.item_key);
 
     if (!dtx->TxExe(yield)) return false;
 
@@ -147,30 +147,24 @@ bool TxNewOrder(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& y
     tpcc_new_order_key_t norder_key;
     norder_key.no_id = no_key;
     auto norder_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kNewOrderTable,
-                                                 sizeof(tpcc_new_order_val_t),
-                                                 norder_key.item_key,
-                                                 1);
-    dtx->AddToReadWriteSet(norder_obj);
+                                                 sizeof(tpcc_new_order_val_t));
+    dtx->AddToReadWriteSet(norder_obj, norder_key.item_key);
 
     // insert order record
     uint64_t o_key = tpcc_client->MakeOrderKey(warehouse_id, district_id, my_next_o_id);
     tpcc_order_key_t order_key;
     order_key.o_id = o_key;
     auto order_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kOrderTable,
-                                                sizeof(tpcc_order_val_t),
-                                                order_key.item_key,
-                                                1);
-    dtx->AddToReadWriteSet(order_obj);
+                                                sizeof(tpcc_order_val_t));
+    dtx->AddToReadWriteSet(order_obj, order_key.item_key);
 
     // insert order index record
     uint64_t o_index_key = tpcc_client->MakeOrderIndexKey(warehouse_id, district_id, customer_id, my_next_o_id);
     tpcc_order_index_key_t order_index_key;
     order_index_key.o_index_id = o_index_key;
     auto oidx_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kOrderIndexTable,
-                                               sizeof(tpcc_order_index_val_t),
-                                               order_index_key.item_key,
-                                               1);
-    dtx->AddToReadWriteSet(oidx_obj);
+                                               sizeof(tpcc_order_index_val_t));
+    dtx->AddToReadWriteSet(oidx_obj, order_index_key.item_key);
 
     if (!dtx->TxExe(yield)) return false;
 
@@ -197,16 +191,16 @@ bool TxNewOrder(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& y
         tpcc_item_key_t tpcc_item_key;
         tpcc_item_key.i_id = ol_i_id;
 
-        auto item_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kItemTable, tpcc_item_key.item_key);
-        dtx->AddToReadOnlySet(item_obj);
+        auto item_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kItemTable);
+        dtx->AddToReadOnlySet(item_obj, tpcc_item_key.item_key);
 
         int64_t s_key = local_stocks[ol_number - 1];
         // read and update stock info
         tpcc_stock_key_t stock_key;
         stock_key.s_id = s_key;
 
-        auto stock_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kStockTable, stock_key.item_key);
-        dtx->AddToReadWriteSet(stock_obj);
+        auto stock_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kStockTable);
+        dtx->AddToReadWriteSet(stock_obj, stock_key.item_key);
 
         if (!dtx->TxExe(yield)) return false;
 
@@ -235,10 +229,8 @@ bool TxNewOrder(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& y
         order_line_key.ol_id = ol_key;
         // LOG(DBG) << warehouse_id << " " << district_id << " " << my_next_o_id << " " <<  ol_number << ". ol_key: " << ol_key;
         auto ol_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kOrderLineTable,
-                                                 sizeof(tpcc_order_line_val_t),
-                                                 order_line_key.item_key,
-                                                 1);
-        dtx->AddToReadWriteSet(ol_obj);
+                                                 sizeof(tpcc_order_line_val_t));
+        dtx->AddToReadWriteSet(ol_obj, order_line_key.item_key);
 
         if (!dtx->TxExe(yield)) return false;
 
@@ -259,16 +251,16 @@ bool TxNewOrder(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& y
         tpcc_item_key_t tpcc_item_key;
         tpcc_item_key.i_id = ol_i_id;
 
-        auto item_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kItemTable, tpcc_item_key.item_key);
-        dtx->AddToReadOnlySet(item_obj);
+        auto item_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kItemTable);
+        dtx->AddToReadOnlySet(item_obj, tpcc_item_key.item_key);
 
         int64_t s_key = remote_stocks[ol_number - 1];
         // read and update stock info
         tpcc_stock_key_t stock_key;
         stock_key.s_id = s_key;
 
-        auto stock_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kStockTable, stock_key.item_key);
-        dtx->AddToReadWriteSet(stock_obj);
+        auto stock_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kStockTable);
+        dtx->AddToReadWriteSet(stock_obj, stock_key.item_key);
 
         if (!dtx->TxExe(yield)) return false;
 
@@ -297,10 +289,8 @@ bool TxNewOrder(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& y
         order_line_key.ol_id = ol_key;
         // LOG(DBG) << warehouse_id << " " << district_id << " " << my_next_o_id << " " <<  num_local_stocks + ol_number << ". ol_key: " << ol_key;
         auto ol_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kOrderLineTable,
-                                                 sizeof(tpcc_order_line_val_t),
-                                                 order_line_key.item_key,
-                                                 1);
-        dtx->AddToReadWriteSet(ol_obj);
+                                                 sizeof(tpcc_order_line_val_t));
+        dtx->AddToReadWriteSet(ol_obj, order_line_key.item_key);
         if (!dtx->TxExe(yield)) return false;
 
         tpcc_order_line_val_t* order_line_val = (tpcc_order_line_val_t*)ol_obj->value;
@@ -314,8 +304,8 @@ bool TxNewOrder(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& y
     }
 
     // increment d_next_o_id
-    auto dist_obj_w = std::make_shared<DataItem>((table_id_t)TPCCTableType::kDistrictTable, dist_key.item_key);
-    dtx->AddToReadWriteSet(dist_obj_w);
+    auto dist_obj_w = std::make_shared<DataItem>((table_id_t)TPCCTableType::kDistrictTable);
+    dtx->AddToReadWriteSet(dist_obj_w, dist_key.item_key);
     if (!dtx->TxExe(yield)) return false;
     tpcc_district_val_t* dist_val_w = (tpcc_district_val_t*)dist_obj_w->value;
     check = std::string(dist_val_w->d_zip);
@@ -398,26 +388,24 @@ bool TxPayment(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& yi
     uint64_t d_key = tpcc_client->MakeDistrictKey(warehouse_id, district_id);
     tpcc_district_key_t dist_key;
     dist_key.d_id = d_key;
-    auto dist_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kDistrictTable, dist_key.item_key);
-    dtx->AddToReadOnlySet(dist_obj);
+    auto dist_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kDistrictTable);
+    dtx->AddToReadOnlySet(dist_obj, dist_key.item_key);
 
     tpcc_customer_key_t cust_key;
     cust_key.c_id = tpcc_client->MakeCustomerKey(c_w_id, c_d_id, customer_id);
-    auto cust_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kCustomerTable, cust_key.item_key);
-    dtx->AddToReadWriteSet(cust_obj);
+    auto cust_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kCustomerTable);
+    dtx->AddToReadWriteSet(cust_obj, cust_key.item_key);
 
     tpcc_history_key_t hist_key;
     hist_key.h_id = tpcc_client->MakeHistoryKey(warehouse_id, district_id, c_w_id, c_d_id, customer_id);
     auto hist_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kHistoryTable,
-                                               sizeof(tpcc_history_val_t),
-                                               hist_key.item_key,
-                                               1);
-    dtx->AddToReadWriteSet(hist_obj);
+                                               sizeof(tpcc_history_val_t));
+    dtx->AddToReadWriteSet(hist_obj, hist_key.item_key);
 
     tpcc_warehouse_key_t ware_key;
     ware_key.w_id = warehouse_id;
-    auto ware_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kWarehouseTable, ware_key.item_key);
-    dtx->AddToReadWriteSet(ware_obj, true);
+    auto ware_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kWarehouseTable);
+    dtx->AddToReadWriteSet(ware_obj, ware_key.item_key, true);
 
     if (!dtx->TxExe(yield)) return false;
 
@@ -509,8 +497,8 @@ bool TxDelivery(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& y
         int64_t no_key = tpcc_client->MakeNewOrderKey(warehouse_id, d_id, o_id);
         tpcc_new_order_key_t norder_key;
         norder_key.no_id = no_key;
-        auto norder_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kNewOrderTable, norder_key.item_key);
-        dtx->AddToReadOnlySet(norder_obj);
+        auto norder_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kNewOrderTable);
+        dtx->AddToReadOnlySet(norder_obj, norder_key.item_key);
 
         // Get the new order record with the o_id. Probe if the new order record exists
         if (dtx->TxExe(yield, false) && dtx->tx_status == TXStatus::TX_VAL_NOTFOUND) {
@@ -522,13 +510,13 @@ bool TxDelivery(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& y
         dtx->RemoveLastROItem();
 
         // Add the new order obj to read write set to be deleted
-        dtx->AddToReadWriteSet(norder_obj);
+        dtx->AddToReadWriteSet(norder_obj, norder_key.item_key);
 
         uint64_t o_key = tpcc_client->MakeOrderKey(warehouse_id, d_id, o_id);
         tpcc_order_key_t order_key;
         order_key.o_id = o_key;
-        auto order_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kOrderTable, order_key.item_key);
-        dtx->AddToReadWriteSet(order_obj);
+        auto order_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kOrderTable);
+        dtx->AddToReadWriteSet(order_obj, order_key.item_key);
 
         // The row in the ORDER table with matching O_W_ID (equals W_ ID), O_D_ID (equals D_ID), and O_ID (equals NO_O_ID) is selected
         if (!dtx->TxExe(yield)) return false;
@@ -560,8 +548,8 @@ bool TxDelivery(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& y
             int64_t ol_key = tpcc_client->MakeOrderLineKey(warehouse_id, d_id, o_id, line_number);
             tpcc_order_line_key_t order_line_key;
             order_line_key.ol_id = ol_key;
-            auto ol_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kOrderLineTable, order_line_key.item_key);
-            dtx->AddToReadOnlySet(ol_obj);
+            auto ol_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kOrderLineTable);
+            dtx->AddToReadOnlySet(ol_obj, order_line_key.item_key);
 
             if (dtx->TxExe(yield, false) && dtx->tx_status == TXStatus::TX_VAL_NOTFOUND) {
                 // Fail not abort
@@ -579,8 +567,8 @@ bool TxDelivery(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& y
         // The row in the CUSTOMER table with matching C_W_ID (equals W_ID), C_D_ID (equals D_ID), and C_ID (equals O_C_ID) is selected
         tpcc_customer_key_t cust_key;
         cust_key.c_id = tpcc_client->MakeCustomerKey(warehouse_id, d_id, customer_id);
-        auto cust_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kCustomerTable, cust_key.item_key);
-        dtx->AddToReadWriteSet(cust_obj);
+        auto cust_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kCustomerTable);
+        dtx->AddToReadWriteSet(cust_obj, cust_key.item_key);
 
         if (!dtx->TxExe(yield)) return false;
 
@@ -635,8 +623,8 @@ bool TxOrderStatus(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t
 
     tpcc_customer_key_t cust_key;
     cust_key.c_id = tpcc_client->MakeCustomerKey(warehouse_id, district_id, customer_id);
-    auto cust_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kCustomerTable, cust_key.item_key);
-    dtx->AddToReadOnlySet(cust_obj);
+    auto cust_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kCustomerTable);
+    dtx->AddToReadOnlySet(cust_obj, cust_key.item_key);
 
     // FIXME: Currently, we use a random order_id to maintain the distributed transaction payload,
     // but need to search the largest o_id by o_w_id, o_d_id and o_c_id from the order table
@@ -644,8 +632,8 @@ bool TxOrderStatus(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t
     uint64_t o_key = tpcc_client->MakeOrderKey(warehouse_id, district_id, order_id);
     tpcc_order_key_t order_key;
     order_key.o_id = o_key;
-    auto order_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kOrderTable, order_key.item_key);
-    dtx->AddToReadOnlySet(order_obj);
+    auto order_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kOrderTable);
+    dtx->AddToReadOnlySet(order_obj, order_key.item_key);
 
     if (!dtx->TxExe(yield)) return false;
 
@@ -665,8 +653,8 @@ bool TxOrderStatus(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t
         int64_t ol_key = tpcc_client->MakeOrderLineKey(warehouse_id, district_id, order_id, i);
         tpcc_order_line_key_t order_line_key;
         order_line_key.ol_id = ol_key;
-        auto ol_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kOrderLineTable, order_line_key.item_key);
-        dtx->AddToReadOnlySet(ol_obj);
+        auto ol_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kOrderLineTable);
+        dtx->AddToReadOnlySet(ol_obj, order_line_key.item_key);
     }
 
     if (!dtx->TxExe(yield)) return false;
@@ -698,8 +686,8 @@ bool TxStockLevel(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t&
     uint64_t d_key = tpcc_client->MakeDistrictKey(warehouse_id, district_id);
     tpcc_district_key_t dist_key;
     dist_key.d_id = d_key;
-    auto dist_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kDistrictTable, dist_key.item_key);
-    dtx->AddToReadOnlySet(dist_obj);
+    auto dist_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kDistrictTable);
+    dtx->AddToReadOnlySet(dist_obj, dist_key.item_key);
 
     if (!dtx->TxExe(yield)) return false;
 
@@ -721,8 +709,8 @@ bool TxStockLevel(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t&
             int64_t ol_key = tpcc_client->MakeOrderLineKey(warehouse_id, district_id, order_id, line_number);
             tpcc_order_line_key_t order_line_key;
             order_line_key.ol_id = ol_key;
-            auto ol_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kOrderLineTable, order_line_key.item_key);
-            dtx->AddToReadOnlySet(ol_obj);
+            auto ol_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kOrderLineTable);
+            dtx->AddToReadOnlySet(ol_obj, order_line_key.item_key);
 
             if (dtx->TxExe(yield, false) && dtx->tx_status == TXStatus::TX_VAL_NOTFOUND) {
                 // Not found, not abort
@@ -738,8 +726,8 @@ bool TxStockLevel(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t&
             int64_t s_key = tpcc_client->MakeStockKey(warehouse_id, ol_val->ol_i_id);
             tpcc_stock_key_t stock_key;
             stock_key.s_id = s_key;
-            auto stock_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kStockTable, stock_key.item_key);
-            dtx->AddToReadOnlySet(stock_obj);
+            auto stock_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kStockTable);
+            dtx->AddToReadOnlySet(stock_obj, stock_key.item_key);
 
             if (!dtx->TxExe(yield)) return false;
 

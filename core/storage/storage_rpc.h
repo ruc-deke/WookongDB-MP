@@ -60,6 +60,10 @@ class StoragePoolImpl : public StorageService{
                        const ::storage_service::OpendbRequest* request,
                        ::storage_service::OpendbResponse* response,
                        ::google::protobuf::Closure* done);
+    virtual void TableExist(::google::protobuf::RpcController* controller,
+                       const ::storage_service::TableExistRequest* request,
+                       ::storage_service::TableExistResponse* response,
+                       ::google::protobuf::Closure* done);
 
   private:
     LogManager* log_manager_;

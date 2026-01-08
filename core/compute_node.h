@@ -27,6 +27,7 @@
 #include "bufferpool.h" 
 #include "config.h"
 #include "connection/meta_manager.h"
+#include "core/storage/sm_meta.h"
 
 struct Page_request_info{
     page_id_t page_id;
@@ -532,7 +533,67 @@ public:
         RWMutex::ReadLock lock(rw_mutex);
         return ts_cnt;
     }
-    
+
+public:
+    // 判断 table 是否存在
+    bool table_exist(const std::string table_name){
+        // db_meta 只是一个缓存层，就算删除表信息没有及时同步到 node，去存储里面拿也照样拿不到页面
+        // 后续可以设置一个通知，某个节点把表给删了，通知其它节点下
+        if (db_meta.is_table(table_name)){
+            return true;
+        }
+
+        // 如果 db_meta 没有，那就去存储层求证下，确实没有这个表
+        storage_service::StorageService_Stub storage_stub(&storage_channel);
+        storage_service::TableExistRequest request;
+        storage_service::TableExistResponse response;
+        brpc::Controller cntl;
+
+        request.set_table_name(table_name);
+        storage_stub.TableExist(&cntl , &request , &response , NULL);
+        bool exist = response.ans();
+
+        if (exist){
+            TabMeta tab_meta;
+            tab_meta.name = table_name;
+
+            int cur_offset = 0;
+            for (int i = 0 ; i < response.col_names_size() ; i++){
+                std::string col = response.col_names(i);
+                ColMeta c;
+                c.tab_name = table_name;
+                c.name = col;
+                if (response.col_types(i) == "TYPE_INT"){
+                    c.type = ColType::TYPE_INT;
+                }else if (response.col_types(i) == "TYPE_FLOAT"){
+                    c.type = ColType::TYPE_FLOAT;
+                }else if (response.col_types(i) == "TYPE_STRING"){
+                    c.type = ColType::TYPE_STRING;
+                }else {
+                    assert(false);
+                }
+                c.len = response.col_lens(i);
+                c.offset = cur_offset;
+                cur_offset += c.len;
+
+                tab_meta.cols.emplace_back(c);
+            }
+
+            for (int i = 0 ; i < response.primary_size() ; i++){
+                tab_meta.primary_keys.emplace_back(response.primary(i));
+            }
+
+            db_meta.set_table_meta(table_name , tab_meta);
+        }
+
+        return exist;
+    }
+
+public:
+    // DBMeta，缓存 DB 信息
+    DBMeta db_meta;
+
+
 private:
     node_id_t node_id;
 
@@ -562,10 +623,12 @@ private:
     std::queue<Txn_request_info> global_txn_queue;  // 访问全局逻辑分区的事务
     std::mutex txn_queue_mutex;
 
+    // 时间片轮转 SYSTEM_MODE = 12 和 13 用的
     Phase phase = Phase::BEGIN;
     bool is_running = true;
-
     Scheduler* scheduler;
+
+    
 
 public:
     bool* threads_switch; //每个线程的阶段切换状态，数组

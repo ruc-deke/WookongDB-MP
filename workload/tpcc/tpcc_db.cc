@@ -559,9 +559,8 @@ int TPCC::LoadRecord(RmFileHandle* file_handle,
                      table_id_t table_id,
                      std::ofstream& indexfile,
                      bool is_next_page) {
-    assert(val_size <= MAX_ITEM_SIZE);
     /* Insert into HashStore */
-    DataItem item_to_be_inserted(table_id, val_size, item_key, (uint8_t*)val_ptr);
+    DataItem item_to_be_inserted(table_id, val_size , (uint8_t*)val_ptr);
     char* item_char = (char*)malloc(item_to_be_inserted.GetSerializeSize());
     item_to_be_inserted.Serialize(item_char);
     Rid rid = INDEX_NOT_FOUND;

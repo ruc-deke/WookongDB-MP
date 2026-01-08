@@ -71,6 +71,7 @@ enum ErrorCode {
     COLUMN_ALREADY_EXISTS = 5001,
     COLUMN_TYPE_MISMATCH = 5002,
     COLUMN_CONSTRAINT_VIOLATION = 5003,
+    AMBIGUOUS_COLUMN = 5004,
     
     // 索引错误
     INDEX_NOT_FOUND = 6000,
@@ -114,6 +115,7 @@ enum ErrorCode {
     SEMANTIC_ERROR = 9001,
     EXECUTION_ERROR = 9002,
     OPTIMIZER_ERROR = 9003,
+    TYPE_MISMATCH = 9004,
     
     // 磁盘错误
     DISK_READ_ERROR = 11000,
@@ -637,6 +639,14 @@ public:
                      "Column not found: " + column_name, column_name, table_name) {}
 };
 
+class AmbiguousColumnError : public ColumnError {
+public:
+    AmbiguousColumnError(const std::string& column_name, 
+                        const std::string& table_name = "")
+        : ColumnError(ErrorCode::AMBIGUOUS_COLUMN, 
+                     "Ambiguous column: " + column_name, column_name, table_name) {}
+};
+
 // 索引错误
 class IndexError : public BaseError {
 public:
@@ -1004,6 +1014,29 @@ class SemanticError : public QueryError {
 public:
     SemanticError(const std::string& message, const std::string& query = "")
         : QueryError(ErrorCode::SEMANTIC_ERROR, "Semantic error: " + message, query) {}
+};
+
+class TypeMismatchError : public QueryError {
+public:
+    TypeMismatchError(const std::string& lhs_type = "", const std::string& rhs_type = "",
+                      const std::string& lhs = "", const std::string& rhs = "", const std::string& op = "")
+        : QueryError(ErrorCode::TYPE_MISMATCH, "Type mismatch") {
+        if (!lhs_type.empty()) {
+            add_context("lhs_type", lhs_type);
+        }
+        if (!rhs_type.empty()) {
+            add_context("rhs_type", rhs_type);
+        }
+        if (!lhs.empty()) {
+            add_context("lhs", lhs);
+        }
+        if (!rhs.empty()) {
+            add_context("rhs", rhs);
+        }
+        if (!op.empty()) {
+            add_context("op", op);
+        }
+    }
 };
 
 // 磁盘错误
@@ -1447,6 +1480,7 @@ inline std::string error_code_to_string(ErrorCode code) {
         case ErrorCode::COLUMN_ALREADY_EXISTS: return "COLUMN_ALREADY_EXISTS";
         case ErrorCode::COLUMN_TYPE_MISMATCH: return "COLUMN_TYPE_MISMATCH";
         case ErrorCode::COLUMN_CONSTRAINT_VIOLATION: return "COLUMN_CONSTRAINT_VIOLATION";
+        case ErrorCode::AMBIGUOUS_COLUMN: return "AMBIGUOUS_COLUMN";
         case ErrorCode::INDEX_NOT_FOUND: return "INDEX_NOT_FOUND";
         case ErrorCode::INDEX_ALREADY_EXISTS: return "INDEX_ALREADY_EXISTS";
         case ErrorCode::INDEX_CORRUPTED: return "INDEX_CORRUPTED";
@@ -1481,6 +1515,7 @@ inline std::string error_code_to_string(ErrorCode code) {
         case ErrorCode::SEMANTIC_ERROR: return "SEMANTIC_ERROR";
         case ErrorCode::EXECUTION_ERROR: return "EXECUTION_ERROR";
         case ErrorCode::OPTIMIZER_ERROR: return "OPTIMIZER_ERROR";
+        case ErrorCode::TYPE_MISMATCH: return "TYPE_MISMATCH";
         case ErrorCode::DISK_READ_ERROR: return "DISK_READ_ERROR";
         case ErrorCode::DISK_WRITE_ERROR: return "DISK_WRITE_ERROR";
         case ErrorCode::DISK_SEEK_ERROR: return "DISK_SEEK_ERROR";

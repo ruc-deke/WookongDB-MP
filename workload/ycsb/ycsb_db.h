@@ -118,7 +118,7 @@ public:
         // 插入 10 个 key
         for (int i = 0 ; i < 10 ; i++){
             int gen_id = now_node_account_begin.fetch_add(1);
-            auto insert_item = std::make_shared<DataItem>(0, sizeof(ycsb_user_table_val), gen_id, 1);
+            auto insert_item = std::make_shared<DataItem>(0, sizeof(ycsb_user_table_val));
             ycsb_user_table_val* val = (ycsb_user_table_val*)insert_item->value;
             
             val->magic = ycsb_user_table_magic;
@@ -133,7 +133,7 @@ public:
             memcpy(val->file_8 , ramdom_string(field_len).c_str() , field_len);
             memcpy(val->file_9 , ramdom_string(field_len).c_str() , field_len);
             
-            dtx->AddToInsertSet(insert_item);
+            dtx->AddToInsertSet(insert_item , gen_id);
         }
 
         if (!dtx->TxExe(yield)){
@@ -152,10 +152,10 @@ public:
         // 随机删除 3 个
         for (int i = 0 ; i < 3 ; i++){
             int delete_id = delete_begin.fetch_add(1);
-            auto delete_item = std::make_shared<DataItem>(0 , sizeof(ycsb_user_table_val) , delete_id , 1);
+            auto delete_item = std::make_shared<DataItem>(0 , sizeof(ycsb_user_table_val));
             ycsb_user_table_val *val = (ycsb_user_table_val*)delete_item->value;
             
-            dtx->AddToDeleteSet(delete_item);
+            dtx->AddToDeleteSet(delete_item , delete_id);
         }
 
         if (!(dtx->TxExe(yield))){
@@ -177,11 +177,11 @@ public:
         for (int i = 0 ; i < 10 ; i++){
             if (rw_flags[i]){
                 // 读事务
-                auto ro_user_id = std::make_shared<DataItem>(0 , keys[i]);
-                dtx->AddToReadOnlySet(ro_user_id);
+                auto ro_user_id = std::make_shared<DataItem>(0);
+                dtx->AddToReadOnlySet(ro_user_id , keys[i]);
             }else {
-                auto rw_user_id = std::make_shared<DataItem>(0 , keys[i]);
-                dtx->AddToReadWriteSet(rw_user_id);
+                auto rw_user_id = std::make_shared<DataItem>(0);
+                dtx->AddToReadWriteSet(rw_user_id , keys[i]);
             }
         }
 
@@ -191,8 +191,8 @@ public:
         }
         
         for (auto& item : dtx->read_only_set) {
-            if (item.is_fetched) {
-                ycsb_user_table_val* val = (ycsb_user_table_val*)item.item_ptr->value;
+            if (item.second.is_fetched) {
+                ycsb_user_table_val* val = (ycsb_user_table_val*)item.second.item_ptr->value;
                 assert(val);
                 if (val->magic != ycsb_user_table_magic){
                     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
@@ -202,8 +202,8 @@ public:
         }
 
         for (auto& item : dtx->read_write_set) {
-            if (item.is_fetched) {
-                ycsb_user_table_val* val = (ycsb_user_table_val*)item.item_ptr->value;
+            if (item.second.is_fetched) {
+                ycsb_user_table_val* val = (ycsb_user_table_val*)item.second.item_ptr->value;
                 if (val->magic != ycsb_user_table_magic){
                     LOG(FATAL) << "[FATAL] Read unmatch, tid-cid-txid: " << dtx->t_id << "-" << dtx->coro_id << "-" << tx_id;
                     assert(false);

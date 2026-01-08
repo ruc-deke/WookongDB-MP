@@ -56,11 +56,10 @@ class DTX {
 
   void TxBegin(tx_id_t txid);
 
-  void AddToReadOnlySet(DataItemPtr item);
-  void AddToReadWriteSet(DataItemPtr item, bool release_imme = false);
-  void AddToInsertSet(DataItemPtr item);
-  void AddToOldSet(DataItem *item);
-  void AddToDeleteSet(DataItemPtr item);
+  void AddToReadOnlySet(DataItemPtr item , itemkey_t key);
+  void AddToReadWriteSet(DataItemPtr item, itemkey_t key , bool release_imme = false);
+  void AddToInsertSet(DataItemPtr item , itemkey_t key);
+  void AddToDeleteSet(DataItemPtr item , itemkey_t key);
 
   void RemoveLastROItem();
 
@@ -222,8 +221,8 @@ class DTX {
   void ReleaseSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id);
   void ReleaseXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id); 
 
-  DataItemPtr GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr *file_hdr);
-  DataItemPtr GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid, DataItem*& orginal_item , RmFileHdr *file_hdr);
+  DataItemPtr GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr *file_hdr , itemkey_t item_key);
+  DataItemPtr GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid, DataItem*& orginal_item , RmFileHdr *file_hdr , itemkey_t item_key);
    
   DataItem* UndoDataItem(DataItem* item);
   
@@ -263,11 +262,12 @@ class DTX {
     这个项目采用了悲观并发控制的算法
     元组的锁保存在记录上，事务执行的过程中，如果发现了冲突，那就回滚
   */
-  std::vector<DataSetItem> read_only_set;     // 本事务读取过的数据项集合
-  std::vector<DataSetItem> read_write_set;    // 本事务修改的数据项集合
-  std::vector<DataSetItem> insert_set;        // 本事务插入的数据项集合
-  std::vector<DataItem*> old_set;
-  std::vector<DataSetItem> delete_set;        // 本事务删除的页面集合
+  std::vector<std::pair<itemkey_t , DataSetItem>> read_only_set;     // 本事务读取过的数据项集合
+  std::vector<std::pair<itemkey_t , DataSetItem>> read_write_set;    // 本事务修改的数据项集合
+
+
+  std::vector<std::pair<itemkey_t , DataSetItem>> insert_set;        // 本事务插入的数据项集合
+  std::vector<std::pair<itemkey_t , DataSetItem>> delete_set;        // 本事务删除的页面集合
 
   IndexCache* index_cache;
   PageCache* page_cache;
@@ -339,33 +339,28 @@ void DTX::TxBegin(tx_id_t txid) {
 }
 
 ALWAYS_INLINE
-void DTX::AddToReadOnlySet(DataItemPtr item) {
+void DTX::AddToReadOnlySet(DataItemPtr item , itemkey_t key) {
   DataSetItem data_set_item(item);
-  read_only_set.emplace_back(data_set_item);
+  read_only_set.emplace_back(std::make_pair(key , data_set_item));
 }
 
 ALWAYS_INLINE
-void DTX::AddToReadWriteSet(DataItemPtr item, bool release_imme) {
+void DTX::AddToReadWriteSet(DataItemPtr item, itemkey_t key , bool release_imme) {
   DataSetItem data_set_item(item);
   data_set_item.release_imme = release_imme;
-  read_write_set.emplace_back(data_set_item);
+  read_write_set.emplace_back(std::make_pair(key , data_set_item));
 }
 
 ALWAYS_INLINE
-void DTX::AddToInsertSet(DataItemPtr item) {
+void DTX::AddToInsertSet(DataItemPtr item , itemkey_t key) {
   DataSetItem data_set_item(item);
-  insert_set.emplace_back(data_set_item);
+  insert_set.emplace_back(std::make_pair(key , data_set_item));
 }
 
 ALWAYS_INLINE
-void DTX::AddToOldSet(DataItem *item) {
-  old_set.emplace_back(item);
-}
-
-ALWAYS_INLINE
-void DTX::AddToDeleteSet(DataItemPtr item_ptr){
+void DTX::AddToDeleteSet(DataItemPtr item_ptr , itemkey_t key){
   DataSetItem data_set_item(item_ptr);
-  delete_set.emplace_back(data_set_item);
+  delete_set.emplace_back(std::make_pair(key , data_set_item));
 }
 
 ALWAYS_INLINE
@@ -384,7 +379,6 @@ void DTX::Clean() {
   read_write_set.clear();
   insert_set.clear();
   delete_set.clear();
-  old_set.clear();
   tx_status = TXStatus::TX_INIT;
   participants.clear();
 }

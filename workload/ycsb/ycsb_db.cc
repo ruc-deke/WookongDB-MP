@@ -74,7 +74,7 @@ void YCSB::LoadRecord(RmFileHandle *file_handle ,
         itemkey_t item_key , void *val_ptr , 
         size_t val_size , table_id_t table_id ,
         std::ostream &index_file){
-    DataItem item_to_be_insert(table_id , item_key , (uint8_t*)val_ptr , val_size);
+    DataItem item_to_be_insert(table_id , (uint8_t*)val_ptr , val_size);
     
     // 这里写的有点乱，在计算层看来，存储的数据是 DataItem，但是存储层看来，存储的就是一堆字符
     // 其实应该和计算层对齐一下的，有时间再改改
@@ -106,21 +106,26 @@ void YCSB::VerifyData() {
             assert(false);
         }
         
-        std::unique_ptr<RmRecord> record = table_file->get_record(rid, nullptr);
-        assert(record != nullptr);
-        DataItem* data_item = reinterpret_cast<DataItem*>(record->value_);
+        RmPageHandle page_handle = table_file->fetch_page_handle(rid.page_no_);
+        char* tuple = page_handle.get_slot(rid.slot_no_);
+        itemkey_t* disk_key = reinterpret_cast<itemkey_t*>(tuple);
+        assert(*disk_key == key.item_key);
+        DataItem* data_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+
+        // if (id % 300 == 0){
+        //     std::cout << "Verify Key = " << key.item_key << " Real Key = " << *disk_key << "\n";
+        // }
             
         // Check size
         if (data_item->value_size == sizeof(ycsb_user_table_val)) {
-            assert(data_item->key == key.item_key);
             assert(data_item->lock == 0);
             
-            // Verify magic value
             ycsb_user_table_val* val = reinterpret_cast<ycsb_user_table_val*>(data_item->value);
             assert(val->magic == ycsb_user_table_magic);
         } else {
             assert(false);
         }
+        rm_manager->get_bufferPoolManager()->unpin_page(page_handle.page->get_page_id(), false);
     }
     rm_manager->close_file(table_file.get());
 }

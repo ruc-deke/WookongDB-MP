@@ -104,6 +104,7 @@ enum ColType{
 // 目前只支持 B+ 树索引
 enum class IndexType{
     BTREE_INDEX,
+    HASH_INDEX,
     UNKNOW_INDEX
 };
 

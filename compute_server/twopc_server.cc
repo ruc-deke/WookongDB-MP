@@ -22,9 +22,9 @@ namespace twopc_service{
             Page* page = server->local_fetch_x_page(table_id, page_id);
             char* data = page->get_data();
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-            RmFileHdr *file_hdr = server->get_tuple_size(table_id);
+            RmFileHdr *file_hdr = server->get_file_hdr(table_id);
             char *slots = bitmap + file_hdr->bitmap_size_;
-            char* tuple = slots + slot_id * (sizeof(DataItem) + sizeof(itemkey_t));
+            char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
 
             // 需要给这个元组加上排他锁
             DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
@@ -59,9 +59,9 @@ namespace twopc_service{
         Page* page = server->local_fetch_x_page(table_id, page_id);
         char* data = page->get_data();
         char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-        RmFileHdr *file_hdr = server->get_tuple_size(table_id);
+        RmFileHdr *file_hdr = server->get_file_hdr(table_id);
         char *slots = bitmap + file_hdr->bitmap_size_;
-        char* tuple = slots + slot_id * (sizeof(DataItem) + sizeof(itemkey_t));
+        char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
         DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
         assert(item->lock == EXCLUSIVE_LOCKED);
         memcpy(item->value, write_remote_data, MAX_ITEM_SIZE);
@@ -135,9 +135,9 @@ namespace twopc_service{
             Page* page = server->local_fetch_x_page(table_id, page_id);
             char* data = page->get_data();
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-            RmFileHdr *file_hdr = server->get_tuple_size(table_id);
+            RmFileHdr *file_hdr = server->get_file_hdr(table_id);
             char *slots = bitmap + file_hdr->bitmap_size_;
-            char* tuple = slots + slot_id * (sizeof(DataItem) + sizeof(itemkey_t));
+            char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
             DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
             assert(item->lock == EXCLUSIVE_LOCKED);
             memcpy(item->value, write_remote_data, MAX_ITEM_SIZE);
@@ -194,9 +194,9 @@ namespace twopc_service{
             char* data = page->get_data();
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
             
-            RmFileHdr *file_hdr = server->get_tuple_size(table_id);
+            RmFileHdr *file_hdr = server->get_file_hdr(table_id);
             char *slots = bitmap + file_hdr->bitmap_size_;
-            char* tuple = slots + slot_id * (sizeof(DataItem) + sizeof(itemkey_t));
+            char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
             DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
             assert(item->lock == EXCLUSIVE_LOCKED);
             item->lock = UNLOCKED;

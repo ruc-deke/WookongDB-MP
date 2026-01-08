@@ -15,10 +15,33 @@ struct Value{
 
     Value() : type(TYPE_INT), int_val(0), data_item(nullptr) {}
 
-    void init_dataItem(int table_id , int item_key , int len){
+    void init_dataItem(int table_id , int len){
         assert(data_item == nullptr);
-        data_item = new DataItem(table_id , item_key);
+        data_item = new DataItem(table_id , len);
+        if (type == ColType::TYPE_INT){
+            assert(len = sizeof(int));
+            *(int*)(data_item->value) = int_val;
+        }else if (type == ColType::TYPE_FLOAT){
+            assert(len == sizeof(float));
+            *(float*)(data_item->value) = float_val;
+        }else if (type == ColType::TYPE_STRING){
+            memcpy(data_item->value , str_val.c_str() , len);
+        }
+    }
 
+    // 当 Value 作为右常量值的时候，不需要什么 table_id，你只需要知道它的值即可
+    void init_dataItem(int len){
+        assert(data_item == nullptr);
+        data_item = new DataItem(len , true);
+        if (type == ColType::TYPE_INT){
+            assert(len = sizeof(int));
+            *(int*)(data_item->value) = int_val;
+        }else if (type == ColType::TYPE_FLOAT){
+            assert(len == sizeof(float));
+            *(float*)(data_item->value) = float_val;
+        }else if (type == ColType::TYPE_STRING){
+            memcpy(data_item->value , str_val.c_str() , len);
+        }
     }
 
     void set_int(int int_val_) {
@@ -34,6 +57,21 @@ struct Value{
     void set_str(std::string str_val_) {
         type = TYPE_STRING;
         str_val = std::move(str_val_);
+    }
+
+    void serialize(char* dest, int& offset) {
+        memcpy(dest + offset, &type, sizeof(ColType));
+        offset += sizeof(ColType);
+
+        memcpy(dest + offset, &data_item->value_size + sizeof(DataItem) , sizeof(int));
+        offset += sizeof(int);
+
+        data_item->Serialize(dest + offset);
+        offset += sizeof(data_item) + data_item->value_size;
+    }
+
+    void deserialize(char *src , int &offset){
+        assert(false);
     }
 };
 
@@ -101,31 +139,83 @@ struct Condition{
     // 默认构造函数
     Condition() : op(OP_EQ), is_rhs_val(false) {}
 
-    // void serialize(char* dest, int& offset) {
-    //     lhs_col.serialize(dest, offset);
-    //     memcpy(dest + offset, &op, sizeof(CompOp));
-    //     offset += sizeof(CompOp);
-    //     memcpy(dest + offset, &is_rhs_val, sizeof(bool));
-    //     offset += sizeof(bool);
-    //     if(is_rhs_val) {
-    //         rhs_val.serialize(dest, offset);
-    //     }
-    //     else {
-    //         rhs_col.serialize(dest, offset);
-    //     }
-    // }
+    void serialize(char* dest, int& offset) {
+        lhs_col.serialize(dest, offset);
 
-    // void deserialize(char* src, int& offset) {
-    //     lhs_col.deserialize(src, offset);
-    //     op = *reinterpret_cast<const CompOp*>(src + offset);
-    //     offset += sizeof(CompOp);
-    //     is_rhs_val = *reinterpret_cast<const bool*>(src + offset);
-    //     offset += sizeof(bool);
-    //     if(is_rhs_val) {
-    //         rhs_val.deserialize(src, offset);
-    //     }
-    //     else {
-    //         rhs_col.deserialize(src, offset);
-    //     }
-    // }
+        memcpy(dest + offset, &op, sizeof(CompOp));
+        offset += sizeof(CompOp);
+
+        memcpy(dest + offset, &is_rhs_val, sizeof(bool));
+        offset += sizeof(bool);
+
+        if(is_rhs_val) {
+            rhs_val.serialize(dest, offset);
+        } else {
+            rhs_col.serialize(dest, offset);
+        }
+    }
+
+    void deserialize(char* src, int& offset) {
+        lhs_col.deserialize(src, offset);
+        op = *reinterpret_cast<const CompOp*>(src + offset);
+        offset += sizeof(CompOp);
+        is_rhs_val = *reinterpret_cast<const bool*>(src + offset);
+        offset += sizeof(bool);
+        if(is_rhs_val) {
+            rhs_val.deserialize(src, offset);
+        } else {
+            rhs_col.deserialize(src, offset);
+        }
+    }
+};
+
+static std::string CompOpString[] = {"=", "!=", "<", ">", "<=", ">=", "OP_NONE"};
+
+struct SetClause{
+    TabCol lhs;
+    Value rhs;
+
+
+    void serialize(char* dest, int& offset) {
+        lhs.serialize(dest, offset);
+        rhs.serialize(dest, offset);
+    }
+
+    void deserialize(char* src, int& offset) {
+        lhs.deserialize(src, offset);
+        rhs.deserialize(src, offset);
+    }
+};
+
+
+typedef enum PlanTag{
+    T_Invalid = 1,
+    T_Help,
+    T_ShowTable,
+    T_DescTable,
+    T_CreateTable,
+    T_DropTable,
+    T_CreateIndex,
+    T_DropIndex,
+    T_Insert,
+    T_Update,
+    T_Delete,
+    T_select,
+    T_Transaction_begin,
+    T_Transaction_commit,
+    T_Transaction_abort,
+    T_Transaction_rollback,
+    T_SeqScan,
+    T_BPTreeIndexScan,
+    T_HashIndexScan,
+    T_NestLoop,
+    T_HashJoin,
+    T_Sort,
+    T_Projection,
+    T_Gather
+} PlanTag;
+
+enum NodeType: int {
+    COMPUTE_NODE,
+    STORAGE_NODE
 };

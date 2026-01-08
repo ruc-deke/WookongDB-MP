@@ -23,36 +23,41 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
   
   // 读操作
   for (size_t i=0; i<read_only_set.size(); i++) {
-    DataSetItem& item = read_only_set[i];
+    DataSetItem& item = read_only_set[i].second;
+    itemkey_t item_key = read_only_set[i].first;
+
     if (!item.is_fetched) { 
       // Get data index
-      Rid rid = GetRidFromBLink(item.item_ptr->table_id , item.item_ptr->key);
+      Rid rid = GetRidFromBLink(item.item_ptr->table_id , item_key);
       if(rid.page_no_ == -1) {
         // Data not found
         read_only_set.erase(read_only_set.begin() + i);
         i--; // Move back one step
         tx_status = TXStatus::TX_VAL_NOTFOUND; // Value not found
-        LOG(INFO) << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " not found ";
+        LOG(INFO) << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item_key << " not found ";
         continue;
       }
-      ro_fetch_tasks.emplace_back(i, std::make_pair(rid, &read_only_set[i]));
+      ro_fetch_tasks.emplace_back(i, std::make_pair(rid, &read_only_set[i].second));
     }
   }
+
   // Update 操作
   for (size_t i = 0; i < read_write_set.size(); i++) { 
-    DataSetItem& item = read_write_set[i];
+    DataSetItem& item = read_write_set[i].second;
+    itemkey_t item_key = read_write_set[i].first;
+
     if (!item.is_fetched) {
       // Get data index
-      Rid rid = GetRidFromBLink(item.item_ptr->table_id , item.item_ptr->key);
+      Rid rid = GetRidFromBLink(item.item_ptr->table_id , item_key);
       if(rid.page_no_ == -1) {
         // Data not found
         read_write_set.erase(read_write_set.begin() + i);
         i--; // Move back one step
         tx_status = TXStatus::TX_VAL_NOTFOUND; // Value not found
-        LOG(INFO) << "Thread id:" << local_t_id << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " not found ";
+        LOG(INFO) << "Thread id:" << local_t_id << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item_key << " not found ";
         continue;
       }
-      rw_fetch_tasks.emplace_back(i, std::make_pair(rid, &read_write_set[i]));
+      rw_fetch_tasks.emplace_back(i, std::make_pair(rid, &read_write_set[i].second));
     }
   }
 
@@ -64,27 +69,31 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
     size_t idx = task.first;
     Rid rid = task.second.first;
     if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
-      DataSetItem &item = read_only_set[idx];
+      DataSetItem &item = read_only_set[idx].second;
+      itemkey_t item_key = read_only_set[idx].first;
+
       assert(&item == task.second.second);
       auto data = FetchSPage(yield , item.item_ptr->table_id , rid.page_no_);
 
       // 在获取元组之前，还需要拿到这个表的元组大小，这个信息存储在 Page0 里
-      RmFileHdr *file_hdr = compute_server->get_tuple_size(item.item_ptr->table_id);
-      *item.item_ptr = *GetDataItemFromPageRO(item.item_ptr->table_id , data , rid , file_hdr);
+      RmFileHdr *file_hdr = compute_server->get_file_hdr(item.item_ptr->table_id);
+      *item.item_ptr = *GetDataItemFromPageRO(item.item_ptr->table_id , data , rid , file_hdr , item_key);
       assert(item.item_ptr != nullptr);
       
       item.is_fetched = true;
       ReleaseSPage(yield , item.item_ptr->table_id , rid.page_no_);
     } else {
-        DataSetItem& item = read_only_set[idx];  // Explicitly copy the pointer
+        DataSetItem& item = read_only_set[idx].second;
+        itemkey_t item_key = read_only_set[idx].first;
+
         assert(&item == task.second.second); // Ensure the pointer matches
         // Fetch data from storage
         if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3){
           auto data = FetchSPage(yield, item.item_ptr->table_id, rid.page_no_);
           std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
 
-          RmFileHdr *file_hdr = compute_server->get_tuple_size(item.item_ptr->table_id);
-          *item.item_ptr = *GetDataItemFromPageRO(item.item_ptr->table_id, data, rid , file_hdr);
+          RmFileHdr *file_hdr = compute_server->get_file_hdr(item.item_ptr->table_id);
+          *item.item_ptr = *GetDataItemFromPageRO(item.item_ptr->table_id, data, rid , file_hdr , item_key);
           
           item.is_fetched = true;
           ReleaseSPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page
@@ -104,10 +113,10 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
           if (sleep_time != 0){
             std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
           }
+
           // 这里拿的是 s 锁，不会冲突(MVCC)
           assert (data != nullptr);
           DataItemPtr data_item = std::make_shared<DataItem>(*reinterpret_cast<DataItem*>(data));
-          assert(data_item->key == item.item_ptr->key);
           assert(data_item->table_id == item.item_ptr->table_id);
           *item.item_ptr = *data_item;
           item.is_fetched = true;
@@ -118,7 +127,9 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
   }
   // 插入
   for (size_t i = 0 ; i < insert_set.size() ; i++){
-    DataSetItem &item = insert_set[i];
+    DataSetItem &item = insert_set[i].second;
+    itemkey_t item_key = insert_set[i].first;
+
     if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
       // TODO
     } else if (SYSTEM_MODE == 2){
@@ -126,7 +137,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
     } else {
       // insert 有可能是覆盖了旧的数据，所以把旧的给记下来
 
-      Rid insert_rid = compute_server->insert_entry(insert_set[i].item_ptr.get());
+      Rid insert_rid = compute_server->insert_entry(insert_set[i].second.item_ptr.get() , item_key);
       if (insert_rid.page_no_ == -1){
         tx_status = TXStatus::TX_ABORTING;
         break;
@@ -140,13 +151,14 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
     if (tx_status == TXStatus::TX_ABORTING){
       break;
     }
-    DataSetItem &item = delete_set[i];
+    DataSetItem &item = delete_set[i].second;
+    itemkey_t key = delete_set[i].first;
     if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
       // TODO
     } else if (SYSTEM_MODE == 2){
       // 2pc TODO
     } else {
-      Rid delete_rid = compute_server->delete_entry(delete_set[i].item_ptr.get());
+      Rid delete_rid = compute_server->delete_entry(delete_set[i].second.item_ptr.get() , key);
       // 如果删除的元组不存在，先按回滚处理
       if (delete_rid.page_no_ == -1){
         tx_status = TXStatus::TX_ABORTING;
@@ -164,13 +176,15 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
     size_t idx = task.first;
     Rid rid = task.second.first;
     if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
-      DataSetItem& item = read_write_set[idx];  // Explicitly copy the pointer
+      DataSetItem& item = read_write_set[idx].second;  
+      itemkey_t item_key = read_write_set[idx].first;
+
       assert(&item == task.second.second); // Ensure the pointer matches
       auto data = FetchXPage(yield, item.item_ptr->table_id, rid.page_no_);
       DataItem* orginal_item = nullptr;
 
-      RmFileHdr *file_hdr = compute_server->get_tuple_size(item.item_ptr->table_id);
-      *item.item_ptr = *GetDataItemFromPageRW(item.item_ptr->table_id, data, rid, orginal_item , file_hdr);
+      RmFileHdr *file_hdr = compute_server->get_file_hdr(item.item_ptr->table_id);
+      *item.item_ptr = *GetDataItemFromPageRW(item.item_ptr->table_id, data, rid, orginal_item , file_hdr , item_key);
 
       if(orginal_item->lock == UNLOCKED) {
         orginal_item->lock = EXCLUSIVE_LOCKED;
@@ -187,7 +201,9 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
       }
       item.is_fetched = true;
     }else {
-        DataSetItem& item = read_write_set[idx];  // Explicitly copy the pointer
+        DataSetItem& item = read_write_set[idx].second; 
+        itemkey_t item_key = read_write_set[idx].first;
+
         assert(&item == task.second.second); // Ensure the pointer matches
         // Fetch data from storage
         if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3){
@@ -195,8 +211,8 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
           std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
           DataItem* orginal_item = nullptr;
 
-          RmFileHdr *file_hdr = compute_server->get_tuple_size(item.item_ptr->table_id);
-          *item.item_ptr = *GetDataItemFromPageRW(item.item_ptr->table_id, data, rid, orginal_item , file_hdr);
+          RmFileHdr *file_hdr = compute_server->get_file_hdr(item.item_ptr->table_id);
+          *item.item_ptr = *GetDataItemFromPageRW(item.item_ptr->table_id, data, rid, orginal_item , file_hdr , item_key);
 
           if(orginal_item->lock == UNLOCKED) {
             orginal_item->lock = EXCLUSIVE_LOCKED;
@@ -230,7 +246,6 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
             continue;
           }
           DataItemPtr data_item = std::make_shared<DataItem>(*reinterpret_cast<DataItem*>(data));
-          assert(data_item->key == item.item_ptr->key);
           assert(data_item->table_id == item.item_ptr->table_id);
           *item.item_ptr = *data_item;
           item.is_fetched = true;
@@ -290,9 +305,10 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
 
   // 对于写过的每个元组，需要再访问一次页面，把这个元组的锁信息和版本号给更新一下
   for(size_t i = 0 ; i < read_write_set.size() ; i++){
-    DataSetItem& data_item = read_write_set[i];
+    DataSetItem& data_item = read_write_set[i].second;
+    itemkey_t item_key = read_write_set[i].first;
     assert(data_item.is_fetched);
-    Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , data_item.item_ptr->key);
+    Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , item_key);
     assert(rid.page_no_ >= 0);
 
     struct timespec start_time1, end_time1;
@@ -303,11 +319,8 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
     
     DataItem* orginal_item = nullptr;
 
-    RmFileHdr *file_hdr = compute_server->get_tuple_size(data_item.item_ptr->table_id);
-    GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid, orginal_item , file_hdr);
-
-    // 验证在 TxExe 阶段读取到的数据，和我现在读取到的数据是一致的
-    assert(orginal_item->key == data_item.item_ptr->key);
+    RmFileHdr *file_hdr = compute_server->get_file_hdr(data_item.item_ptr->table_id);
+    GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid, orginal_item , file_hdr , item_key);
 
     // 把元组的锁给释放，并标记版本号
     orginal_item->version = commit_ts;
@@ -323,9 +336,10 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
   }
 
   for (size_t i = 0 ; i < insert_set.size() ; i++){
-    DataSetItem &data_item = insert_set[i];
+    DataSetItem &data_item = insert_set[i].second;
+    itemkey_t item_key =  insert_set[i].first;
     assert(data_item.is_fetched);
-    Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , data_item.item_ptr->key);
+    Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , item_key);
 
     struct timespec start_time1, end_time1;
     clock_gettime(CLOCK_REALTIME, &start_time1);
@@ -335,11 +349,10 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
 
     DataItem* orginal_item = nullptr;
 
-    RmFileHdr *file_hdr = compute_server->get_tuple_size(data_item.item_ptr->table_id);
-    GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid, orginal_item , file_hdr);
+    RmFileHdr *file_hdr = compute_server->get_file_hdr(data_item.item_ptr->table_id);
+    GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid, orginal_item , file_hdr , item_key);
 
     // 验证在 TxExe 阶段读取到的数据，和我现在读取到的数据是一致的
-    assert(orginal_item->key == data_item.item_ptr->key);
     assert(orginal_item->lock == EXCLUSIVE_LOCKED);
     orginal_item->version = commit_ts;
     orginal_item->lock = UNLOCKED;  
@@ -355,9 +368,11 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
   int delete_cnt_now = delete_cnt.fetch_add(delete_set.size());
   // LOG(INFO) << "Delete Cnt = " << delete_cnt_now;
   for (size_t i = 0 ; i < delete_set.size() ; i++){
-    DataSetItem &data_item = delete_set[i];
+    DataSetItem &data_item = delete_set[i].second;
+    itemkey_t item_key  = delete_set[i].first;
+
     assert(data_item.is_fetched);
-    Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , data_item.item_ptr->key);
+    Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , item_key);
 
     struct timespec start_time1, end_time1;
     clock_gettime(CLOCK_REALTIME, &start_time1);
@@ -367,11 +382,11 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
 
     DataItem* orginal_item = nullptr;
 
-    RmFileHdr *file_hdr = compute_server->get_tuple_size(data_item.item_ptr->table_id);
-    GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid, orginal_item , file_hdr);
+    RmFileHdr *file_hdr = compute_server->get_file_hdr(data_item.item_ptr->table_id);
+    GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid, orginal_item , file_hdr , item_key);
 
     // 验证在 TxExe 阶段读取到的数据，和我现在读取到的数据是一致的
-    assert(orginal_item->key == data_item.item_ptr->key);
+    // assert(orginal_item->key == data_item.item_ptr->key);
     assert(orginal_item->lock == EXCLUSIVE_LOCKED);
     orginal_item->version = commit_ts;
     orginal_item->lock = UNLOCKED;  
@@ -393,11 +408,13 @@ void DTX::TxAbort(coro_yield_t& yield) {
   if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3 || SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
     // // LOG(INFO) << "TxAbort";
     for(size_t i = 0; i < read_write_set.size(); i++){
-      DataSetItem& data_item = read_write_set[i];
+      DataSetItem& data_item = read_write_set[i].second;
+      itemkey_t item_key = read_write_set[i].first;
+
       // item.is_fetched 代表了这个元组已经被修改过了，需要回退对其的修改操作
       if(data_item.is_fetched){ 
         // this data item is fetched and locked
-        Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , data_item.item_ptr->key);
+        Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , item_key);
         struct timespec start_time1, end_time1;
         clock_gettime(CLOCK_REALTIME, &start_time1);
         auto page = FetchXPage(yield, data_item.item_ptr->table_id, rid.page_no_);
@@ -405,10 +422,10 @@ void DTX::TxAbort(coro_yield_t& yield) {
         tx_fetch_abort_time += (end_time1.tv_sec - start_time1.tv_sec) + (double)(end_time1.tv_nsec - start_time1.tv_nsec) / 1000000000;
         DataItem* orginal_item = nullptr;
 
-        RmFileHdr *file_hdr = compute_server->get_tuple_size(data_item.item_ptr->table_id);
-        GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid, orginal_item , file_hdr);
+        RmFileHdr *file_hdr = compute_server->get_file_hdr(data_item.item_ptr->table_id);
+        GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid, orginal_item , file_hdr , item_key);
 
-        assert(orginal_item->key == data_item.item_ptr->key);
+        // assert(orginal_item->key == data_item.item_ptr->key);
         // assert(orginal_item->lock == EXCLUSIVE_LOCKED);
         orginal_item->lock = UNLOCKED;
         struct timespec start_time2, end_time2;
@@ -422,10 +439,12 @@ void DTX::TxAbort(coro_yield_t& yield) {
     // LOG(INFO) << "Tx Abort , Inserted Key = : ";
     // 需要把之前插入的数据给删掉
     for (size_t i = 0 ; i < insert_set.size() ; i++){
-      DataSetItem &data_item = insert_set[i];
+      DataSetItem &data_item = insert_set[i].second;
+      itemkey_t item_key = insert_set[i].first;
+
       if (data_item.is_fetched){
         // 之前插入的，现在一定找得到
-        Rid rid = compute_server->get_rid_from_blink(data_item.item_ptr->table_id , data_item.item_ptr->key);
+        Rid rid = compute_server->get_rid_from_blink(data_item.item_ptr->table_id , item_key);
         assert(rid.page_no_ != -1);
 
         struct timespec start_time1 , end_time1;
@@ -440,7 +459,7 @@ void DTX::TxAbort(coro_yield_t& yield) {
         assert(Bitmap::is_set(bitmap , rid.slot_no_));
         Bitmap::reset(bitmap, rid.slot_no_);
         //fsm抹掉这个记录，更新空间
-        RmFileHdr *file_hdr = compute_server->get_tuple_size(data_item.item_ptr->table_id);
+        RmFileHdr *file_hdr = compute_server->get_file_hdr(data_item.item_ptr->table_id);
         int count=Bitmap::getfreeposnum(bitmap, file_hdr->num_records_per_page_ );
         UpdatePageSpaceFromFSM(data_item.item_ptr->table_id,rid.page_no_,(sizeof(data_item)+sizeof(itemkey_t))*count);
         page_hdr->num_records_--;
@@ -448,11 +467,11 @@ void DTX::TxAbort(coro_yield_t& yield) {
         DataItem *original_item = nullptr;
 
         
-        GetDataItemFromPageRW(data_item.item_ptr->table_id , page , rid , original_item , file_hdr);
+        GetDataItemFromPageRW(data_item.item_ptr->table_id , page , rid , original_item , file_hdr , item_key);
 
-        assert(original_item->key == data_item.item_ptr->key);
+        // assert(original_item->key == data_item.item_ptr->key);
         assert(original_item->lock == EXCLUSIVE_LOCKED);
-        LOG(INFO) << "TxAbort , inserted key = " << original_item->key;
+        LOG(INFO) << "TxAbort , inserted key = " << item_key;
 
         original_item->lock = UNLOCKED;
 
@@ -466,12 +485,14 @@ void DTX::TxAbort(coro_yield_t& yield) {
 
     // 把删除的数据给加回来
     for (size_t i = 0 ; i < delete_set.size() ; i++){
-      DataSetItem &data_item = delete_set[i];
+      DataSetItem &data_item = delete_set[i].second;
+      itemkey_t item_key = delete_set[i].first;
+
       if (data_item.is_fetched){
-        std::cout << "rollback delete , key = " << data_item.item_ptr->key << "\n";
+        std::cout << "rollback delete , key = " << item_key << "\n";
         // data_item.is_fetched 代表了这个 slot 之前一定是有数据的
         // 但是由于有 MVCC，所以其实也只需要把 BitMap 置为空即可
-        Rid rid = compute_server->get_rid_from_blink(data_item.item_ptr->table_id , data_item.item_ptr->key);
+        Rid rid = compute_server->get_rid_from_blink(data_item.item_ptr->table_id , item_key);
         assert(rid.page_no_ != -1);
 
         struct timespec start_time1 , end_time1;
@@ -486,16 +507,16 @@ void DTX::TxAbort(coro_yield_t& yield) {
         assert(!Bitmap::is_set(bitmap , rid.slot_no_));
         Bitmap::set(bitmap, rid.slot_no_);
         page_hdr->num_records_++;
-        int count = Bitmap::getfreeposnum(bitmap , compute_server->get_tuple_size(data_item.item_ptr->table_id)->num_records_per_page_ );
+        int count = Bitmap::getfreeposnum(bitmap , compute_server->get_file_hdr(data_item.item_ptr->table_id)->num_records_per_page_ );
         UpdatePageSpaceFromFSM(data_item.item_ptr->table_id,rid.page_no_,(sizeof(data_item)+sizeof(itemkey_t))*count);
 
         DataItem *original_item = nullptr;
-        RmFileHdr *file_hdr = compute_server->get_tuple_size(data_item.item_ptr->table_id);
-        GetDataItemFromPageRW(data_item.item_ptr->table_id , page , rid , original_item , file_hdr);
+        RmFileHdr *file_hdr = compute_server->get_file_hdr(data_item.item_ptr->table_id);
+        GetDataItemFromPageRW(data_item.item_ptr->table_id , page , rid , original_item , file_hdr , item_key);
 
-        assert(original_item->key == data_item.item_ptr->key);
+        // assert(original_item->key == data_item.item_ptr->key);
         assert(original_item->lock == EXCLUSIVE_LOCKED);
-        LOG(INFO) << "TxAbort , Deleted key = " << original_item->key;
+        LOG(INFO) << "TxAbort , Deleted key = " << item_key;
         original_item->lock = UNLOCKED;
 
         struct timespec start_time2, end_time2;
@@ -597,12 +618,14 @@ void DTX::Tx2PCCommitLocal(coro_yield_t &yield){
   brpc::Join(*cid);
 
   for(size_t i=0; i<read_write_set.size(); i++){
-    DataSetItem& data_item = read_write_set[i];
+    DataSetItem& data_item = read_write_set[i].second;
+    itemkey_t item_key = read_write_set[i].first;
+
     if(data_item.is_fetched){ 
       // this data item is fetched and locked
       // Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
-      Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , data_item.item_ptr->key);
-      // assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
+      Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , item_key);
+
       node_id_t node_id = compute_server->get_node_id_by_page_id(data_item.item_ptr->table_id , rid.page_no_);
       assert(node_id == compute_server->get_node()->getNodeID());
 
@@ -611,11 +634,15 @@ void DTX::Tx2PCCommitLocal(coro_yield_t &yield){
       char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
       assert(false);
       // TODO
-      char *slots;
-      // char *slots = bitmap + compute_server->get_node()->getMetaManager()->GetTableMeta(data_item.item_ptr->table_id).bitmap_size_;
-      char* tuple = slots + rid.slot_no_ * (sizeof(DataItem) + sizeof(itemkey_t));
+      RmFileHdr *file_hdr = compute_server->get_file_hdr(data_item.item_ptr->table_id);
+      char *slots = bitmap + file_hdr->bitmap_size_;
+      char* tuple = slots + rid.slot_no_ * (file_hdr->record_size_+ sizeof(itemkey_t));
+
+      itemkey_t *disk_key = reinterpret_cast<itemkey_t*>(tuple);
       DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+      assert(*disk_key == item_key);
       assert(item->lock == EXCLUSIVE_LOCKED);
+
       // write the data
       memcpy(item->value, data_item.item_ptr->value, MAX_ITEM_SIZE);
       item->lock = UNLOCKED; // unlock the data
@@ -629,11 +656,13 @@ void DTX::Tx2PCCommitAll(coro_yield_t &yield){
   // 2pc 方法的commit阶段
   std::unordered_map<node_id_t, std::vector<std::pair<std::pair<table_id_t, Rid>, char*>>> node_data_map;
   for(size_t i=0; i<read_write_set.size(); i++){
-    DataSetItem& data_item = read_write_set[i];
+    DataSetItem& data_item = read_write_set[i].second;
+    itemkey_t key = read_write_set[i].first;
+
     if(data_item.is_fetched){ 
       // this data item is fetched and locked
       // Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
-      Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , data_item.item_ptr->key);
+      Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , key);
       // assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
       node_id_t node_id = compute_server->get_node_id_by_page_id(data_item.item_ptr->table_id , rid.page_no_);
       if(node_data_map.find(node_id) == node_data_map.end()){
@@ -665,11 +694,13 @@ void DTX::Tx2PCAbortLocal(coro_yield_t &yield){
   brpc::Join(*cid);
 
   for(size_t i=0; i<read_write_set.size(); i++){
-    DataSetItem& data_item = read_write_set[i];
+    DataSetItem& data_item = read_write_set[i].second;
+    itemkey_t item_key =  read_write_set[i].first;
+
     if(data_item.is_fetched){ 
       // this data item is fetched and locked
       // Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
-      Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , data_item.item_ptr->key);
+      Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , item_key);
       node_id_t node_id = compute_server->get_node_id_by_page_id(data_item.item_ptr->table_id , rid.page_no_);
       assert(node_id == compute_server->get_node()->getNodeID()); 
 
@@ -679,9 +710,9 @@ void DTX::Tx2PCAbortLocal(coro_yield_t &yield){
       // TODO
       assert(false);
 
-      // char *slots = bitmap + compute_server->get_node()->getMetaManager()->GetTableMeta(data_item.item_ptr->table_id).bitmap_size_;
-      char *slots;
-      char* tuple = slots + rid.slot_no_ * (sizeof(DataItem) + sizeof(itemkey_t));
+      RmFileHdr *file_hdr = compute_server->get_file_hdr(data_item.item_ptr->table_id);
+      char *slots = bitmap + file_hdr->bitmap_size_;
+      char* tuple = slots + rid.slot_no_ * (file_hdr->record_size_ + sizeof(itemkey_t));
       DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
       assert(item->lock == EXCLUSIVE_LOCKED);
       // don't write the data
@@ -696,11 +727,13 @@ void DTX::Tx2PCAbortAll(coro_yield_t &yield){
   // 2pc 方法的abort阶段
   std::unordered_map<node_id_t, std::vector<std::pair<table_id_t, Rid>>> node_data_map;
   for(size_t i=0; i<read_write_set.size(); i++){
-    DataSetItem& data_item = read_write_set[i];
+    DataSetItem& data_item = read_write_set[i].second;
+    itemkey_t item_key = read_write_set[i].first;
+
     if(data_item.is_fetched){ 
       // this data item is fetched and locked
       // Rid rid = GetRidFromIndexCache(data_item.item_ptr->table_id, data_item.item_ptr->key);
-      Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , data_item.item_ptr->key);
+      Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , item_key);
       // assert(rid.page_no_ == bp_rid.page_no_ && rid.slot_no_ == bp_rid.slot_no_);
       node_id_t node_id = compute_server->get_node_id_by_page_id(data_item.item_ptr->table_id ,  rid.page_no_);
       // LOG(INFO) <<  "Remote release data item " << data_item.item_ptr->table_id << " " << rid.page_no_ << " " << rid.slot_no_;

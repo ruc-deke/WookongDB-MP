@@ -159,21 +159,25 @@ void DTX::ReleaseXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_
     
 }
 
-DataItemPtr DTX::GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr *file_hdr){
-  // Get data item from page
-  char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-  char *slots = bitmap + file_hdr->bitmap_size_;
-  char* tuple = slots + rid.slot_no_ * (file_hdr->record_size_ + sizeof(itemkey_t));
-//   DataItemPtr itemPtr = std::make_shared<DataItem>(*reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t)));
+DataItemPtr DTX::GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr *file_hdr , itemkey_t item_key){
+    // Get data item from page
+    char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+    char *slots = bitmap + file_hdr->bitmap_size_;
+    char* tuple = slots + rid.slot_no_ * (file_hdr->record_size_ + sizeof(itemkey_t));
 
     DataItem* disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
-    DataItemPtr itemPtr = std::make_shared<DataItem>(disk_item->table_id, disk_item->key, disk_item->value_size);
+    DataItemPtr itemPtr = std::make_shared<DataItem>(disk_item->table_id, static_cast<int>(disk_item->value_size));
     itemPtr->lock = disk_item->lock;
     itemPtr->version = disk_item->version;
     itemPtr->prev_lsn = disk_item->prev_lsn;
     itemPtr->valid = disk_item->valid;
     itemPtr->user_insert = disk_item->user_insert;
     memcpy(itemPtr->value, reinterpret_cast<char*>(disk_item) + sizeof(DataItem), itemPtr->value_size);
+
+    // 验证 key 正确
+    itemkey_t *disk_key = reinterpret_cast<itemkey_t*>(tuple);
+    assert(*disk_key == item_key);
+
 
     // DataItem *disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
     // disk_item->value = reinterpret_cast<uint8_t*>(disk_item) + sizeof(DataItem);
@@ -193,7 +197,7 @@ DataItemPtr DTX::GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid 
 }
 
 // 从页面里读取数据，Load 到 itemPtr 里并返回
-DataItemPtr DTX::GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid, DataItem*& orginal_item , RmFileHdr *file_hdr){
+DataItemPtr DTX::GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid, DataItem*& orginal_item , RmFileHdr *file_hdr , itemkey_t item_key){
   // Get data item from page
   char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
   char *slots = bitmap + file_hdr->bitmap_size_;
@@ -205,13 +209,16 @@ DataItemPtr DTX::GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid,
   //   orginal_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
 
     DataItem* disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
-    DataItemPtr itemPtr = std::make_shared<DataItem>(disk_item->table_id, disk_item->key, disk_item->value_size);
+    DataItemPtr itemPtr = std::make_shared<DataItem>(disk_item->table_id, static_cast<int>(disk_item->value_size));
     itemPtr->lock = disk_item->lock;
     itemPtr->version = disk_item->version;
     itemPtr->prev_lsn = disk_item->prev_lsn;
     itemPtr->valid = disk_item->valid;
     itemPtr->user_insert = disk_item->user_insert;
     memcpy(itemPtr->value, reinterpret_cast<char*>(disk_item) + sizeof(DataItem), itemPtr->value_size);
+
+    itemkey_t *disk_key = reinterpret_cast<itemkey_t*>(tuple);
+    assert(*disk_key == item_key);
 
     // DataItem *disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
     // disk_item->value = reinterpret_cast<uint8_t*>(disk_item) + sizeof(DataItem);

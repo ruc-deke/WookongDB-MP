@@ -13,7 +13,7 @@
 
 struct DataItem {
   table_id_t table_id;
-  itemkey_t key;
+  // itemkey_t key;       // 冗余设计，不要了
 
   lock_t lock;
 
@@ -28,25 +28,33 @@ struct DataItem {
   DataItem() {}
 
   // For server load data
-  DataItem(table_id_t t , itemkey_t k, uint8_t* d , int val_size) : table_id(t), key(k), lock(0), version(0), valid(1), user_insert(0) {
+  DataItem(table_id_t t , uint8_t* d , int val_size) : table_id(t), lock(0), version(0), valid(1), user_insert(0) {
       value_size = val_size;
       value = new uint8_t[value_size];
       memcpy(value , d , value_size);
   }
 
   // Build an empty item for fetching data from remote
-  DataItem(table_id_t t, itemkey_t k)
-      : table_id(t), value_size(0), key(k), lock(0), version(0), valid(1), user_insert(0) {}
-  DataItem(table_id_t t, itemkey_t k, int val_size)
-      : table_id(t), key(k), lock(0), value(nullptr), value_size(val_size), version(0), prev_lsn(0), valid(1), user_insert(0) {
+  DataItem(table_id_t t)
+      : table_id(t), value_size(0),  lock(0), version(0), valid(1), user_insert(0) {}
+  DataItem(table_id_t t , int val_size)
+      : table_id(t), lock(0), value(nullptr), value_size(val_size), version(0), prev_lsn(0), valid(1), user_insert(0) {
     value = new uint8_t[value_size];
   }
   // For user insert item
-  DataItem(table_id_t t, size_t s, itemkey_t k, uint8_t ins)
-      : table_id(t), value_size(s), key(k), lock(0), version(0), valid(1), user_insert(ins) {}
+  DataItem(table_id_t t, size_t s , uint8_t ins)
+      : table_id(t), value_size(s),  lock(0), version(0), valid(1), user_insert(ins) {
+    value = new uint8_t[value_size];
+  }
   // For server load data
-  DataItem(table_id_t t, size_t s, itemkey_t k, uint8_t* d) : table_id(t), value_size(s), key(k), lock(0), version(0), valid(1), user_insert(0) {
+  DataItem(table_id_t t, size_t s , uint8_t* d) : table_id(t), value_size(s), lock(0), version(0), valid(1), user_insert(0) {
+    value = new uint8_t[value_size];
     memcpy(value, d, s);
+  }
+
+  // 给 SQL 解析用的，只需要填入个值即可
+  DataItem(int len , bool is_val) : value_size(len){
+    value = new uint8_t[value_size];
   }
 
   ALWAYS_INLINE

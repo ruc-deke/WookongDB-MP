@@ -11,13 +11,6 @@
 #include "cache/index_cache.h"
 #include "record/rm_file_handle.h"
 
-
-// struct TableMeta {
-//   int record_size_;
-//   int num_records_per_page_;
-//   int bitmap_size_;
-// };
-
 struct RemoteNode {
   node_id_t node_id;
   std::string ip;
@@ -72,8 +65,6 @@ class MetaManager {
     int now_page_num = GetTablePageNum(table_id);                // 该表页面数量
     int par_cnt = now_page_num / partition_size + 1;                                                                // 总分区数量
 
-    // std::cout << "Par Size = " << partition_size << " page num = " << now_page_num << " par cnt = " << par_cnt << "\n";
-    // 本节点管理的全部页面数量
     int node_page_cnt = 0;
     node_page_cnt += ((par_cnt - 1) / node_cnt) * partition_size;
     if (node_id < (par_cnt - 1) % node_cnt){
@@ -97,15 +88,10 @@ class MetaManager {
  private:
   IndexCache* index_cache_;
   PageCache* page_cache_;
-    // 根据index_cache_的rids_map的rid来生成倒排索引
-
 
  private:
   std::unordered_map<table_id_t, node_id_t> primary_table_nodes;
-
   std::unordered_map<table_id_t, std::string> table_name_map;
-
-  // TableMeta table_meta_map[MAX_DB_TABLE_NUM];
 
  public:
   node_id_t local_machine_id;
@@ -117,6 +103,6 @@ class MetaManager {
   std::vector<RemoteNode> remote_storage_nodes; // remote storage nodes
   std::vector<int> page_num_per_table;    // 每张表的当前持有页面的数量
   std::vector<int> par_size_per_table;               // 每张表的分区大小
-  // Below are some parameteres from json file
+
   int64_t txn_system;
 };

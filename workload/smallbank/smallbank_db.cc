@@ -49,14 +49,14 @@ void SmallBank::VerifyData(){
       DataItem* sav_item = reinterpret_cast<DataItem*>(sav_record->value_);
       DataItem* check_item = reinterpret_cast<DataItem*>(check_record->value_);
       if (sav_item->value_size == sizeof(smallbank_savings_val_t)) {
-          assert(sav_item->key == sav_key.item_key);
+          // assert(sav_item->key == sav_key.item_key);
           assert(sav_item->lock == 0);
       } else {
           assert(false);
       }
       
       if (check_item->value_size == sizeof(smallbank_checking_val_t)) {
-          assert(check_item->key == sav_key.item_key);
+          // assert(check_item->key == sav_key.item_key);
           assert(check_item->lock == 0);
       } else {
           assert(false);
@@ -75,7 +75,7 @@ int SmallBank::LoadRecord(RmFileHandle* file_handle,
                           std::ofstream& indexfile
                           ) {
   /* Insert into Disk */
-  DataItem item_to_be_inserted(table_id, item_key, (uint8_t*)val_ptr, val_size);
+  DataItem item_to_be_inserted(table_id , (uint8_t*)val_ptr, val_size);
   char* item_char = (char*)malloc(item_to_be_inserted.GetSerializeSize());
   item_to_be_inserted.Serialize(item_char);
   Rid rid = file_handle->insert_record(item_key, item_char, nullptr);

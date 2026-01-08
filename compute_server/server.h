@@ -296,12 +296,12 @@ public:
     }
 
     // 先实现一个简易版本的 delete
-    Rid delete_entry(DataItem *item){
+    Rid delete_entry(DataItem *item , itemkey_t item_key){
         // 其实 BLink 也应该有版本机制，目前还没实现，先实现一个简易版本的 delete 和 insert，验证 FSM 功能的可行性
-        Rid delete_rid = get_rid_from_blink(item->table_id , item->key);
+        Rid delete_rid = get_rid_from_blink(item->table_id , item_key);
         // 如果 B+ 树里边都没有，那说明根本没插入过这个 key，直接删了就行
         if (delete_rid.page_no_ == -1){
-            std::cout << "Not Found On BLink , RollBack , key = " << item->key << "\n";
+            std::cout << "Not Found On BLink , RollBack , key = " << item_key << "\n";
             return {-1 , -1};
         }
 
@@ -330,9 +330,9 @@ public:
         }
 
         // 检查元组是否已经上锁了，如果上锁了，返回 {-1 , -1}
-        RmFileHdr *file_hdr = get_tuple_size(item->table_id);
+        RmFileHdr *file_hdr = get_file_hdr(item->table_id);
         char *slots = bitmap + file_hdr->bitmap_size_;
-        char* tuple = slots + delete_rid.slot_no_ * (sizeof(DataItem) + sizeof(itemkey_t));
+        char* tuple = slots + delete_rid.slot_no_ * (file_hdr->record_size_ + sizeof(itemkey_t));
         DataItem* target_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
         if (target_item->lock == EXCLUSIVE_LOCKED){
             std::cout << "Delete Entry , But Tuple Is Exclusive Locked\n";
@@ -350,7 +350,7 @@ public:
         Bitmap::reset(bitmap, delete_rid.slot_no_);
         page_hdr->num_records_--;
 
-        std::cout << "Delete , key = " << item->key << "\n";
+        std::cout << "Delete , key = " << item_key<< "\n";
         
         // TODO
         int count=Bitmap::getfreeposnum(bitmap,file_hdr->num_records_per_page_ );
@@ -367,11 +367,11 @@ public:
     }
 
     // 还没实现 B+ 树的 MVCC ，所以先实现一个简易版本的 insert
-    Rid insert_entry(DataItem *item){
+    Rid insert_entry(DataItem *item , itemkey_t item_key){
         // 目前的删除策略里，不会去删除 B+ 树里面的 key，只会把元组的 BitMap 给置为 false，所以如果在 B+ 树里边找到了 key，就去检查下元组是否真的存在
-        Rid rid = get_rid_from_blink(item->table_id , item->key);
+        Rid rid = get_rid_from_blink(item->table_id , item_key);
         if (rid.page_no_ != -1){
-            LOG(INFO) << "Insert Key = " << item->key << " Has In BLink , Should Update Value";
+            LOG(INFO) << "Insert Key = " << item_key << " Has In BLink , Should Update Value";
             Page *page = nullptr;
             if (SYSTEM_MODE == 1){
                 LOG(INFO) << "1 Fetch X Page , table_id = " << item->table_id << " page_id = " << rid.page_no_;
@@ -381,7 +381,7 @@ public:
             }
 
             char *data = page->get_data();
-            RmFileHdr *file_hdr = get_tuple_size(item->table_id);
+            RmFileHdr *file_hdr = get_file_hdr(item->table_id);
             RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(data + OFFSET_PAGE_HDR);
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
 
@@ -393,14 +393,17 @@ public:
 
                 // 2. 写入数据
                 char *slots = bitmap + file_hdr->bitmap_size_;
-                char* tuple = slots + rid.slot_no_ * (sizeof(DataItem) + sizeof(itemkey_t));
+                char* tuple = slots + rid.slot_no_ * (file_hdr->record_size_ + sizeof(itemkey_t));
+                itemkey_t* target_item_key = reinterpret_cast<itemkey_t*>(tuple);
                 DataItem* target_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
-                assert(target_item->key > 0);
-                assert(target_item->key == item->key);
+                assert(*target_item_key > 0);
+                assert(*target_item_key == item_key);
+                // assert(target_item->key > 0);
+                // assert(target_item->key == item->key);
 
                 // 3. 检查是否有残留锁（虽然逻辑删除后应该没有锁，但防御性检查一下）
                 if (target_item->lock == EXCLUSIVE_LOCKED){
-                    LOG(INFO) << "Insert Key = " << item->key << " Has In BLink , But Has Locked";
+                    LOG(INFO) << "Insert Key = " << item_key  << " Has In BLink , But Has Locked";
                     if (SYSTEM_MODE == 1){
                         rpc_lazy_release_x_page(item->table_id , rid.page_no_);
                     } else{
@@ -409,7 +412,7 @@ public:
                     return {-1 , -1};
                 }
 
-                memcpy(tuple, &item->key, sizeof(itemkey_t));
+                memcpy(tuple, &item_key, sizeof(itemkey_t));
                 target_item->lock = EXCLUSIVE_LOCKED;
 
                 // 4. 释放页面锁
@@ -422,13 +425,13 @@ public:
                 return rid;
             } else {
                 // 如果位置被占用，说明 key 冲突了
-                LOG(INFO) << "Insert Key = " << item->key << " Has In BLink , But Has Inserted";
+                LOG(INFO) << "Insert Key = " << item_key << " Has In BLink , But Has Inserted";
                 if (SYSTEM_MODE == 1){
                     rpc_lazy_release_x_page(item->table_id , rid.page_no_);
                 }else {
                     assert(false);
                 }
-                LOG(INFO) << "Insert Key Conflict , key = " << item->key;
+                LOG(INFO) << "Insert Key Conflict , key = " << item_key;
                 return {-1 , -1};
             }
         }
@@ -441,7 +444,7 @@ public:
                 尝试两次，如果 FSM 返回的页面都满了，那就创建一个新的页面
             */
             if(try_times >= 2){
-                LOG(INFO) << "Insert Key = " << item->key << " Create A New Page";
+                LOG(INFO) << "Insert Key = " << item_key << " Create A New Page";
                 free_page_id = rpc_create_page(item->table_id);
                 create_new_page_tag = true;
                 LOG(INFO) << "Node : " << getNodeID() << " Create A New Page , Table ID = " << item->table_id << " Page ID = " << free_page_id;
@@ -478,7 +481,7 @@ public:
             */
             char *data = page->get_data();
             // auto &meta = node_->getMetaManager()->GetTableMeta(item->table_id);
-            RmFileHdr *file_hdr = get_tuple_size(item->table_id);
+            RmFileHdr *file_hdr = get_file_hdr(item->table_id);
             RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(data + OFFSET_PAGE_HDR);
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
             // 2.1 去 BitMap 里面找到一个空闲的 slot
@@ -499,7 +502,7 @@ public:
 
             page_hdr->num_records_++;
             char *slots = bitmap + file_hdr->bitmap_size_;
-            char* tuple = slots + slot_no * (sizeof(DataItem) + sizeof(itemkey_t));
+            char* tuple = slots + slot_no * (file_hdr->record_size_ + sizeof(itemkey_t));
             
             // 写入 DataItem
             DataItem* target_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
@@ -517,7 +520,7 @@ public:
             }
 
             *target_item = *item;
-            memcpy(tuple, &item->key, sizeof(itemkey_t));
+            memcpy(tuple, &item_key, sizeof(itemkey_t));
 
             // 通过了再设置 BitMap
             Bitmap::set(bitmap, slot_no);
@@ -527,7 +530,7 @@ public:
             int count=Bitmap::getfreeposnum(bitmap,file_hdr->num_records_per_page_ );
             // 3. 插入到 BLink 
             LOG(INFO) << "Insert Into BLink , table_id = " << item->table_id << " page_id = " << free_page_id << " slot no = " << slot_no;
-            auto page_id = bl_indexes[item->table_id]->insert_entry(&item->key , {free_page_id , slot_no});
+            auto page_id = bl_indexes[item->table_id]->insert_entry(&item_key , {free_page_id , slot_no});
             // 前面排除过了，如果 BLink 里边有数据，那走的是另外一条路
             assert(page_id != INVALID_PAGE_ID);
 
@@ -539,7 +542,7 @@ public:
                 assert(false);
             }
             
-            LOG(INFO) << "Insert A key : " << item->key 
+            LOG(INFO) << "Insert A key : " << item_key
                     << " Into Page , page id = " << free_page_id
                     << " Slot No = " << slot_no;
             
@@ -547,7 +550,7 @@ public:
         }
     }
 
-    RmFileHdr* get_tuple_size(table_id_t table_id){
+    RmFileHdr* get_file_hdr(table_id_t table_id){
         // 元组大小信息存储在页面 0 中
         Page *page_0 = nullptr;
         if (SYSTEM_MODE == 0){
@@ -555,10 +558,7 @@ public:
         }else if (SYSTEM_MODE == 1){
             page_0 = rpc_lazy_fetch_s_page(table_id , 0 , false);
         }else if (SYSTEM_MODE == 2){
-            assert(false);
-        }else if (SYSTEM_MODE == 3){
-            // TODO
-            assert(false);
+            page_0 = local_fetch_s_page(table_id , 0);
         }else if (SYSTEM_MODE == 3){
             page_0 = single_fetch_s_page(table_id , 0);
         }else{
