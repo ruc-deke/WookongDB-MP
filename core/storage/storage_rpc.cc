@@ -207,19 +207,65 @@ namespace storage_service{
                        const ::storage_service::OpendbRequest* request,
                        ::storage_service::OpendbResponse* response,
                        ::google::protobuf::Closure* done){
+        brpc::ClosureGuard done_guard(done);
+        std::lock_guard<std::mutex> lk(mutex);
+        
         assert(sm_manager);
         std::string db_name = request->db_name();
+        int node_id = request->node_id();
+
+        std::cout << "Node ID = " << node_id <<  " open DB : " << db_name << "\n";
 
         int error_code = sm_manager->open_db(db_name);
         response->set_error_code(error_code);
 
         for (auto &entry : sm_manager->db.m_tabs) {
             response->add_table_names(entry.first);
+            response->add_table_id(entry.second.get_table_id());
         }
 
-        std::cout << "open DB : " << db_name << " error code : " << error_code << "\n";
+        std::cout << "Node ID = " << node_id <<  " open DB : " << db_name << " error code : " << error_code << "\n";
 
         return;
+    }
+
+    void StoragePoolImpl::CreateTable(::google::protobuf::RpcController *controller,
+                        const ::storage_service::CreateTableRequest *request ,
+                        ::storage_service::CreateTableResponse *response ,
+                      ::google::protobuf::Closure *done){
+        brpc::ClosureGuard done_guard(done);
+        assert(sm_manager);
+
+        std::lock_guard<std::mutex> lk(mutex);
+
+        std::string tab_name = request->tab_name();
+
+        std::vector<ColDef> col_defs;
+        for (int i = 0 ; i < request->cols_len_size() ; i++){
+            int type = request->cols_type(i);
+            std::string name = request->cols_name(i);
+            int len = request->cols_len(i);
+
+            ColType col_type;
+            if (type == 0){
+                col_type = ColType::TYPE_INT;
+            }else if (type == 1){
+                col_type = ColType::TYPE_FLOAT;
+            }else if (type == 2){
+                col_type = ColType::TYPE_STRING;
+            }else {
+                assert(false);
+            }
+
+            ColDef col_def(name , col_type , len);
+            col_defs.emplace_back(col_def);
+        }
+
+        std::vector<std::string> pri_keys;
+        // 先假设主键名字叫 pri_keys
+        pri_keys.emplace_back("pri_keys");
+        int error_code = sm_manager->create_table(tab_name , col_defs , pri_keys);
+        response->set_error_code(error_code);
     }
 
     void StoragePoolImpl::TableExist(::google::protobuf::RpcController* controller,
@@ -227,6 +273,7 @@ namespace storage_service{
                        ::storage_service::TableExistResponse* response,
                        ::google::protobuf::Closure* done){
         brpc::ClosureGuard done_guard(done);
+        std::lock_guard<std::mutex> lk(mutex);
         assert(sm_manager);
         std::string table_name = request->table_name();
         bool exist = sm_manager->db.is_table(table_name);
@@ -247,11 +294,26 @@ namespace storage_service{
                 }
             }
 
+            response->set_table_id(tab.table_id);
+            
             for (auto &p : tab.primary_keys){
                 response->add_primary(p);
             }
         }
         return;
+    }
+
+    void StoragePoolImpl::ShowTable(::google::protobuf::RpcController* controller,
+                       const ::storage_service::ShowTableRequest* request,
+                       ::storage_service::ShowTableResponse* response,
+                       ::google::protobuf::Closure* done){
+        brpc::ClosureGuard done_guard(done);
+        std::lock_guard<std::mutex> lk(mutex);
+        for (auto it : sm_manager->db.m_tabs){
+            response->add_tab_name(it.first);
+        }
+
+        return ;
     }
 
     void StoragePoolImpl::CreatePage(::google::protobuf::RpcController* controller , 

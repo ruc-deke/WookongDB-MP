@@ -10,6 +10,10 @@ See the Mulan PSL v2 for more details. */
 
 #pragma once
 
+#include "sql_executor/sql_common.h"
+#include "common.h"
+
+
 int yyparse();
 
 typedef struct yy_buffer_state *YY_BUFFER_STATE;

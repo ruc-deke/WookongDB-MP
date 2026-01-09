@@ -75,10 +75,13 @@ struct TabMeta{
     std::vector<IndexMeta> indexes;         // 索引
     std::vector<std::string> primary_keys;  // 主键
 
+    table_id_t table_id;                    // 表 ID
+
 
     TabMeta(){}
     TabMeta(const TabMeta &other){
         name = other.name;
+        table_id = other.table_id;
         for (size_t i = 0 ; i < other.cols.size() ; i++){
             cols.emplace_back(other.cols[i]);
         }
@@ -92,6 +95,10 @@ struct TabMeta{
              return col.name == col_name; 
         });
         return pos != cols.end();
+    }
+
+    table_id_t get_table_id() const {
+        return table_id;
     }
 
     // 判断 col_names 里面的几个列是否组成某个索引
@@ -142,12 +149,13 @@ struct TabMeta{
     // 表元信息的构成：
     /*
         表名
+        表 ID
         列数量
         各个列的：表名 + 类名 + 长度 + 偏移量
         索引数量
     */
     friend std::ostream &operator<<(std::ostream &os, const TabMeta &tab) {
-        os << tab.name << '\n' << tab.cols.size() << '\n';
+        os << tab.name << '\n' <<  tab.table_id << '\n' << tab.cols.size() << '\n';
         for (auto &col : tab.cols) {
             os << col << '\n';  // col是ColMeta类型，然后调用重载的ColMeta的操作符<<
         }
@@ -165,7 +173,7 @@ struct TabMeta{
 
     friend std::istream &operator>>(std::istream &is, TabMeta &tab) {
         size_t n;
-        is >> tab.name >> n;
+        is >> tab.name >> tab.table_id >> n;
         for (size_t i = 0; i < n; i++) {
             ColMeta col;
             is >> col;

@@ -43,6 +43,25 @@
             ]
         },
         {
+            "name": "(gdb)storage-server_sql",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/storage_server/storage_pool",
+            "args": ["sql"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build/storage_server/",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
             "name": "(gdb)compute-server0",
             "type": "cppdbg",
             "request": "launch",
@@ -146,7 +165,47 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",
-            "args": ["3", "lazy", "0", "10", "test_db"],
+            "args": ["3", "lazy", "0", "test_db"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build/compute_server/",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+
+        {
+            "name": "(gdb)compute-server-sql1",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/compute_server/compute_server",
+            "args": ["3", "lazy", "1", "test_db"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build/compute_server/",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+
+        {
+            "name": "(gdb)compute-server-sql2",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/compute_server/compute_server",
+            "args": ["3", "lazy", "2", "test_db"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],

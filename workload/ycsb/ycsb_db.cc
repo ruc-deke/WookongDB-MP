@@ -22,9 +22,13 @@ void YCSB::PopulateUserTable(){
     table_file->file_hdr_.num_records_per_page_ = num_records_per_page;
     table_file->file_hdr_.bitmap_size_ = (num_records_per_page + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
 
+    int ba = record_count + record_count % num_records_per_page;
+    table_file->file_hdr_.num_pages_ = ba / num_records_per_page;
+
     std::cout << "file_hdr_.record_size_ = " << table_file->file_hdr_.record_size_ << "\n";
     std::cout << "file_hdr_.num_records_per_page_ = " << table_file->file_hdr_.num_records_per_page_ << "\n";
     std::cout << "file_hdr_.bitmap_size_ = " << table_file->file_hdr_.bitmap_size_ << "\n";
+    std::cout << "file_hdr_.page_cnt = " << table_file->file_hdr_.num_pages_ << "\n";
 
     
     rm_manager->get_diskmanager()->write_page(table_file->GetFd(), RM_FILE_HDR_PAGE, (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));

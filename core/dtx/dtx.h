@@ -116,10 +116,17 @@ class DTX {
   void AddLogToTxn();
   void SendLogToStoragePool(uint64_t bid, brpc::CallId* cid); // use for rpc
 
+  DataItemPtr GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr *file_hdr , itemkey_t item_key);
+  DataItemPtr GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid, DataItem*& orginal_item , RmFileHdr *file_hdr , itemkey_t item_key);
+
+  DataItemPtr GetDataItemFromPage(table_id_t table_id , Rid rid , char *data , RmFileHdr *file_hdr , itemkey_t &pri_key , bool is_w);
+
  private:
   void Abort();
 
   void Clean();  // Clean data sets after commit/abort
+
+  
  
  private:  
 
@@ -202,10 +209,6 @@ class DTX {
       }
   }
 
-  char* FetchSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id);
-
-  char* FetchXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id);
-
   bool TxPrepare(coro_yield_t &yield);
 
   bool Tx2PCCommit(coro_yield_t &yield);
@@ -220,9 +223,6 @@ class DTX {
 
   void ReleaseSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id);
   void ReleaseXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id); 
-
-  DataItemPtr GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr *file_hdr , itemkey_t item_key);
-  DataItemPtr GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid, DataItem*& orginal_item , RmFileHdr *file_hdr , itemkey_t item_key);
    
   DataItem* UndoDataItem(DataItem* item);
   

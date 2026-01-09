@@ -7,7 +7,6 @@
 #include <algorithm>
 
 bool SmManager::is_dir(const std::string& db_name) {
-    RWMutexType::ReadLock r_lock(rw_mutex);
     struct stat st;
     return stat(db_name.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
 }
@@ -39,7 +38,6 @@ int SmManager::create_db(const std::string &db_name){
 }
 
 int SmManager::open_db(const std::string &db_name){
-    RWMutexType::WriteLock w_lock(rw_mutex);
     // 如果已经打开了，那直接返回即可
     if (db.m_name == db_name){
         return LJ::ErrorCode::SUCCESS;
@@ -75,7 +73,7 @@ int SmManager::open_db(const std::string &db_name){
                 // auto index_hdr = m_ixManager->open_BP_index(tab_name, index.cols);
                 // m_bihs.emplace(m_ixManager->get_index_name(tab_name, index.cols, IndexType::BTREE_INDEX), index_hdr);
             }else {
-                return LJ::INDEX_TYPE_ERROR;
+                return LJ::ErrorCode::INDEX_TYPE_ERROR;
             }
         }
     }
@@ -93,7 +91,6 @@ int SmManager::flush_meta(){
 
 
 int SmManager::close_db(){
-    RWMutexType::WriteLock w_lock(rw_mutex);
     flush_meta();
 
     for (auto it = m_fhs.begin() ; it != m_fhs.end() ; it++){
@@ -112,7 +109,6 @@ int SmManager::close_db(){
 }
 
 std::string SmManager::show_tables(Context *context){
-    RWMutexType::WriteLock w_lock(rw_mutex);
     std::vector<std::string> captions = {"Tables"};
     RecordPrinter printer(captions.size());
 
@@ -133,7 +129,6 @@ std::string SmManager::show_tables(Context *context){
 
 // 打印表信息
 void SmManager::desc_table(const std::string &table_name , Context *context){
-    RWMutexType::WriteLock w_lock(rw_mutex);
     TabMeta &tab = db.get_table(table_name);
     std::vector<std::string> captions = {"Field", "Type", "Index", "Primary Key"};
 
@@ -184,43 +179,18 @@ void SmManager::desc_table(const std::string &table_name , Context *context){
 }
 
 // 创建一个 B+ 树索引
-int SmManager::create_primary(const std::string &table_name , const std::vector<std::string> &primary_cols){
-    TabMeta& table = db.get_table(table_name);
-    if (table.is_index(primary_cols)) {
-        return LJ::ErrorCode::INDEX_ALREADY_EXISTS;
-    }
-
-    IndexMeta index;
-    int col_num = primary_cols.size();
-    std::vector<ColMeta> cols;
-    int tot_len = 0;            // 主键长度
-
-    for (int i = 0; i < col_num; i++) {
-        ColMeta cur_col_it = table.get_col(primary_cols[i]);
-        cols.push_back(cur_col_it);
-        tot_len += cur_col_it.len;
-    }
-
-    index.tab_name = table_name;
-    index.col_num = col_num;
-    index.cols = cols;
-    index.col_tot_len = tot_len;
-    index.type = IndexType::BTREE_INDEX;    // 主键一定是 B+ 书索引
-
-    table.indexes.emplace_back(index);
-
+// 这个函数在创建表的时候调用！
+int SmManager::create_primary(const std::string &table_name){
     // 构建主键名字
     std::stringstream primary_name_ss;
     primary_name_ss << table_name;
-    for (int i = 0 ; i < col_num ; i++){
-        primary_name_ss << "_" << primary_cols[i];
-    }
     primary_name_ss << ".bl";
 
     std::string primary_name = primary_name_ss.str();
+    if (rm_manager->get_diskmanager()->is_file(primary_name)){
+        rm_manager->destroy_file(primary_name);
+    }
     rm_manager->get_diskmanager()->create_file(primary_name);
-    int fd = rm_manager->get_diskmanager()->open_file(primary_name);
-
     S_BLinkIndexHandle *blink_index = new S_BLinkIndexHandle(rm_manager->get_diskmanager() , rm_manager->get_bufferPoolManager() , table_name);
 
     // 最后刷新一下元信息
@@ -231,7 +201,6 @@ int SmManager::create_primary(const std::string &table_name , const std::vector<
 
 int SmManager::create_table(const std::string &table_name , const std::vector<ColDef> &col_defs ,
          const std::vector<std::string> &primary_keys){
-    RWMutexType::WriteLock w_lock(rw_mutex);
 
     // 主键不能为空
     if (primary_keys.empty()){
@@ -241,23 +210,6 @@ int SmManager::create_table(const std::string &table_name , const std::vector<Co
     if (db.is_table(table_name)) {
         return LJ::ErrorCode::TABLE_ALREADY_EXISTS;
     }
-
-    // 验证传进来的主键在表中缺失存在
-    for (const auto &pk : primary_keys) {
-        bool found = false;
-        for (const auto &col_def : col_defs) {
-            if (col_def.name == pk) {
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            return LJ::ErrorCode::UNKNOWN_ERROR;
-        }
-    }
-
-    // TODO 把单个元组大小写入 Page0 里
-    
 
     int curr_offset = 0;
     TabMeta tab;
@@ -279,16 +231,41 @@ int SmManager::create_table(const std::string &table_name , const std::vector<Co
     int record_size = curr_offset;
 
     rm_manager->create_file(table_name , record_size);
-    db.m_tabs[table_name] = tab;
     m_fhs.emplace(table_name , rm_manager->open_file(table_name).release());
 
     {
-        int error_code = create_primary(table_name, primary_keys);
+        int error_code = create_primary(table_name);
         if (error_code != LJ::ErrorCode::SUCCESS){
+            rm_manager->destroy_file(table_name);
             return error_code;
         }
     }
 
+    // TODO 初始化 RmFileHdr 并写入到页面 0
+    RmFileHdr file_hdr;
+    
+    file_hdr.record_size_ = curr_offset + sizeof(DataItem);
+    file_hdr .num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (file_hdr.record_size_ + sizeof(itemkey_t)) * BITMAP_WIDTH);
+    file_hdr.bitmap_size_ = (file_hdr.num_records_per_page_ + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
+    file_hdr.num_pages_ = 1;
+    
+    // 从 0 开始，找到一个可用的 table_id
+    table_id_t candidate = 0;
+    {
+        while (true) {
+            bool occupied = false;
+            for (const auto &entry : db.m_tabs) {
+                assert(entry.first != table_name);
+                // 如果找到了 table_id 被占了，那就换一个
+                if (entry.second.table_id == candidate) { occupied = true; break; }
+            }
+            if (!occupied) break;
+            candidate++;
+        }
+        assert(candidate < 10000);
+        tab.table_id = candidate;
+    }
+    db.m_tabs[table_name] = tab;
     flush_meta();
 
     return LJ::ErrorCode::SUCCESS;
@@ -303,7 +280,6 @@ int SmManager::drop_index(const std::string& tab_name, const std::vector<ColMeta
 }
 
 int SmManager::drop_table(const std::string &table_name){
-    RWMutexType::WriteLock w_lock(rw_mutex);
     if (!db.is_table(table_name)) {
         return LJ::ErrorCode::TABLE_NOT_FOUND;
     }
@@ -329,4 +305,3 @@ int SmManager::drop_table(const std::string &table_name){
 
     return LJ::ErrorCode::SUCCESS;
 }
-

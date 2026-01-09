@@ -203,7 +203,7 @@ public:
             std::stringstream ss;
             ss << "node" << node_id << " scheduler";
             // 多的一个线程来调度时间片轮转
-            scheduler = new Scheduler(thread_num + 1, false , ss.str());
+            scheduler = new Scheduler(thread_num + 1, false , "TS_Scheduler");
             scheduler->enableTimeSliceScheduling(ComputeNodeCount);
             scheduler->start();
         }
@@ -222,7 +222,8 @@ public:
         latency_vec = std::vector<double>();
     }
 
-    ComputeNode(int nodeid, std::string remote_server_ip, int remote_server_port, MetaManager* meta_manager , std::string db_name , int thread_num){
+    ComputeNode(int nodeid, std::string remote_server_ip, int remote_server_port, MetaManager* meta_manager , std::string db_name , int thread_num)
+        : node_id(nodeid), meta_manager_(meta_manager){
         // SQL 模式目前只支持 lazy
         assert(SYSTEM_MODE == 1);
         brpc::ChannelOptions options;
@@ -276,6 +277,8 @@ public:
             std::cout << "Index BufferPool Size Per Table : " << blink_buffer_pool_cfg << "\n";
         }
 
+        std::cout << "Open DB : " << db_name << "\n";
+
         // meta_manager_->initParSize();
         // 先预设只有一个数据库，打开的就是这个数据库
         // 通知存储层，打开此数据库
@@ -284,6 +287,7 @@ public:
         storage_service::OpendbRequest open_db_request;
         storage_service::OpendbResponse open_db_response;
         open_db_request.set_db_name(db_name);
+        open_db_request.set_node_id(nodeid);
         storage_stub.OpenDb(&cntl , &open_db_request , &open_db_response , NULL);
         if (cntl.Failed()){
             LOG(ERROR) << "Fail To Open DB , DB_Name = " << db_name;
@@ -292,10 +296,18 @@ public:
 
         // 目前这个数据库里的表的数量
         int table_num = open_db_response.table_num();
-        for (int i = 0 ; i < open_db_response.table_names_size() ; i++){
-            std::string table_name = open_db_response.table_names(i);
-            // TODO，表名有啥用后边想想 
-        }
+
+        std::cout << "OpenDB : " << db_name << " Table Num = " << table_num << " Error Code = " << open_db_response.error_code() << "\n";
+
+        // 这里先不初始化了，等到真正去访问具体的表的时候，会初始化的
+        // for (int i = 0 ; i < open_db_response.table_names_size() ; i++){
+        //     TabMeta tab_meta;
+
+        //     tab_meta.name = open_db_response.table_names(i);
+        //     tab_meta.table_id = open_db_response.table_id(i);
+        //     tab_meta.
+
+        // }
 
         // 根据目前表的数量，去初始化锁表和缓冲区
         if (SYSTEM_MODE == 1){
@@ -328,7 +340,7 @@ public:
         }
 
         // 调度器，负责处理事务
-        scheduler = new Scheduler(thread_num , true , "Scheduler");
+        scheduler = new Scheduler(thread_num , false , "SQL_Scheduler");
         scheduler->start();
     }
 
@@ -587,6 +599,14 @@ public:
         }
 
         return exist;
+    }
+
+    table_id_t get_table_id(const std::string tab_name){
+        if (table_exist(tab_name)){
+            assert(db_meta.is_table(tab_name));
+            return db_meta.get_table(tab_name).get_table_id();
+        }
+        return INVALID_TABLE_ID;
     }
 
 public:

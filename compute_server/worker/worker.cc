@@ -33,6 +33,11 @@
 #include "util/json_config.h"
 #include "util/zipfan.h"
 
+#include "sql_executor/analyze/analyze.h"
+#include "sql_executor/parser/parser_defs.h"
+#include "sql_executor/optimizer/optimizer.h"
+#include "sql_executor/portal.h"
+
 using namespace std::placeholders;
 
 // All the functions are executed in each thread
@@ -135,6 +140,13 @@ thread_local TxnLog* thread_txn_log = nullptr;
 // thread pool per worker thread
 thread_local ThreadPool* thread_pool = nullptr;
 
+// SQL
+thread_local Analyze::ptr sql_analyze;
+thread_local Planner::ptr  sql_planner;
+thread_local Optimizer::ptr sql_optimizer;
+thread_local Portal::ptr sql_portal;
+thread_local QlManager::ptr  sql_ql;
+DTX *sql_dtx;
 
 void CollectStats(DTX* dtx) {
   mux.lock();
@@ -314,6 +326,63 @@ void RecordTpLat(double msr_sec, DTX* dtx) {
   }
 
   mux.unlock();
+}
+
+struct ExecResult {
+    bool success{true};
+    std::string output;
+    std::string error;
+};
+
+void RunSQL(coro_id_t coro_id , std::string sql_str){
+  if (sql_dtx == nullptr){
+    sql_dtx = new DTX(
+      meta_man,
+      thread_gid,
+      thread_local_id,
+      coro_id,
+      coro_sched,
+      index_cache,
+      page_cache,
+      compute_server,
+      data_channel,
+      log_channel,
+      remote_server_channel,
+      thread_pool,
+      thread_txn_log
+    );
+  }
+
+  std::cout << "Running SQL : " << sql_str << "\n";
+
+  uint64_t run_seed = seed;
+  uint64_t iter = ++tx_id_generator;
+
+  ExecResult res;
+
+  // 词法分析：将 SQL 字符串转换为 token 流
+  YY_BUFFER_STATE b = yy_scan_string(sql_str.c_str());
+  // 语法分析：将 token 流解析为抽象语法树 (AST)
+  if (yyparse() != 0) {
+      yy_delete_buffer(b);
+      res.success = false;
+      res.error = "Syntax error";
+      std::cout << res.error << "\n";
+      return;
+  }
+
+  // 语义分析：检查语言是否正确，并生成 conditions
+  auto query = sql_analyze->do_analyze(ast::parse_tree);
+  yy_delete_buffer(b);
+
+  // 查询优化
+  auto plan = sql_optimizer->plan_query(query);
+
+  // 执行计划
+  auto portalStmt = sql_portal->start(plan);
+  sql_portal->run(portalStmt, sql_ql.get(), nullptr);
+
+  sql_portal->drop();
 }
 
 void RunYCSB(coro_yield_t& yield, coro_id_t coro_id){
@@ -674,29 +743,36 @@ void initThread(thread_params* params,
     bench_name = params->bench_name;
     std::string config_filepath = "../../config/" + bench_name + "_config.json";
   
-    auto json_config = JsonConfig::load_file(config_filepath);
-    auto conf = json_config.get(bench_name);
-    ATTEMPTED_NUM = conf.get("attempted_num").get_uint64();
-    assert(ATTEMPTED_NUM > 0);
   
     // 根据 bench 类型，生成长度 100 的事务类型概率数组，随机抽事务类型
     if (bench_name == "smallbank") { 
-      // std::cout << "ASDDSSDAADS\n\n\n";
+      auto json_config = JsonConfig::load_file(config_filepath);
+      auto conf = json_config.get(bench_name);
+      ATTEMPTED_NUM = conf.get("attempted_num").get_uint64();
+      assert(ATTEMPTED_NUM > 0);
       smallbank_client = smallbank_cli;
       smallbank_workgen_arr = smallbank_client->CreateWorkgenArray(READONLY_TXN_RATE);
       thread_local_try_times = new uint64_t[SmallBank_TX_TYPES]();
       thread_local_commit_times = new uint64_t[SmallBank_TX_TYPES]();
     } else if(bench_name == "tpcc") { // TPCC benchmark
+      auto json_config = JsonConfig::load_file(config_filepath);
+      auto conf = json_config.get(bench_name);
+      ATTEMPTED_NUM = conf.get("attempted_num").get_uint64();
+      assert(ATTEMPTED_NUM > 0);
       tpcc_client = tpcc_cli;
       tpcc_workgen_arr = tpcc_client->CreateWorkgenArray(READONLY_TXN_RATE);
       thread_local_try_times = new uint64_t[TPCC_TX_TYPES]();
       thread_local_commit_times = new uint64_t[TPCC_TX_TYPES]();
     } else if (bench_name == "ycsb"){
+      auto json_config = JsonConfig::load_file(config_filepath);
+      auto conf = json_config.get(bench_name);
+      ATTEMPTED_NUM = conf.get("attempted_num").get_uint64();
+      assert(ATTEMPTED_NUM > 0);
       ycsb_client = ycsb_cli;
       thread_local_try_times = new uint64_t[YCSB_TX_TYPES]();
       thread_local_commit_times = new uint64_t[YCSB_TX_TYPES]();
     } else {
-      LOG(FATAL) << "Unsupported benchmark: " << bench_name;
+      // SQL 模式会走到这里，啥都不做就行了
     }
 
     thread_gid = thread_id_logic;
@@ -706,6 +782,12 @@ void initThread(thread_params* params,
     index_cache = params->index_cache;
     page_cache = params->page_cache;
     compute_server = params->compute_server;
+
+    sql_analyze  = std::make_shared<Analyze>(compute_server);
+    sql_planner = std::make_shared<Planner>(compute_server);
+    sql_optimizer = std::make_shared<Optimizer>(compute_server , sql_planner);
+    sql_portal = std::make_shared<Portal>(compute_server);
+    sql_ql = std::make_shared<QlManager>(compute_server);
 
     /*
         如果直接用 Zipfian，那页面访问会集中在部分页面，且这部分页面会集中在某个分区内
@@ -726,8 +808,12 @@ void initThread(thread_params* params,
       }
     }else if (WORKLOAD_MODE == 2){
       // YCSB 的 ZipFian 在 YCSB 本身构造函数内部构造好了，所以这里不需要再去初始化它
+    }else if (WORKLOAD_MODE == 1){
+      // TPCC 不走 initThread
+      assert(false);
+    }else if (WORKLOAD_MODE == 4){
+      // 不考虑
     }else {
-      // TPCC 不考虑时间片轮转了
       assert(false);
     }
     

@@ -1,5 +1,8 @@
 #pragma once
 
+// #include "../defs.h"
+#include "sql_executor/sql_common.h"
+#include "common.h"
 
 int yyparse();
 

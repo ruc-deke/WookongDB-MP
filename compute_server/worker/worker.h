@@ -39,3 +39,4 @@ void initThread(thread_params* params,
               YCSB* ycsb_cli);
 
 void RunWorkLoad(ComputeServer* server, std::string bench_name, int thread_id = -1 , int run_cnt = 1);
+void RunSQL(coro_id_t coro_id , std::string sql);

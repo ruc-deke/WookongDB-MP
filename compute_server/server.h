@@ -34,6 +34,9 @@
 #include "global_page_lock.h"
 #include "global_valid_table.h"
 
+// sql
+#include "sql_executor/record_printer.h"
+
 #include "bp_tree/latch_crabbing/bp_tree.h"
 #include "bp_tree/blink/blink.h"
 #include "fsm/fsm_tree.h"
@@ -149,7 +152,9 @@ struct dtx_entry {
 class ComputeServer {
 public:
     ComputeServer(ComputeNode* node, std::vector<std::string> compute_ips, std::vector<int> compute_ports): node_(node){
-        InitTableNameMeta();
+        if (WORKLOAD_MODE != 4){
+            InitTableNameMeta();
+        }
         if (SYSTEM_MODE == 13){
             // 如果是时间片轮转算法的话，热点页面集合用一个哈希来存储
             InitHotPages();
@@ -204,8 +209,9 @@ public:
                 table_cnt = 11;
             }else if (WORKLOAD_MODE == 2){
                 table_cnt = 1;
-            }else {
-                assert(false);
+            }else if (WORKLOAD_MODE == 4){
+                // 暂定
+                table_cnt = 1;
             }
             bl_indexes.resize(table_cnt);
             // B+ 树存在 10000 到 20000 之间
@@ -578,6 +584,125 @@ public:
         return hdr;
     }
 
+    char *FetchSPage(table_id_t table_id , page_id_t page_id){
+        Page *page = nullptr;
+        if(SYSTEM_MODE == 0) {
+            // Eager
+            page = rpc_fetch_s_page(table_id, page_id);
+        } 
+        else if(SYSTEM_MODE == 1){
+            // Lazy
+            page = rpc_lazy_fetch_s_page(table_id,page_id , true);
+        }
+        else if(SYSTEM_MODE == 2){
+            // 2PC
+            page = local_fetch_s_page(table_id,page_id);
+        }
+        else if(SYSTEM_MODE == 3){
+            page = single_fetch_s_page(table_id,page_id);
+        } else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
+            page = rpc_ts_fetch_s_page(table_id , page_id);
+        } else{
+            assert(false);
+        }
+        return page->get_data();
+    }
+
+    char *FetchXPage(table_id_t table_id , page_id_t page_id){
+        Page *page = nullptr;
+        if(SYSTEM_MODE == 0) {
+            page = rpc_fetch_x_page(table_id,page_id);
+        }
+        else if(SYSTEM_MODE == 1){
+            page = rpc_lazy_fetch_x_page(table_id,page_id , true);
+        }
+        else if(SYSTEM_MODE == 2){
+            page = local_fetch_x_page(table_id,page_id);
+        }
+        else if(SYSTEM_MODE == 3){
+            // TODO
+            assert(false);
+            page = single_fetch_x_page(table_id,page_id);
+        }else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
+            page = rpc_ts_fetch_x_page(table_id , page_id);
+        }
+        else assert(false);
+        return page->get_data();
+    }
+
+    // SQL
+    // ----------------------------------------------------------------------
+    // 创建一张新表
+    void create_table(const std::string &tab_name , std::vector<ColDef> cols){
+        if (get_node()->db_meta.is_table(tab_name)){
+            throw LJ::TableAlreadyExistsError(tab_name);
+        }
+
+        storage_service::StorageService_Stub storage_stub(get_storage_channel());
+        storage_service::CreateTableRequest request;
+        storage_service::CreateTableResponse response;
+        brpc::Controller cntl;
+
+        request.set_tab_name(tab_name);
+        for (int i = 0 ; i < cols.size() ; i++){
+            request.add_cols_name(cols[i].name);
+            request.add_cols_len(cols[i].len);
+            request.add_cols_type(cols[i].type);
+        }
+
+        storage_stub.CreateTable(&cntl , &request , &response , NULL);
+        if (cntl.Failed()){
+            assert(false);
+        }
+
+        int error_code = response.error_code();
+        if (error_code == 0){
+            return;
+        }else {
+            std::cout << "Error Code = " << error_code << "\n";
+            // TODO
+            assert(false);
+        }
+    }
+
+    void show_tables(){
+        std::vector<std::string> captions = {"Tables"};
+        RecordPrinter printer(captions.size());
+        Context context;
+        
+        // Head
+        printer.print_separator(&context);
+        printer.print_record(captions, &context);
+        printer.print_separator(&context);
+
+        brpc::Controller cntl;
+        storage_service::StorageService_Stub stub(get_storage_channel());
+        storage_service::ShowTableRequest req;
+        storage_service::ShowTableResponse resp;
+        stub.ShowTable(&cntl , &req , &resp , NULL);
+        if (cntl.Failed()){
+            assert(false);
+        }
+
+        // Body
+        for (int i = 0 ; i < resp.tab_name_size() ; i++){
+            std::vector<std::string> table_info = {resp.tab_name(i)};
+            printer.print_record(table_info , &context);
+        }
+
+        // Foot
+        printer.print_separator(&context);
+        RecordPrinter::print_record_count(resp.tab_name_size() , &context);
+
+        // 立刻打印
+        if (context.m_data_send != nullptr && context.m_offset != nullptr && *context.m_offset > 0) {
+            std::cout.write(context.m_data_send, *context.m_offset);
+        }
+    }
+
+
+    // SQL END
+    // --------------------------------------------------
     void insert_into_blink(table_id_t table_id , itemkey_t key , Rid value){
         bl_indexes[table_id]->insert_entry(&key , value);
     }
@@ -656,22 +781,6 @@ public:
         int page_belong_par = ((page_id - 1) / partition_size) % ComputeNodeCount;
         return page_belong_par;
     }
-
-    // void tryLockTs2(table_id_t table_id , page_id_t page_id){
-    //     node_->ts_switch_mutex.lock();
-    //     while (!(is_ts_par_page(table_id , page_id) && node_->getPhaseNoBlock() == TsPhase::RUNNING)){
-    //         int target = get_ts_belong_par(table_id , page_id);
-    //         node_->ts_switch_mutex.unlock();
-    //         // LOG(INFO) << "Yield To Slice , table_id = " << table_id << " page_id = " << page_id << " Target Slice = " << target << " Now Fiber ID = " << Fiber::GetFiberID();
-    //         // 如果不在当前时间片内，那就把这个协程挂起，换一个协程来
-    //         node_->getScheduler()->YieldToSlice(target);
-    //         node_->ts_switch_mutex.lock();
-    //     }
-    //     node_->set_page_dirty(table_id , page_id , true);
-    //     // LOG(INFO) << "Fetching , table_id = " << table_id << " page_id = " << page_id << " tryLocks Success" << " ts Fetch Cnt = " << node_->ts_inflight_fetch;
-    //     node_->ts_inflight_fetch.fetch_add(1);
-    //     node_->ts_switch_mutex.unlock();
-    // }
 
     void tryLockTs(table_id_t table_id , page_id_t page_id , bool is_write){
         bool is_hot = false;

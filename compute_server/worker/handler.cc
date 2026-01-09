@@ -8,6 +8,7 @@
 #include <iostream>
 #include <mutex>
 #include <thread>
+#include <future>
 #include <unistd.h>
 #include <vector>
 #include <cstring>
@@ -131,6 +132,7 @@ void Handler::ConfigureComputeNodeRunBench(int argc, char* argv[]) {
 }
 
 void Handler::GenThreadAndCoro(node_id_t node_id , int thread_num, int sys_mode , const std::string db_name){
+  WORKLOAD_MODE = 4;
   std::string config_filepath = "../../config/compute_node_config.json";
   auto json_config = JsonConfig::load_file(config_filepath);
   auto client_conf = json_config.get("local_compute_node");
@@ -161,9 +163,62 @@ void Handler::GenThreadAndCoro(node_id_t node_id , int thread_num, int sys_mode 
   }
 
   auto* compute_server = new ComputeServer(compute_node, compute_ips, compute_ports);
+
+  sleep(3);
+
   socket_start_client(global_meta_man->remote_server_nodes[0].ip, global_meta_man->remote_server_meta_port);
 
-  
+  std::cout << "finish start client\n";
+
+  t_id_t i = 0;
+  std::atomic<int> init_finish_cnt(0);
+  for (; i < thread_num ; i++){
+    param_arr[i].thread_global_id = (node_id * thread_num) + i;
+    param_arr[i].thread_id = i;
+    param_arr[i].machine_id = node_id;
+    param_arr[i].coro_num = 1;
+    param_arr[i].bench_name = "";
+    param_arr[i].index_cache = index_cache;
+    param_arr[i].page_cache = page_cache;
+    param_arr[i].global_meta_man = global_meta_man;
+    param_arr[i].compute_server = compute_server;
+    param_arr[i].thread_num_per_machine = thread_num;
+    param_arr[i].total_thread_num = thread_num * machine_num;
+    std::vector<int> thread_ids = compute_node->getSchedulerThreadIds();
+    if (i < thread_ids.size()) {
+        // 先初始化一下调度器里面的每一个线程
+        auto task = [&, i](){
+          initThread(&param_arr[i] , nullptr , nullptr , nullptr);
+          init_finish_cnt++;
+        };
+        compute_node->getScheduler()->schedule(task , thread_ids[i]);
+        // std::cout << "Thread ID " << i << " = " << thread_ids[i] << "\n";
+    } else {
+        assert(false);
+    }
+  }
+
+  // 等待所有线程都初始化完成
+  while (init_finish_cnt < thread_num ){
+      usleep(1000);
+  }
+
+  DTX *dtx = new DTX()
+
+  // 初始化完成后，就可以输入 SQL
+  while (true){
+    std::string sql = get_sql_line();
+    if (sql == ""){
+      break;
+    }else {
+      std::promise<void> p;
+      auto f = p.get_future();
+      compute_node->getScheduler()->schedule([&p, sql](){ RunSQL(0, sql); p.set_value(); });
+      f.wait();
+    }
+  }
+
+  socket_finish_client(global_meta_man->remote_server_nodes[0].ip, global_meta_man->remote_server_meta_port);
 }
 
 void Handler::GenThreads(std::string bench_name) {
@@ -233,7 +288,7 @@ void Handler::GenThreads(std::string bench_name) {
   // Send TCP requests to remote servers here, and the remote server establishes a connection with the compute node
   socket_start_client(global_meta_man->remote_server_nodes[0].ip, global_meta_man->remote_server_meta_port);
   std::cout << "finish start client\n";
-
+  
   SmallBank* smallbank_client = nullptr;
   TPCC* tpcc_client = nullptr;
   YCSB *ycsb_client = nullptr;

@@ -118,7 +118,7 @@ public:
         // 插入 10 个 key
         for (int i = 0 ; i < 10 ; i++){
             int gen_id = now_node_account_begin.fetch_add(1);
-            auto insert_item = std::make_shared<DataItem>(0, sizeof(ycsb_user_table_val));
+            auto insert_item = std::make_shared<DataItem>(static_cast<table_id_t>(0), static_cast<int>(sizeof(ycsb_user_table_val)));
             ycsb_user_table_val* val = (ycsb_user_table_val*)insert_item->value;
             
             val->magic = ycsb_user_table_magic;
@@ -152,7 +152,7 @@ public:
         // 随机删除 3 个
         for (int i = 0 ; i < 3 ; i++){
             int delete_id = delete_begin.fetch_add(1);
-            auto delete_item = std::make_shared<DataItem>(0 , sizeof(ycsb_user_table_val));
+            auto delete_item = std::make_shared<DataItem>(static_cast<table_id_t>(0) , static_cast<int>(sizeof(ycsb_user_table_val)));
             ycsb_user_table_val *val = (ycsb_user_table_val*)delete_item->value;
             
             dtx->AddToDeleteSet(delete_item , delete_id);

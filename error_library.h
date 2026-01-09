@@ -116,6 +116,9 @@ enum ErrorCode {
     EXECUTION_ERROR = 9002,
     OPTIMIZER_ERROR = 9003,
     TYPE_MISMATCH = 9004,
+    UNSUPPORTED_OPERATION = 9005,
+    VALUES_COUNT_MISMATCH = 9006,
+    INSERT_FAILED = 9007,
     
     // 磁盘错误
     DISK_READ_ERROR = 11000,
@@ -1039,6 +1042,52 @@ public:
     }
 };
 
+class UnsupportedOperationError : public QueryError {
+public:
+    UnsupportedOperationError(const std::string& operation = "", const std::string& detail = "", const std::string& query = "")
+        : QueryError(ErrorCode::UNSUPPORTED_OPERATION, 
+                     std::string("Unsupported operation") + (operation.empty() ? "" : ": " + operation), query) {
+        if (!operation.empty()) {
+            add_context("operation", operation);
+        }
+        if (!detail.empty()) {
+            add_context("detail", detail);
+        }
+    }
+};
+
+class ValuesCountMismatchError : public QueryError {
+public:
+    ValuesCountMismatchError(int expected = -1, int actual = -1, const std::string& table = "", const std::string& query = "")
+        : QueryError(ErrorCode::VALUES_COUNT_MISMATCH, "Values count mismatch", query) {
+        if (expected >= 0) {
+            add_context("expected_count", std::to_string(expected));
+        }
+        if (actual >= 0) {
+            add_context("actual_count", std::to_string(actual));
+        }
+        if (!table.empty()) {
+            add_context("table", table);
+        }
+    }
+};
+
+class InsertFailedError : public QueryError {
+public:
+    InsertFailedError(const std::string& table = "", uint64_t key = 0, const std::string& reason = "", const std::string& query = "")
+        : QueryError(ErrorCode::INSERT_FAILED, "Insert failed", query) {
+        if (!table.empty()) {
+            add_context("table", table);
+        }
+        if (key != 0) {
+            add_context("key", std::to_string(key));
+        }
+        if (!reason.empty()) {
+            add_context("reason", reason);
+        }
+    }
+};
+
 // 磁盘错误
 class DiskError : public BaseError {
 public:
@@ -1516,6 +1565,9 @@ inline std::string error_code_to_string(ErrorCode code) {
         case ErrorCode::EXECUTION_ERROR: return "EXECUTION_ERROR";
         case ErrorCode::OPTIMIZER_ERROR: return "OPTIMIZER_ERROR";
         case ErrorCode::TYPE_MISMATCH: return "TYPE_MISMATCH";
+        case ErrorCode::UNSUPPORTED_OPERATION: return "UNSUPPORTED_OPERATION";
+        case ErrorCode::VALUES_COUNT_MISMATCH: return "VALUES_COUNT_MISMATCH";
+        case ErrorCode::INSERT_FAILED: return "INSERT_FAILED";
         case ErrorCode::DISK_READ_ERROR: return "DISK_READ_ERROR";
         case ErrorCode::DISK_WRITE_ERROR: return "DISK_WRITE_ERROR";
         case ErrorCode::DISK_SEEK_ERROR: return "DISK_SEEK_ERROR";

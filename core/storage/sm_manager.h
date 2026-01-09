@@ -75,7 +75,7 @@ public:
 
 public:
     int create_db(const std::string &db_name);
-    int create_primary(const std::string &table_name , const std::vector<std::string> &primary_cols);
+    int create_primary(const std::string &table_name);
     bool is_dir(const std::string &db_name);
     int drop_db(const std::string &db_name);
     int open_db(const std::string &db_name);

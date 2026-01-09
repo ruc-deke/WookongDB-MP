@@ -168,7 +168,6 @@ public:
                                             std::vector<TabCol>());
     }
 
-private:
     std::string m_tableName;
     std::vector<ColMeta> m_cols;
     // 查询的话，如果想优化，那就需要通过索引，filtercond是全表扫描的条件，indexCond 是索引扫描的条件
@@ -319,7 +318,6 @@ public:
         return std::make_shared<JoinPlan>(tag, sql_id, plan_id, left_, right_, conds_);
     }
 
-private:
     // 左节点
     std::shared_ptr<Plan> m_left;
     // 右节点
@@ -417,7 +415,6 @@ public:
         return std::make_shared<SortPlan>(tag, sql_id, plan_id, subplan_, sel_col_, is_desc_);
     }
 
-private:
     std::shared_ptr<Plan> subplan_;
     TabCol sel_col_;
     bool is_desc_;

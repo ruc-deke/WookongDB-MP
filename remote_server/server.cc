@@ -263,8 +263,9 @@ int main(int argc, char* argv[]) {
         table_num = 11;
     }else if (workload == "ycsb"){
         table_num = 1;
-    }else {
-        assert(false);
+    }else if (workload == "sql"){
+        // TODO，暂时先这样
+        table_num = 1;
     }
 
     // 初始化全局的bufferpool和page_lock_table

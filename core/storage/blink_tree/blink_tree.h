@@ -117,9 +117,10 @@ public:
     // SQL 用的，不指定 table_id
     S_BLinkIndexHandle(DiskManager *dm, StorageBufferPoolManager *bpm, std::string table_name_)
         :disk_manager(dm) , buffer_pool(bpm) , table_name(table_name_){
-        
+        index_path = table_name + ".bl";
+        assert(disk_manager->is_file(index_path));
         int fd = disk_manager->open_file(index_path);
-        assert(fd >= 0);
+        assert(fd > 0);
 
         int file_size = disk_manager->get_file_size(index_path);
         assert(file_size == 0);

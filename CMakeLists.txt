@@ -149,3 +149,5 @@ add_subdirectory(remote_server)
 add_subdirectory(compute_server)
 
 add_subdirectory(storage_server)
+
+add_subdirectory(sql_executor)

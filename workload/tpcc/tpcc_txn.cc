@@ -147,15 +147,15 @@ bool TxNewOrder(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& y
     tpcc_new_order_key_t norder_key;
     norder_key.no_id = no_key;
     auto norder_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kNewOrderTable,
-                                                 sizeof(tpcc_new_order_val_t));
+                                                 static_cast<int>(sizeof(tpcc_new_order_val_t)));
     dtx->AddToReadWriteSet(norder_obj, norder_key.item_key);
-
+    
     // insert order record
     uint64_t o_key = tpcc_client->MakeOrderKey(warehouse_id, district_id, my_next_o_id);
     tpcc_order_key_t order_key;
     order_key.o_id = o_key;
     auto order_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kOrderTable,
-                                                sizeof(tpcc_order_val_t));
+                                                static_cast<int>(sizeof(tpcc_order_val_t)));
     dtx->AddToReadWriteSet(order_obj, order_key.item_key);
 
     // insert order index record
@@ -163,7 +163,7 @@ bool TxNewOrder(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& y
     tpcc_order_index_key_t order_index_key;
     order_index_key.o_index_id = o_index_key;
     auto oidx_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kOrderIndexTable,
-                                               sizeof(tpcc_order_index_val_t));
+                                               static_cast<int>(sizeof(tpcc_order_index_val_t)));
     dtx->AddToReadWriteSet(oidx_obj, order_index_key.item_key);
 
     if (!dtx->TxExe(yield)) return false;
@@ -229,7 +229,7 @@ bool TxNewOrder(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& y
         order_line_key.ol_id = ol_key;
         // LOG(DBG) << warehouse_id << " " << district_id << " " << my_next_o_id << " " <<  ol_number << ". ol_key: " << ol_key;
         auto ol_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kOrderLineTable,
-                                                 sizeof(tpcc_order_line_val_t));
+                                                 static_cast<int>(sizeof(tpcc_order_line_val_t)));
         dtx->AddToReadWriteSet(ol_obj, order_line_key.item_key);
 
         if (!dtx->TxExe(yield)) return false;
@@ -289,7 +289,7 @@ bool TxNewOrder(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& y
         order_line_key.ol_id = ol_key;
         // LOG(DBG) << warehouse_id << " " << district_id << " " << my_next_o_id << " " <<  num_local_stocks + ol_number << ". ol_key: " << ol_key;
         auto ol_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kOrderLineTable,
-                                                 sizeof(tpcc_order_line_val_t));
+                                                 static_cast<int>(sizeof(tpcc_order_line_val_t)));
         dtx->AddToReadWriteSet(ol_obj, order_line_key.item_key);
         if (!dtx->TxExe(yield)) return false;
 
@@ -399,7 +399,7 @@ bool TxPayment(TPCC* tpcc_client, FastRandom* random_generator, coro_yield_t& yi
     tpcc_history_key_t hist_key;
     hist_key.h_id = tpcc_client->MakeHistoryKey(warehouse_id, district_id, c_w_id, c_d_id, customer_id);
     auto hist_obj = std::make_shared<DataItem>((table_id_t)TPCCTableType::kHistoryTable,
-                                               sizeof(tpcc_history_val_t));
+                                               static_cast<int>(sizeof(tpcc_history_val_t)));
     dtx->AddToReadWriteSet(hist_obj, hist_key.item_key);
 
     tpcc_warehouse_key_t ware_key;

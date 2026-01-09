@@ -64,6 +64,14 @@ class StoragePoolImpl : public StorageService{
                        const ::storage_service::TableExistRequest* request,
                        ::storage_service::TableExistResponse* response,
                        ::google::protobuf::Closure* done);
+    virtual void CreateTable(::google::protobuf::RpcController *controller,
+                        const ::storage_service::CreateTableRequest *request ,
+                        ::storage_service::CreateTableResponse *response ,
+                      ::google::protobuf::Closure *done);
+    virtual void ShowTable(::google::protobuf::RpcController* controller,
+                       const ::storage_service::ShowTableRequest* request,
+                       ::storage_service::ShowTableResponse* response,
+                       ::google::protobuf::Closure* done);
 
   private:
     LogManager* log_manager_;
@@ -72,5 +80,7 @@ class StoragePoolImpl : public StorageService{
     SmManager *sm_manager;
     brpc::Channel* raft_channels_;
     int raft_num_;
+
+    std::mutex mutex;
   };
 }

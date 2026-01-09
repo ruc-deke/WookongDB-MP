@@ -70,57 +70,6 @@ timestamp_t DTX::GetTimestampRemote() {
   return ret;
 }
 
-char* DTX::FetchSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id){
-    Page *page = nullptr;
-    if(SYSTEM_MODE == 0) {
-        // Eager
-        page = compute_server->rpc_fetch_s_page(table_id, page_id);
-    } 
-    else if(SYSTEM_MODE == 1){
-        // Lazy
-        page = compute_server->rpc_lazy_fetch_s_page(table_id,page_id , true);
-    }
-    else if(SYSTEM_MODE == 2){
-        // 2PC
-        page = compute_server->local_fetch_s_page(table_id,page_id);
-    }
-    else if(SYSTEM_MODE == 3){
-        page = compute_server->single_fetch_s_page(table_id,page_id);
-    } else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
-        page = compute_server->rpc_ts_fetch_s_page(table_id , page_id);
-        // if (compute_server->is_hot_page(table_id, page_id)){
-        //     page = compute_server->rpc_lazy_fetch_s_page(table_id, page_id, true);
-        // } else {
-        //     page = compute_server->rpc_ts_fetch_s_page(table_id , page_id);
-        // }
-    } else{
-        assert(false);
-    }
-    return page->get_data();
-}
-
-char* DTX::FetchXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id){
-    Page *page = nullptr;
-    if(SYSTEM_MODE == 0) {
-        page = compute_server->rpc_fetch_x_page(table_id,page_id);
-    }
-    else if(SYSTEM_MODE == 1){
-        page = compute_server->rpc_lazy_fetch_x_page(table_id,page_id , true);
-    }
-    else if(SYSTEM_MODE == 2){
-        page = compute_server->local_fetch_x_page(table_id,page_id);
-    }
-    else if(SYSTEM_MODE == 3){
-        // TODO
-        assert(false);
-        page = compute_server->single_fetch_x_page(table_id,page_id);
-    }else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
-        page = compute_server->rpc_ts_fetch_x_page(table_id , page_id);
-    }
-    else assert(false);
-    return page->get_data();
-}
-
 void DTX::ReleaseSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id){
     if(SYSTEM_MODE == 0) {
         compute_server->rpc_release_s_page(table_id,page_id);
@@ -181,13 +130,6 @@ DataItemPtr DTX::GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid 
 
     // DataItem *disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
     // disk_item->value = reinterpret_cast<uint8_t*>(disk_item) + sizeof(DataItem);
-    // if (table_id == 0) {
-    //     uint32_t magic = *reinterpret_cast<uint32_t*>(disk_item->value);
-    //     if (magic != 125){
-    //         std::cout << "magic = " << magic << "\n";
-    //     }
-    //     assert(magic == 125);
-    // }
     
     if(start_ts < disk_item->version){
         // TODO，需要把元组回滚到对应的版本
@@ -198,15 +140,9 @@ DataItemPtr DTX::GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid 
 
 // 从页面里读取数据，Load 到 itemPtr 里并返回
 DataItemPtr DTX::GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid, DataItem*& orginal_item , RmFileHdr *file_hdr , itemkey_t item_key){
-  // Get data item from page
-  char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-  char *slots = bitmap + file_hdr->bitmap_size_;
-  char* tuple = slots + rid.slot_no_ * (file_hdr->record_size_ + sizeof(itemkey_t));
-
-  // 这里不能直接用指针转化，因为指针只能读到元组的开头，而不能读到元组的结尾
-  // 所以这里需要先把元组读到内存，然后再用内存构造 DataItem
-  //   DataItemPtr itemPtr = std::make_shared<DataItem>(*reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t)));
-  //   orginal_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+    char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+    char *slots = bitmap + file_hdr->bitmap_size_;
+    char* tuple = slots + rid.slot_no_ * (file_hdr->record_size_ + sizeof(itemkey_t));
 
     DataItem* disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
     DataItemPtr itemPtr = std::make_shared<DataItem>(disk_item->table_id, static_cast<int>(disk_item->value_size));
@@ -222,16 +158,35 @@ DataItemPtr DTX::GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid,
 
     // DataItem *disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
     // disk_item->value = reinterpret_cast<uint8_t*>(disk_item) + sizeof(DataItem);
-    // if (table_id == 0) {
-    //     uint32_t magic = *reinterpret_cast<uint32_t*>(disk_item->value);
-    //     if (magic != 125){
-    //         std::cout << "magic = " << magic << "\n";
-    //     }
-    //     assert(magic == 125);
-    // }
 
     orginal_item = disk_item;
     return itemPtr;
+}
+
+DataItemPtr DTX::GetDataItemFromPage(table_id_t table_id , Rid rid , char *data , RmFileHdr *file_hdr , itemkey_t &pri_key , bool is_w){
+    char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+    char *slots = bitmap + file_hdr->bitmap_size_;
+    char* tuple = slots + rid.slot_no_ * (file_hdr->record_size_ + sizeof(itemkey_t));
+
+    // DataItem *disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+    // disk_item->value = reinterpret_cast<uint8_t*>(disk_item) + sizeof(DataItem);
+
+    DataItem* disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+    DataItemPtr itemPtr = std::make_shared<DataItem>(disk_item->table_id, static_cast<int>(disk_item->value_size));
+    itemPtr->lock = disk_item->lock;
+    itemPtr->version = disk_item->version;
+    itemPtr->prev_lsn = disk_item->prev_lsn;
+    itemPtr->valid = disk_item->valid;
+    itemPtr->user_insert = disk_item->user_insert;
+    memcpy(itemPtr->value, reinterpret_cast<char*>(disk_item) + sizeof(DataItem), itemPtr->value_size);
+    
+    pri_key = *reinterpret_cast<itemkey_t*>(tuple);
+
+    if (!is_w){
+        UndoDataItem(disk_item);
+    }
+    return itemPtr;
+
 }
 
 DataItem* DTX::UndoDataItem(DataItem* item) {

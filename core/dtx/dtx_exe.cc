@@ -73,7 +73,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
       itemkey_t item_key = read_only_set[idx].first;
 
       assert(&item == task.second.second);
-      auto data = FetchSPage(yield , item.item_ptr->table_id , rid.page_no_);
+      auto data = compute_server->FetchSPage(item.item_ptr->table_id , rid.page_no_);
 
       // 在获取元组之前，还需要拿到这个表的元组大小，这个信息存储在 Page0 里
       RmFileHdr *file_hdr = compute_server->get_file_hdr(item.item_ptr->table_id);
@@ -89,7 +89,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
         assert(&item == task.second.second); // Ensure the pointer matches
         // Fetch data from storage
         if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3){
-          auto data = FetchSPage(yield, item.item_ptr->table_id, rid.page_no_);
+          auto data = compute_server->FetchSPage(item.item_ptr->table_id, rid.page_no_);
           std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
 
           RmFileHdr *file_hdr = compute_server->get_file_hdr(item.item_ptr->table_id);
@@ -180,7 +180,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
       itemkey_t item_key = read_write_set[idx].first;
 
       assert(&item == task.second.second); // Ensure the pointer matches
-      auto data = FetchXPage(yield, item.item_ptr->table_id, rid.page_no_);
+      auto data = compute_server->FetchXPage(item.item_ptr->table_id, rid.page_no_);
       DataItem* orginal_item = nullptr;
 
       RmFileHdr *file_hdr = compute_server->get_file_hdr(item.item_ptr->table_id);
@@ -207,7 +207,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
         assert(&item == task.second.second); // Ensure the pointer matches
         // Fetch data from storage
         if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3){
-          auto data = FetchXPage(yield, item.item_ptr->table_id, rid.page_no_);
+          auto data = compute_server->FetchXPage(item.item_ptr->table_id, rid.page_no_);
           std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
           DataItem* orginal_item = nullptr;
 
@@ -313,7 +313,7 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
 
     struct timespec start_time1, end_time1;
     clock_gettime(CLOCK_REALTIME, &start_time1);
-    auto page = FetchXPage(yield, data_item.item_ptr->table_id, rid.page_no_);
+    auto page = compute_server->FetchXPage(data_item.item_ptr->table_id, rid.page_no_);
     clock_gettime(CLOCK_REALTIME, &end_time1);
     tx_fetch_commit_time += (end_time1.tv_sec - start_time1.tv_sec) + (double)(end_time1.tv_nsec - start_time1.tv_nsec) / 1000000000;
     
@@ -343,7 +343,7 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
 
     struct timespec start_time1, end_time1;
     clock_gettime(CLOCK_REALTIME, &start_time1);
-    auto page = FetchXPage(yield, data_item.item_ptr->table_id, rid.page_no_);
+    auto page = compute_server->FetchXPage(data_item.item_ptr->table_id, rid.page_no_);
     clock_gettime(CLOCK_REALTIME, &end_time1);
     tx_fetch_commit_time += (end_time1.tv_sec - start_time1.tv_sec) + (double)(end_time1.tv_nsec - start_time1.tv_nsec) / 1000000000;
 
@@ -376,7 +376,7 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
 
     struct timespec start_time1, end_time1;
     clock_gettime(CLOCK_REALTIME, &start_time1);
-    auto page = FetchXPage(yield, data_item.item_ptr->table_id, rid.page_no_);
+    auto page = compute_server->FetchXPage(data_item.item_ptr->table_id, rid.page_no_);
     clock_gettime(CLOCK_REALTIME, &end_time1);
     tx_fetch_commit_time += (end_time1.tv_sec - start_time1.tv_sec) + (double)(end_time1.tv_nsec - start_time1.tv_nsec) / 1000000000;
 
@@ -417,7 +417,7 @@ void DTX::TxAbort(coro_yield_t& yield) {
         Rid rid = GetRidFromBLink(data_item.item_ptr->table_id , item_key);
         struct timespec start_time1, end_time1;
         clock_gettime(CLOCK_REALTIME, &start_time1);
-        auto page = FetchXPage(yield, data_item.item_ptr->table_id, rid.page_no_);
+        auto page = compute_server->FetchXPage(data_item.item_ptr->table_id, rid.page_no_);
         clock_gettime(CLOCK_REALTIME, &end_time1);
         tx_fetch_abort_time += (end_time1.tv_sec - start_time1.tv_sec) + (double)(end_time1.tv_nsec - start_time1.tv_nsec) / 1000000000;
         DataItem* orginal_item = nullptr;
@@ -449,7 +449,7 @@ void DTX::TxAbort(coro_yield_t& yield) {
 
         struct timespec start_time1 , end_time1;
         clock_gettime(CLOCK_REALTIME , &start_time1);
-        auto page = FetchXPage(yield , data_item.item_ptr->table_id , rid.page_no_);
+        auto page = compute_server->FetchXPage(data_item.item_ptr->table_id , rid.page_no_);
         clock_gettime(CLOCK_REALTIME , &end_time1);
         tx_fetch_abort_time += (end_time1.tv_sec - start_time1.tv_sec) + (double)(end_time1.tv_nsec - start_time1.tv_nsec) / 1000000000;
 
@@ -497,7 +497,7 @@ void DTX::TxAbort(coro_yield_t& yield) {
 
         struct timespec start_time1 , end_time1;
         clock_gettime(CLOCK_REALTIME , &start_time1);
-        auto page = FetchXPage(yield , data_item.item_ptr->table_id , rid.page_no_);
+        auto page = compute_server->FetchXPage(data_item.item_ptr->table_id , rid.page_no_);
         clock_gettime(CLOCK_REALTIME , &end_time1);
         tx_fetch_abort_time += (end_time1.tv_sec - start_time1.tv_sec) + (double)(end_time1.tv_nsec - start_time1.tv_nsec) / 1000000000;
 

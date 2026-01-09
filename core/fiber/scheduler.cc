@@ -62,8 +62,15 @@ void Scheduler::start(){
     assert(m_threads.empty());
     m_threads.resize(m_threadCount);
     for(size_t i = 0; i < m_threadCount; ++i) {
-        m_threads[i].reset(new Thread(std::bind(&Scheduler::run, this)
+        if (m_name == "SQL_Scheduler"){
+            m_threads[i].reset(new Thread(std::bind(&Scheduler::sql_run, this)
                             , m_name + "_" + std::to_string(i)));
+        }else if (m_name == "TS_Scheduler"){
+            m_threads[i].reset(new Thread(std::bind(&Scheduler::run, this)
+                            , m_name + "_" + std::to_string(i)));
+        }else {
+            assert(false);
+        }
         m_threadIds.push_back(m_threads[i]->getID());
     }
     lock.unlock();
@@ -352,6 +359,99 @@ bool Scheduler::sliceQueuesEmpty() const {
         }
     }
     return true;
+}
+
+// run 函数太杂了，这里重新写个简化版本的，取 SQL 任务做
+void Scheduler::sql_run(){
+    setThis();
+    if (getThreadID() != m_rootThread){
+        t_scheduler_fiber = Fiber::GetThis().get();
+    }
+    // 对于那些 cb，需要用一个协程把它包起来，cb_fiber 就是干这个的
+    Fiber::ptr cb_fiber;
+    FiberAndThread ft;
+    while(true){
+        ft.reset();
+        bool is_active = false;
+        {
+            MutexType::Lock lock(m_mutex);
+            auto it = m_fibers.begin();
+            while (it != m_fibers.end()){
+                // 如果这个任务不是指定我执行的，那我就跳过
+                if(it->thread != -1 && it->thread != getThreadID()) {
+                    ++it;
+                    // tickle_me = true;
+                    continue;
+                }
+                assert(it->fiber || it->thread);
+                
+                // 如果这个协程已经有别的线程在跑了
+                if (it->fiber && it->fiber->getState() == Fiber::State::EXEC){
+                    ++it;
+                    continue;
+                }
+                // 如果任务超时了，那就调度这个任务
+                if (it->fiber && it->delay_us != 0){
+                    // 检查是否超时：获取当前时间（微秒）并与截止时间比较
+                    uint64_t current_time_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::high_resolution_clock::now().time_since_epoch()
+                    ).count();
+                    // 如果还没超时，跳过这个任务
+                    if (current_time_us <= it->delay_us) {
+                        ++it;
+                        continue;
+                    }
+                    // 如果超时了，清除延迟标记，继续调度
+                    it->delay_us = 0;
+                }
+
+                ft = *it;
+                m_fibers.erase(it++);
+                ++m_activeThreadCount;
+                is_active = true;
+                break;
+            }
+        }
+
+        if (ft.fiber && (ft.fiber->getState() != Fiber::State::TERM
+                    && ft.fiber->getState() != Fiber::State::EXCEPT)){
+            ft.fiber->swapIn();
+
+            --m_activeThreadCount;
+            if (ft.fiber->getState() == Fiber::State::READY){
+                schedule(ft.fiber);
+            } else if(ft.fiber->getState() != Fiber::TERM
+                && ft.fiber->getState() != Fiber::EXCEPT) {
+                ft.fiber->m_state = Fiber::HOLD;
+            }
+            ft.reset();
+        }else if (ft.cb){
+            if(cb_fiber) {
+                cb_fiber->reset(ft.cb);
+            } else {
+                cb_fiber.reset(new Fiber(ft.cb));
+            }
+            ft.reset();
+            cb_fiber->swapIn();
+            --m_activeThreadCount;
+            if(cb_fiber->getState() == Fiber::READY) {
+                schedule(cb_fiber);
+                cb_fiber.reset();
+            } else if(cb_fiber->getState() == Fiber::EXCEPT
+                    || cb_fiber->getState() == Fiber::TERM) {
+                cb_fiber->reset(nullptr);
+            } else {//if(cb_fiber->getState() != Fiber::TERM) {
+                cb_fiber->m_state = Fiber::HOLD;
+                cb_fiber.reset();
+            }
+        }else {
+            if(is_active) {
+                --m_activeThreadCount;
+                continue;
+            }
+            usleep(10);
+        }
+    }
 }
 
 void Scheduler::run(){

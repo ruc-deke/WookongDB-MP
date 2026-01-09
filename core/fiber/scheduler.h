@@ -159,6 +159,7 @@ protected:
     virtual void idle();
     virtual bool stopping();
     void run();
+    void sql_run();
     virtual void tickle();
     bool hasIdleThreads(){
         return m_idleThreadCount > 0;
@@ -262,4 +263,9 @@ protected:
     std::atomic<bool> m_validFetchFromHot{false};                      // 是否允许从热点页面等待队列里面取任务
 
     std::atomic<int> m_fiberCnt{0};                           // 调试参数    
+
+    // SQL 用的参数
+    // 目前的想法是，thread_num 个线程跑 RunSQL，然后主线程输入 SQL 后，发送给 Scheduler 的一个数据结构，线程能够感知到，然后去这个数据结构里面取任务做
+    // 待办的 SQL
+    std::vector<std::string> sqls;
 };
