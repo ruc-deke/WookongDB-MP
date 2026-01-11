@@ -6,13 +6,15 @@
 
 class InsertExecutor : public AbstractExecutor {
 public:
-    InsertExecutor(DTX *dtx_ , const std::string &tab_name , std::vector<Value> values , itemkey_t pri_key){
+    InsertExecutor(DTX *dtx_ , const std::string &tab_name , std::vector<Value> values){
         dtx = dtx_;
         m_tableName = tab_name;
         m_values = values;
-        primary_key = pri_key;
-        m_tab = dtx->compute_server->get_node()->db_meta.get_table(tab_name);
+        if (!dtx->compute_server->table_exist(tab_name)){
+            throw LJ::TableNotFoundError(tab_name);
+        }
 
+        m_tab = dtx->compute_server->get_node()->db_meta.get_table(tab_name);
         if (m_tab.cols.size() != values.size()){
             throw LJ::ValuesCountMismatchError((int)m_tab.cols.size(), (int)values.size(), m_tableName);
         }
@@ -24,21 +26,29 @@ public:
 
     // 对于 Insert 来说，Next() 就是直接执行插入了
     std::unique_ptr<DataItem> Next() override {
-        auto insert_item = std::make_shared<DataItem>(record_size - sizeof(DataItem));
+        auto insert_item = std::make_shared<DataItem>(m_tab.table_id , record_size);
+        itemkey_t primary_key = -1;
 
         // 把每一列的数据顺序组织起来，构成一个完成的要插入的数据
         for (size_t i = 0 ; i < m_values.size() ; i++) {
-            auto &col = m_tab.cols[i];
             auto &val = m_values[i];
-            assert(col.type == val.type);
+            auto &col = m_tab.cols[i];
 
-            val.init_dataItem(record_size - sizeof(DataItem));
+            // 提取主键
+            if (col.type == ColType::TYPE_ITEMKEY){
+                primary_key = m_values[i].int_val;
+                col.len = sizeof(itemkey_t);
+                continue;           // 主键不放在 DataItem 里，单独存的
+            }
+            assert(col.type == val.type);
+            
+            val.init_dataItem(col.len);
             memcpy(insert_item->value + col.offset , val.data_item->value , col.len);
         }
 
         // 构造主键
-        assert(!m_tab.primary_keys.empty());
-
+        assert(m_tab.primary_key != "");
+        assert(primary_key != -1);
 
         dtx->AddToInsertSet(insert_item , primary_key);
 
@@ -58,5 +68,4 @@ private:
     Rid m_rid;
 
     int record_size;
-    itemkey_t primary_key;
 };

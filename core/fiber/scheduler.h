@@ -22,11 +22,16 @@ public:
     // threads：线程数量
     // use_caller ：是否使用专门的线程调度协程
     Scheduler(size_t threads = 1 , bool use_caller = true , const std::string &name = "");
+
+    // 不指定线程数量，等后续添加线程
+    Scheduler(const std::string &name = "");
+
     ~Scheduler();
 
     static Scheduler* GetThis();
     static Fiber* GetMainFiber();
     void start();
+    int addThread();
     void stop();
 
     template<class FiberOrCb>

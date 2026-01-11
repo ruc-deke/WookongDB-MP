@@ -76,6 +76,7 @@ public:
 public:
     int create_db(const std::string &db_name);
     int create_primary(const std::string &table_name);
+    int create_fsm(const std::string &tab_name , int tuple_size , table_id_t table_id);
     bool is_dir(const std::string &db_name);
     int drop_db(const std::string &db_name);
     int open_db(const std::string &db_name);
@@ -84,7 +85,7 @@ public:
 
     std::string show_tables(Context *context);
     void desc_table(const std::string &table_name , Context *context);
-    int create_table(const std::string &table_name , const std::vector<ColDef> &col_defs , const std::vector<std::string> &primary_keys);
+    int create_table(const std::string &table_name , const std::vector<ColDef> &col_defs , const std::string &pri_key);
     int drop_table(const std::string &table_namet);
     int drop_index(const std::string& tab_name, const std::vector<ColMeta>& col_names);
 public:

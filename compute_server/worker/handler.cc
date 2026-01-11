@@ -58,7 +58,7 @@ void Handler::ConfigureComputeNodeRunSQL(int argc , char *argv[]){
   ComputeNodeCount = (int)local_compute_node.get("machine_num").get_int64();
 
   // 配置 SYSTEM_MODE
-  std::string system_name = std::string(argv[2]);
+  std::string system_name = std::string(argv[1]);
   int txn_system_value = 0;
   if (system_name.find("eager") != std::string::npos) {
     txn_system_value = 0;
@@ -170,52 +170,45 @@ void Handler::GenThreadAndCoro(node_id_t node_id , int thread_num, int sys_mode 
 
   std::cout << "finish start client\n";
 
-  t_id_t i = 0;
-  std::atomic<int> init_finish_cnt(0);
-  for (; i < thread_num ; i++){
-    param_arr[i].thread_global_id = (node_id * thread_num) + i;
-    param_arr[i].thread_id = i;
-    param_arr[i].machine_id = node_id;
-    param_arr[i].coro_num = 1;
-    param_arr[i].bench_name = "";
-    param_arr[i].index_cache = index_cache;
-    param_arr[i].page_cache = page_cache;
-    param_arr[i].global_meta_man = global_meta_man;
-    param_arr[i].compute_server = compute_server;
-    param_arr[i].thread_num_per_machine = thread_num;
-    param_arr[i].total_thread_num = thread_num * machine_num;
-    std::vector<int> thread_ids = compute_node->getSchedulerThreadIds();
-    if (i < thread_ids.size()) {
-        // 先初始化一下调度器里面的每一个线程
-        auto task = [&, i](){
-          initThread(&param_arr[i] , nullptr , nullptr , nullptr);
-          init_finish_cnt++;
-        };
-        compute_node->getScheduler()->schedule(task , thread_ids[i]);
-        // std::cout << "Thread ID " << i << " = " << thread_ids[i] << "\n";
-    } else {
-        assert(false);
+  // TODO
+  // 在这里监听，来一个连接我新建一个线程和一个 DTX
+  // 先假设只有一个连接，后续再添加下多连接逻辑
+  std::atomic<bool> init_finish(false);
+  {
+    int thread_id = compute_server->get_node()->getScheduler()->addThread();
+    thread_params param;
+    param.thread_global_id = (node_id * thread_num) + thread_id;
+    param.thread_id = thread_id;
+    param.machine_id = node_id;
+    param.coro_num = 1;
+    param.bench_name = "";
+    param.index_cache = index_cache;
+    param.page_cache = page_cache;
+    param.global_meta_man = global_meta_man;
+    param.compute_server = compute_server;
+    param.thread_num_per_machine = thread_num;
+    param.total_thread_num = thread_num * machine_num;
+
+    auto task = [&](){
+      initThread(&param , nullptr , nullptr , nullptr);
+      init_finish = true;
+    };
+
+    // 先初始化一下这个
+    compute_node->getScheduler()->schedule(task , thread_id);
+
+    // 等待初始化完成
+    while(true){
+      if (init_finish) break;
+      usleep(50);
     }
+
+    compute_node->getScheduler()->schedule(RunSQL , thread_id);
   }
 
-  // 等待所有线程都初始化完成
-  while (init_finish_cnt < thread_num ){
-      usleep(1000);
-  }
-
-  DTX *dtx = new DTX()
-
-  // 初始化完成后，就可以输入 SQL
-  while (true){
-    std::string sql = get_sql_line();
-    if (sql == ""){
-      break;
-    }else {
-      std::promise<void> p;
-      auto f = p.get_future();
-      compute_node->getScheduler()->schedule([&p, sql](){ RunSQL(0, sql); p.set_value(); });
-      f.wait();
-    }
+  // TODO 这里应该改成监听连接
+  while(true){
+    usleep(1000000);
   }
 
   socket_finish_client(global_meta_man->remote_server_nodes[0].ip, global_meta_man->remote_server_meta_port);

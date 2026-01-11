@@ -420,6 +420,7 @@ bool S_SecFSM::flush_all_pages() {
     // fsm_fd_= dm_->open_file((meta_.table_id==20000)?"smallbank_savings_fsm":"smallbank_checking_fsm");
     fsm_fd_ = dm_->open_file(tableid2tableName(meta_.table_id));
     if (!initialized_) {
+        // 如果没有初始化，直接返回 false，不要尝试写入
         return false;
     }
     

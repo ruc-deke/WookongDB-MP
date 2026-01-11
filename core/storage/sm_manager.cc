@@ -3,6 +3,7 @@
 #include "sql_executor/record_printer.h"
 #include "storage/blink_tree/blink_tree.h"
 #include "sql_executor/sql_common.h"
+#include "storage/fsm_tree/s_fsm_tree.h"
 
 #include <algorithm>
 
@@ -127,57 +128,6 @@ std::string SmManager::show_tables(Context *context){
     RecordPrinter::print_record_count(db.m_tabs.size(), context);
 }
 
-// 打印表信息
-void SmManager::desc_table(const std::string &table_name , Context *context){
-    TabMeta &tab = db.get_table(table_name);
-    std::vector<std::string> captions = {"Field", "Type", "Index", "Primary Key"};
-
-    RecordPrinter printer(captions.size());
-    // 打印头信息
-    printer.print_separator(context);
-    printer.print_record(captions, context);
-    printer.print_separator(context);
-
-    for (auto &col : tab.cols) {
-        // 检查当前列是否为主键
-        bool is_primary_key = std::find(tab.primary_keys.begin(), tab.primary_keys.end(), col.name) != tab.primary_keys.end();
-        
-        // 检查当前列是否有索引，并获取索引类型
-        std::string index_info = "NO";
-        for (const auto& index : tab.indexes) {
-            for (const auto& index_col : index.cols) {
-                if (index_col.name == col.name) {
-                    if (index.type == IndexType::BTREE_INDEX) {
-                        index_info = "BTREE";
-                    } else {
-                        index_info = "YES";
-                    }
-                    break;
-                }
-            }
-            if (index_info != "NO") break;
-        }
-        
-        std::vector<std::string> field_info = {
-            col.name,
-            coltype2str(col.type),
-            index_info,  // 显示具体的索引类型
-            is_primary_key ? "YES" : "NO"
-        };
-        printer.print_record(field_info, context);
-
-        // 如果有主键，额外显示主键信息
-        if (!tab.primary_keys.empty()) {
-            std::cout << "\n主键: (";
-            for (size_t i = 0; i < tab.primary_keys.size(); ++i) {
-                std::cout << tab.primary_keys[i];
-                if (i < tab.primary_keys.size() - 1) std::cout << ", ";
-            }
-            std::cout << ")" << std::endl;
-        }
-    }
-}
-
 // 创建一个 B+ 树索引
 // 这个函数在创建表的时候调用！
 int SmManager::create_primary(const std::string &table_name){
@@ -199,14 +149,40 @@ int SmManager::create_primary(const std::string &table_name){
     return LJ::ErrorCode::SUCCESS;
 }
 
-int SmManager::create_table(const std::string &table_name , const std::vector<ColDef> &col_defs ,
-         const std::vector<std::string> &primary_keys){
-
-    // 主键不能为空
-    if (primary_keys.empty()){
-        return LJ::ErrorCode::TABLE_MISSING_PRIMARY_KEY;
-    }
+int SmManager::create_fsm(const std::string &tab_name , int tuple_size , table_id_t table_id){
+    std::string fsm_name = tab_name + ".fsm";
+    // 假设初始只分配少量页面用于 SQL 插入
+    int initial_pages = 300; 
     
+    // 1. 创建 FSM 文件
+    // 这里的大小其实不太重要，因为后续 S_SecFSM 会管理页面分配，但还是给一个初始大小
+    // 参考 YCSB，大小设为 tuple_size，但这里暂时无法精确获取 tuple_size，先用 PAGE_SIZE
+    rm_manager->create_file(fsm_name, tuple_size);
+    
+    S_SecFSM *fsm = new S_SecFSM(rm_manager->get_diskmanager(), rm_manager->get_bufferPoolManager(), table_id + 20000, "sql");
+    fsm->set_custom_filename(fsm_name);
+    
+    // 3. 初始化 FSM 结构
+    fsm->initialize(table_id + 20000, initial_pages);
+
+    // 4. 将 RmFileHdr 写入 FSM 文件的 Page 0 (参考 YCSB)
+    // 这里需要获取 tab_name 对应的 RmFileHdr
+    auto file_handle = m_fhs[tab_name];
+    int fd_fsm = rm_manager->get_diskmanager()->open_file(fsm_name);
+    rm_manager->get_diskmanager()->write_page(fd_fsm, RM_FILE_HDR_PAGE, (char *)&file_handle->file_hdr_, sizeof(file_handle->file_hdr_));
+    
+    // 5. 刷写 FSM 页面到磁盘
+    fsm->flush_all_pages();
+    
+    // 6. 清理
+    delete fsm;
+    rm_manager->get_diskmanager()->close_file(fd_fsm);
+
+    return LJ::ErrorCode::SUCCESS;
+}
+
+int SmManager::create_table(const std::string &table_name , const std::vector<ColDef> &col_defs ,
+            const std::string &pri_key){    
     if (db.is_table(table_name)) {
         return LJ::ErrorCode::TABLE_ALREADY_EXISTS;
     }
@@ -214,7 +190,8 @@ int SmManager::create_table(const std::string &table_name , const std::vector<Co
     int curr_offset = 0;
     TabMeta tab;
     tab.name = table_name;
-    tab.primary_keys = primary_keys;
+    tab.primary_key = pri_key;
+
     // 一个个传入列
     for (const auto& col_def : col_defs) {  
         ColMeta col = {
@@ -224,31 +201,17 @@ int SmManager::create_table(const std::string &table_name , const std::vector<Co
             .len = col_def.len,
             .offset = curr_offset
         };
-        curr_offset += col_def.len;
+
+        // 主键不计入 Tuple，所以不需要考虑它的 offset
+        if (col_def.type == ColType::TYPE_ITEMKEY){
+            col.offset = -1;
+        }else {
+            curr_offset += col_def.len;
+        }
+
         tab.cols.push_back(col);
     }
 
-    int record_size = curr_offset;
-
-    rm_manager->create_file(table_name , record_size);
-    m_fhs.emplace(table_name , rm_manager->open_file(table_name).release());
-
-    {
-        int error_code = create_primary(table_name);
-        if (error_code != LJ::ErrorCode::SUCCESS){
-            rm_manager->destroy_file(table_name);
-            return error_code;
-        }
-    }
-
-    // TODO 初始化 RmFileHdr 并写入到页面 0
-    RmFileHdr file_hdr;
-    
-    file_hdr.record_size_ = curr_offset + sizeof(DataItem);
-    file_hdr .num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (file_hdr.record_size_ + sizeof(itemkey_t)) * BITMAP_WIDTH);
-    file_hdr.bitmap_size_ = (file_hdr.num_records_per_page_ + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
-    file_hdr.num_pages_ = 1;
-    
     // 从 0 开始，找到一个可用的 table_id
     table_id_t candidate = 0;
     {
@@ -265,6 +228,47 @@ int SmManager::create_table(const std::string &table_name , const std::vector<Co
         assert(candidate < 10000);
         tab.table_id = candidate;
     }
+
+    int record_size = curr_offset;
+    rm_manager->create_file(table_name , record_size);
+    // rm_manager->get_diskmanager()->create_file(table_name);
+    m_fhs.emplace(table_name , rm_manager->open_file(table_name).release());
+
+    {
+        int error_code = create_primary(table_name);
+        if (error_code != LJ::ErrorCode::SUCCESS){
+            rm_manager->destroy_file(table_name);
+            return error_code;
+        }
+    }
+
+
+    {
+        int error_code = create_fsm(table_name , record_size , candidate);
+        if (error_code != LJ::ErrorCode::SUCCESS){
+            rm_manager->destroy_file(table_name + ".bl");
+            rm_manager->destroy_file(table_name);
+            return error_code;
+        }
+    }
+
+    // 把 file_hdr 写入到 Page0->get_data() 中
+    int fd = rm_manager->get_diskmanager()->open_file(table_name);
+    char buf[PAGE_SIZE];
+    memset(buf , 0 , PAGE_SIZE);
+    RmFileHdr *file_hdr = reinterpret_cast<RmFileHdr*>(buf);
+    file_hdr->record_size_ = curr_offset + sizeof(DataItem);
+    file_hdr->num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (file_hdr->record_size_ + sizeof(itemkey_t)) * BITMAP_WIDTH);
+    file_hdr->bitmap_size_ = (file_hdr->num_records_per_page_ + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
+    file_hdr->num_pages_ = 1;
+    file_hdr->first_free_page_no_ = RM_NO_PAGE;
+    rm_manager->get_diskmanager()->write_page(fd , 0 , buf , PAGE_SIZE);
+    
+
+    std::cout << "Create A Table , Table Name = " << table_name << " TableID = " << candidate << "\n";
+
+    
+
     db.m_tabs[table_name] = tab;
     flush_meta();
 

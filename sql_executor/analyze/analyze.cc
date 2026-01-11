@@ -17,7 +17,7 @@ Value Analyze::convert_sv_value(const std::shared_ptr<ast::Value> &sv_val){
         val.set_float(float_lit->m_val);
     } else if (auto str_lit = std::dynamic_pointer_cast<ast::StringLit>(sv_val)) {
         val.set_str(str_lit->m_val);
-    } else {
+    }else {
         throw InternalError("Unexpected sv value type");
     }
     return val;
@@ -36,17 +36,18 @@ TabCol Analyze::check_column(const std::vector<ColMeta>& all_cols, TabCol target
                 }
                 tab_name = col.tab_name;
             }
-            if (tab_name.empty()){
-                throw LJ::ColumnNotFoundError(target.col_name , "");
-            }
-            target.tab_name = tab_name; 
         }
+        if (tab_name.empty()){
+                throw LJ::ColumnNotFoundError(target.col_name , "");
+        }
+        target.tab_name = tab_name; 
     }else {
         if ((!compute_server->get_node()->db_meta.is_table(target.tab_name)) 
             || (compute_server->get_node()->db_meta.get_table(target.tab_name).is_col(target.col_name))){
             throw LJ::ColumnNotFoundError(target.col_name , target.tab_name);
         }
     }
+    return target;
 }
 
 CompOp Analyze::convert_sv_comp_op(ast::SvCompOp op){
@@ -96,6 +97,7 @@ void Analyze::check_clause(const std::vector<std::string>& tab_names, std::vecto
             case TYPE_INT: return "TYPE_INT";
             case TYPE_FLOAT: return "TYPE_FLOAT";
             case TYPE_STRING: return "TYPE_STRING";
+            case TYPE_ITEMKEY: return "TYPE_ITEMKEY";
             default: return "UNKNOWN";
         }
     };
@@ -127,13 +129,15 @@ void Analyze::check_clause(const std::vector<std::string>& tab_names, std::vecto
         }
 
         // 5. 类型兼容性检查:左右操作数类型必须相同
-        if (lhs_type != rhs_type) {
-            throw LJ::TypeMismatchError(
-                typeToStr(lhs_type),
-                typeToStr(rhs_type),
-                cond.lhs_col.col_name,
-                cond.is_rhs_val ? "" : cond.rhs_col.col_name
-            );
+        if ((lhs_type != rhs_type)) {
+            if (!(lhs_type == ColType::TYPE_ITEMKEY && rhs_type == ColType::TYPE_INT)){
+                throw LJ::TypeMismatchError(
+                    typeToStr(lhs_type),
+                    typeToStr(rhs_type),
+                    cond.lhs_col.col_name,
+                    cond.is_rhs_val ? "" : cond.rhs_col.col_name
+                );
+            }
         }
     }
 }
@@ -145,7 +149,7 @@ std::shared_ptr<Query> Analyze::do_analyze(std::shared_ptr<ast::TreeNode> parse)
         query->m_tables = std::move(x->tabs);
         // 先检查表是否存在
         for (auto tbl : query->m_tables) {
-            if (!compute_server->get_node()->table_exist(std::string(tbl))){
+            if (!compute_server->table_exist(std::string(tbl))){
                 throw LJ::TableNotFoundError(tbl);
             }
         }

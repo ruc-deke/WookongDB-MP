@@ -224,6 +224,8 @@ namespace storage_service{
             response->add_table_id(entry.second.get_table_id());
         }
 
+        response->set_table_num(sm_manager->db.m_tabs.size());
+
         std::cout << "Node ID = " << node_id <<  " open DB : " << db_name << " error code : " << error_code << "\n";
 
         return;
@@ -241,6 +243,8 @@ namespace storage_service{
         std::string tab_name = request->tab_name();
 
         std::vector<ColDef> col_defs;
+        std::string pri_key = "";
+
         for (int i = 0 ; i < request->cols_len_size() ; i++){
             int type = request->cols_type(i);
             std::string name = request->cols_name(i);
@@ -253,6 +257,11 @@ namespace storage_service{
                 col_type = ColType::TYPE_FLOAT;
             }else if (type == 2){
                 col_type = ColType::TYPE_STRING;
+            }else if (type == 3){
+                // 如果某个参数的类型是 TYPE_ITEMKEY，那就认为这列是主键
+                // 主键不放在 DataItem里，元组的结构是 主键 + DataItem + 数据(DataItem 存的是 lock , version 那些东西)
+                pri_key = name;
+                col_type = ColType::TYPE_ITEMKEY;
             }else {
                 assert(false);
             }
@@ -261,10 +270,10 @@ namespace storage_service{
             col_defs.emplace_back(col_def);
         }
 
-        std::vector<std::string> pri_keys;
-        // 先假设主键名字叫 pri_keys
-        pri_keys.emplace_back("pri_keys");
-        int error_code = sm_manager->create_table(tab_name , col_defs , pri_keys);
+        // 必须带上主键，否则不给过
+        assert(pri_key != "");
+
+        int error_code = sm_manager->create_table(tab_name , col_defs , pri_key);
         response->set_error_code(error_code);
     }
 
@@ -289,16 +298,17 @@ namespace storage_service{
                     response->add_col_types("TYPE_INT");
                 }else if (col.type == ColType::TYPE_STRING){
                     response->add_col_types("TYPE_STRING");
+                }else if (col.type == ColType::TYPE_ITEMKEY){
+                    response->add_col_types("TYPE_ITEMKEY");
                 }else {
                     assert(false);
                 }
             }
 
             response->set_table_id(tab.table_id);
-            
-            for (auto &p : tab.primary_keys){
-                response->add_primary(p);
-            }
+            assert(tab.primary_key != "");
+            std::cout << "Read Table Pkey = " << tab.primary_key << "\n";
+            response->add_primary(tab.primary_key);
         }
         return;
     }

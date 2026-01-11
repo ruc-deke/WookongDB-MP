@@ -91,6 +91,10 @@ class DTX {
       TxnLog* txn_log=nullptr, 
       CoroutineScheduler* sched_0=nullptr,
       int* using_which_coro_sched_=nullptr);
+
+    // SQL 使用，去掉一些无用的参数
+    DTX(ComputeServer *server , brpc::Channel *data_channel , brpc::Channel *log_channel , brpc::Channel *remote_server_channel , TxnLog *txn_log = nullptr);
+
   ~DTX() {
     Clean();
   }
@@ -119,7 +123,7 @@ class DTX {
   DataItemPtr GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr *file_hdr , itemkey_t item_key);
   DataItemPtr GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid, DataItem*& orginal_item , RmFileHdr *file_hdr , itemkey_t item_key);
 
-  DataItemPtr GetDataItemFromPage(table_id_t table_id , Rid rid , char *data , RmFileHdr *file_hdr , itemkey_t &pri_key , bool is_w);
+  std::unique_ptr<DataItem> GetDataItemFromPage(table_id_t table_id , Rid rid , char *data , RmFileHdr *file_hdr , itemkey_t &pri_key , bool is_w);
 
  private:
   void Abort();

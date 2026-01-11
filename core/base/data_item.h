@@ -57,6 +57,13 @@ struct DataItem {
     value = new uint8_t[value_size];
   }
 
+  ~DataItem() {
+    if (value != nullptr) {
+        delete[] value;
+        value = nullptr;
+    }
+  }
+
   ALWAYS_INLINE
   size_t GetSerializeSize() const {
     return sizeof(DataItem) + value_size;

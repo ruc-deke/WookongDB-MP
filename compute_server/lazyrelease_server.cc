@@ -13,10 +13,10 @@ static std::vector<int> page_cnt(10000 , 0);
 Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_id, bool need_to_record) {
     assert(page_id < ComputeNodeBufferPageSize);
     if (need_to_record){
-        int k1 = cnt.fetch_add(1);
-        if (k1 % 10000 == 0){
-            std::cout << "Lazy Fetch Cnt = " << k1 << "\n";
-        }
+        // int k1 = cnt.fetch_add(1);
+        // if (k1 % 10000 == 0){
+        //     std::cout << "Lazy Fetch Cnt = " << k1 << "\n";
+        // }
         this->node_->fetch_allpage_cnt++;
     }
     
@@ -122,10 +122,10 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
     // LOG(INFO) << "Fetching X , table_id = " << table_id << " page_id = " << page_id;
     assert(page_id < ComputeNodeBufferPageSize);
     if (need_to_record){
-        int k1 = cnt.fetch_add(1);
-        if (k1 % 10000 == 0){
-            std::cout << "Lazy Fetch Cnt = " << k1 << "\n";
-        }
+        // int k1 = cnt.fetch_add(1);
+        // if (k1 % 10000 == 0){
+        //     std::cout << "Lazy Fetch Cnt = " << k1 << "\n";
+        // }
         this->node_->fetch_allpage_cnt++;
     }
     

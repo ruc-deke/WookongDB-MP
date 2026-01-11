@@ -138,6 +138,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
       // insert 有可能是覆盖了旧的数据，所以把旧的给记下来
 
       Rid insert_rid = compute_server->insert_entry(insert_set[i].second.item_ptr.get() , item_key);
+      std::cout << "Insert a Key , primary = " << item_key << " page_id = " << insert_rid.page_no_ << " slot = " << insert_rid.slot_no_ << "\n";
       if (insert_rid.page_no_ == -1){
         tx_status = TXStatus::TX_ABORTING;
         break;

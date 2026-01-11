@@ -56,6 +56,7 @@ public:
         lock = 0;
         compute_channels = c;
         is_pending = false;
+        src_node_id = INVALID_NODE_ID;
     }
     
     void Reset(){

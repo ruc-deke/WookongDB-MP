@@ -67,17 +67,16 @@ extern double tx_get_timestamp_time1, tx_get_timestamp_time2, tx_write_commit_lo
 extern double tx_fetch_exe_time, tx_fetch_commit_time, tx_release_exe_time, tx_release_commit_time;
 extern double tx_fetch_abort_time, tx_release_abort_time;
 
-
-extern int single_txn, distribute_txn;
-
-extern std::vector<uint64_t> total_try_times;
-extern std::vector<uint64_t> total_commit_times;
-
 DEFINE_string(protocol, "baidu_std", "Protocol type");
 DEFINE_string(connection_type, "", "Connection type. Available values: single, pooled, short");
 DEFINE_int32(timeout_ms, 0x7fffffff, "RPC timeout in milliseconds");
 DEFINE_int32(max_retry, 3, "Max retries(not including the first RPC)");
 DEFINE_int32(interval_ms, 10, "Milliseconds between consecutive requests");
+
+extern int single_txn, distribute_txn;
+
+extern std::vector<uint64_t> total_try_times;
+extern std::vector<uint64_t> total_commit_times;
 
 // Changed ALL __thread to thread_local for Boost coroutine compatibility
 // __thread is a GCC extension that doesn't work correctly with coroutine stack switching
@@ -146,7 +145,6 @@ thread_local Planner::ptr  sql_planner;
 thread_local Optimizer::ptr sql_optimizer;
 thread_local Portal::ptr sql_portal;
 thread_local QlManager::ptr  sql_ql;
-DTX *sql_dtx;
 
 void CollectStats(DTX* dtx) {
   mux.lock();
@@ -334,55 +332,100 @@ struct ExecResult {
     std::string error;
 };
 
-void RunSQL(coro_id_t coro_id , std::string sql_str){
-  if (sql_dtx == nullptr){
-    sql_dtx = new DTX(
-      meta_man,
-      thread_gid,
-      thread_local_id,
-      coro_id,
-      coro_sched,
-      index_cache,
-      page_cache,
-      compute_server,
-      data_channel,
-      log_channel,
-      remote_server_channel,
-      thread_pool,
-      thread_txn_log
-    );
-  }
+std::string get_sql_line(){
+    std::vector<std::string> sql_history_str;
+    
+    std::string line;
+    std::string accum;
+    
+    while (true) {
+        std::cout << "SQL> ";
+        if (!std::getline(std::cin, line)) {
+            return "";
+        }
+        if (line == ".exit" || line == ".quit") {
+            return "";
+        }
 
-  std::cout << "Running SQL : " << sql_str << "\n";
+        accum += line;
+        accum += "\n";
+        size_t pos = accum.find(';');
+        if (pos != std::string::npos) {
+            std::string stmt = accum.substr(0, pos + 1);
+            if (pos > 0) {
+                sql_history_str.push_back(accum.substr(0, pos));
+            }
+            return stmt;
+        }
+    }
+}
+
+void RunSQL(){
+  DTX *sql_dtx = new DTX(
+    meta_man,
+    thread_gid,
+    thread_local_id,
+    -1,
+    coro_sched,
+    index_cache,
+    page_cache,
+    compute_server,
+    data_channel,
+    log_channel,
+    remote_server_channel,
+    thread_pool,
+    thread_txn_log
+  );
+  sql_portal = std::make_shared<Portal>(sql_dtx);
 
   uint64_t run_seed = seed;
-  uint64_t iter = ++tx_id_generator;
 
-  ExecResult res;
+  bool need_commit = true;
+  while (true){
+    std::string sql_str = get_sql_line();
+    ExecResult res;
 
-  // 词法分析：将 SQL 字符串转换为 token 流
-  YY_BUFFER_STATE b = yy_scan_string(sql_str.c_str());
-  // 语法分析：将 token 流解析为抽象语法树 (AST)
-  if (yyparse() != 0) {
+    try {
+      uint64_t iter = ++tx_id_generator;  // Global atomic transaction id
+      sql_dtx->TxBegin(iter);
+      // 词法分析：将 SQL 字符串转换为 token 流
+      YY_BUFFER_STATE b = yy_scan_string(sql_str.c_str());
+      // 语法分析：将 token 流解析为抽象语法树 (AST)
+      if (yyparse() != 0) {
+          yy_delete_buffer(b);
+          res.success = false;
+          res.error = "Syntax error";
+          std::cout << res.error << "\n";
+          continue;
+      }
+
+      // 语义分析：检查语言是否正确，并生成 conditions
+      auto query = sql_analyze->do_analyze(ast::parse_tree);
       yy_delete_buffer(b);
-      res.success = false;
-      res.error = "Syntax error";
-      std::cout << res.error << "\n";
-      return;
+
+      // 查询优化
+      auto plan = sql_optimizer->plan_query(query);
+
+      // 执行计划
+      auto portalStmt = sql_portal->start(plan , sql_dtx);
+      sql_portal->run(portalStmt, sql_ql.get(), nullptr);
+
+      sql_portal->drop();
+      if (need_commit){
+        coro_yield_t baga;
+        int res = sql_dtx->TxExe(baga);
+        if (!res){
+          sql_dtx->TxAbort(baga);
+          throw std::logic_error("Tx Abort");
+        }else{
+          sql_dtx->TxCommit(baga);
+        }
+      }
+    }catch (std::exception &e){
+      std::cout << e.what() << "\n";
+      continue;
+    } 
   }
-
-  // 语义分析：检查语言是否正确，并生成 conditions
-  auto query = sql_analyze->do_analyze(ast::parse_tree);
-  yy_delete_buffer(b);
-
-  // 查询优化
-  auto plan = sql_optimizer->plan_query(query);
-
-  // 执行计划
-  auto portalStmt = sql_portal->start(plan);
-  sql_portal->run(portalStmt, sql_ql.get(), nullptr);
-
-  sql_portal->drop();
 }
 
 void RunYCSB(coro_yield_t& yield, coro_id_t coro_id){
@@ -786,7 +829,6 @@ void initThread(thread_params* params,
     sql_analyze  = std::make_shared<Analyze>(compute_server);
     sql_planner = std::make_shared<Planner>(compute_server);
     sql_optimizer = std::make_shared<Optimizer>(compute_server , sql_planner);
-    sql_portal = std::make_shared<Portal>(compute_server);
     sql_ql = std::make_shared<QlManager>(compute_server);
 
     /*
@@ -997,6 +1039,7 @@ void run_thread(thread_params* params,
   if(remote_server_channel->Init(remote_server_node.c_str(), &options) != 0) {
       LOG(FATAL) << "Fail to initialize channel";
   }
+
   
   if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 2 || SYSTEM_MODE == 3) {
       // // Link all coroutines via pointers in a loop manner

@@ -5,6 +5,17 @@
 #include "config.h"
 #include "record.h"
 
+DTX::DTX(ComputeServer *server , brpc::Channel *data_channel , brpc::Channel *log_channel , brpc::Channel *server_channel , TxnLog *txn_l2og){
+    tx_id = 0;
+    compute_server = server;
+    tx_status = TXStatus::TX_INIT;
+
+    storage_data_channel = data_channel; 
+    storage_log_channel = log_channel; 
+    remote_server_channel = server_channel;
+    txn_log = txn_l2og;
+}
+
 DTX::DTX(MetaManager* meta_man,
          t_id_t tid,
          t_id_t l_tid,
@@ -163,7 +174,7 @@ DataItemPtr DTX::GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid,
     return itemPtr;
 }
 
-DataItemPtr DTX::GetDataItemFromPage(table_id_t table_id , Rid rid , char *data , RmFileHdr *file_hdr , itemkey_t &pri_key , bool is_w){
+std::unique_ptr<DataItem> DTX::GetDataItemFromPage(table_id_t table_id , Rid rid , char *data , RmFileHdr *file_hdr , itemkey_t &pri_key , bool is_w){
     char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
     char *slots = bitmap + file_hdr->bitmap_size_;
     char* tuple = slots + rid.slot_no_ * (file_hdr->record_size_ + sizeof(itemkey_t));
@@ -172,7 +183,7 @@ DataItemPtr DTX::GetDataItemFromPage(table_id_t table_id , Rid rid , char *data 
     // disk_item->value = reinterpret_cast<uint8_t*>(disk_item) + sizeof(DataItem);
 
     DataItem* disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
-    DataItemPtr itemPtr = std::make_shared<DataItem>(disk_item->table_id, static_cast<int>(disk_item->value_size));
+    auto itemPtr = std::make_unique<DataItem>(disk_item->table_id, static_cast<int>(disk_item->value_size));
     itemPtr->lock = disk_item->lock;
     itemPtr->version = disk_item->version;
     itemPtr->prev_lsn = disk_item->prev_lsn;

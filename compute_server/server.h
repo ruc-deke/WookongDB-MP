@@ -36,12 +36,14 @@
 
 // sql
 #include "sql_executor/record_printer.h"
+#include "sql_executor/sql_common.h"
 
 #include "bp_tree/latch_crabbing/bp_tree.h"
 #include "bp_tree/blink/blink.h"
 #include "fsm/fsm_tree.h"
 
 #include "util/bitmap.h"
+#include "error_library.h"
 
 extern double ReadOperationRatio; // for workload generator
 extern int TryOperationCnt;  // only for micro experiment
@@ -526,6 +528,7 @@ public:
             }
 
             *target_item = *item;
+            memcpy(tuple + sizeof(itemkey_t) + sizeof(DataItem), item->value, item->value_size);
             memcpy(tuple, &item_key, sizeof(itemkey_t));
 
             // 通过了再设置 BitMap
@@ -629,13 +632,72 @@ public:
         else assert(false);
         return page->get_data();
     }
+    void ReleaseSPage(table_id_t table_id , page_id_t page_id){
+        if (SYSTEM_MODE == 0){
+            rpc_release_s_page(table_id , page_id);
+        }else if (SYSTEM_MODE == 1){
+            rpc_lazy_release_s_page(table_id , page_id);
+        }else if (SYSTEM_MODE == 2){
+            local_release_s_page(table_id , page_id);
+        }else if (SYSTEM_MODE == 3){
+            // TODO
+            assert(false);
+        }else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
+            rpc_ts_release_s_page(table_id , page_id);
+        }else {
+            assert(false);
+        }
+    }
+    void ReleaseXPage(table_id_t table_id , page_id_t page_id){
+        if (SYSTEM_MODE == 0){
+            rpc_release_x_page(table_id , page_id);
+        }else if (SYSTEM_MODE == 1){
+            rpc_lazy_release_x_page(table_id , page_id);
+        }else if (SYSTEM_MODE == 2){
+            local_release_x_page(table_id , page_id);
+        }else if (SYSTEM_MODE == 3){
+            // TODO
+            assert(false);
+        }else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
+            rpc_ts_release_x_page(table_id , page_id);
+        }else {
+            assert(false);
+        }
+    }
 
     // SQL
     // ----------------------------------------------------------------------
+    std::string getTableNameFromTableID(table_id_t table_id){
+        for (auto it = get_node()->db_meta.m_tabs.begin() ; it != get_node()->db_meta.m_tabs.end() ; it++){
+            if (it->second.table_id == table_id){
+                return it->first;
+            }
+        }
+        return "";
+    }
     // 创建一张新表
-    void create_table(const std::string &tab_name , std::vector<ColDef> cols){
+    void create_table(const std::string &tab_name , std::vector<ColDef> cols , const std::string pri_key){
         if (get_node()->db_meta.is_table(tab_name)){
             throw LJ::TableAlreadyExistsError(tab_name);
+        }
+
+        assert(pri_key != "");
+
+        // 验证主键名字确实在表里
+        bool found = false;
+        for (auto &col_def : cols){
+            if (col_def.name == pri_key){
+                if (col_def.type != ColType::TYPE_INT){
+                    throw std::logic_error("指定主键只能是单个列，且类型需为 TYPE_INT");
+                }
+                // 将这列的类型转化为 ITEMKEY
+                col_def.type = ColType::TYPE_ITEMKEY;
+                found = true;
+                break;
+            }
+        }
+        if (!found){
+            throw std::logic_error("主键不是本表的列!");
         }
 
         storage_service::StorageService_Stub storage_stub(get_storage_channel());
@@ -649,6 +711,10 @@ public:
             request.add_cols_len(cols[i].len);
             request.add_cols_type(cols[i].type);
         }
+        // 证明只有一个主键列，先不允许这样吧
+        if (cols.size() == 1){
+            throw std::logic_error("不允许只有一个主键列");
+        }
 
         storage_stub.CreateTable(&cntl , &request , &response , NULL);
         if (cntl.Failed()){
@@ -660,15 +726,22 @@ public:
             return;
         }else {
             std::cout << "Error Code = " << error_code << "\n";
-            // TODO
-            assert(false);
+            LJ::throw_error_by_code(error_code);
         }
+    }
+
+    void dropTable(const std::string &tab_name){
+        // TODO
+        // 这个比较麻烦，太多边界条件了，比如你把 table_id = 10 给删了，但是节点 2 正在访问怎么办，考虑的有点多，先不支持 dropTable 了
     }
 
     void show_tables(){
         std::vector<std::string> captions = {"Tables"};
         RecordPrinter printer(captions.size());
         Context context;
+        context.m_data_send = new char[BUFFER_LENGTH];
+        context.m_offset = new int(0);
+        context.m_ellipsis = false;
         
         // Head
         printer.print_separator(&context);
@@ -698,6 +771,159 @@ public:
         if (context.m_data_send != nullptr && context.m_offset != nullptr && *context.m_offset > 0) {
             std::cout.write(context.m_data_send, *context.m_offset);
         }
+        delete[] context.m_data_send;
+        delete context.m_offset;
+    }
+
+    // 判断 table 是否存在
+    bool table_exist(const std::string table_name){
+        // db_meta 只是一个缓存层，就算删除表信息没有及时同步到 node，去存储里面拿也照样拿不到页面
+        // 后续可以设置一个通知，某个节点把表给删了，通知其它节点下
+        if (node_->db_meta.is_table(table_name)){
+            return true;
+        }
+
+        // 如果 db_meta 没有，那就去存储层求证下，确实没有这个表
+        storage_service::StorageService_Stub storage_stub(&node_->storage_channel);
+        storage_service::TableExistRequest request;
+        storage_service::TableExistResponse response;
+        brpc::Controller cntl;
+
+        request.set_table_name(table_name);
+        storage_stub.TableExist(&cntl , &request , &response , NULL);
+        bool exist = response.ans();
+
+        if (exist){
+            TabMeta tab_meta;
+            tab_meta.name = table_name;
+
+            int cur_offset = 0;
+            for (int i = 0 ; i < response.col_names_size() ; i++){
+                std::string col = response.col_names(i);
+                ColMeta c;
+                c.tab_name = table_name;
+                c.name = col;
+                if (response.col_types(i) == "TYPE_INT"){
+                    c.type = ColType::TYPE_INT;
+                }else if (response.col_types(i) == "TYPE_FLOAT"){
+                    c.type = ColType::TYPE_FLOAT;
+                }else if (response.col_types(i) == "TYPE_STRING"){
+                    c.type = ColType::TYPE_STRING;
+                }else if (response.col_types(i) == "TYPE_ITEMKEY"){
+                    c.type = ColType::TYPE_ITEMKEY;
+                }else{
+                    assert(false);
+                }
+
+                c.len = response.col_lens(i);
+                
+                // 如果不是主键，那就统计一下 offset
+                if (c.type != ColType::TYPE_ITEMKEY){
+                    c.offset = cur_offset;
+                    cur_offset += c.len;
+                }
+
+                tab_meta.cols.emplace_back(c);
+            }
+
+            assert(response.primary_size() == 1);
+            std::string pkey = response.primary(0);
+
+            tab_meta.primary_key = pkey;
+            tab_meta.table_id = response.table_id();
+
+            node_->db_meta.set_table_meta(table_name , tab_meta);
+
+            // 除此之外，还需要设置 meta_manager，缓冲池，以及锁表，有效性表的信息
+            assert(tab_meta.table_id < 10000);
+
+            if (SYSTEM_MODE == 1){
+                node_->lazy_local_page_lock_tables[tab_meta.table_id] = new LRLocalPageLockTable();
+                node_->lazy_local_page_lock_tables[tab_meta.table_id + 10000] = new LRLocalPageLockTable();
+                node_->lazy_local_page_lock_tables[tab_meta.table_id + 20000] = new LRLocalPageLockTable();
+            }else {
+                assert(false);
+            }
+
+            node_->local_buffer_pools[tab_meta.table_id] = new BufferPool(node_->pool_size_per_table , 10000);
+            node_->local_buffer_pools[tab_meta.table_id + 10000] = new BufferPool(node_->pool_size_per_fsm , 10000);
+            node_->local_buffer_pools[tab_meta.table_id + 20000] = new BufferPool(node_->pool_size_per_blink , 5000);
+            
+            (*global_page_lock_table_list_)[tab_meta.table_id] = new GlobalLockTable();
+            (*global_valid_table_list_)[tab_meta.table_id] = new GlobalValidTable();
+
+            // BLink
+            (*global_page_lock_table_list_)[tab_meta.table_id + 10000] = new GlobalLockTable();
+            (*global_valid_table_list_)[tab_meta.table_id + 10000] = new GlobalValidTable();
+
+            // FSM
+            (*global_page_lock_table_list_)[tab_meta.table_id + 20000] = new GlobalLockTable();
+            (*global_valid_table_list_)[tab_meta.table_id + 20000] = new GlobalValidTable();
+
+            std::vector<std::string> compute_ips;
+            std::vector<int> compute_ports;
+            for(auto& node : node_->meta_manager_->remote_compute_nodes){
+                compute_ips.push_back(node.ip);
+                compute_ports.push_back(node.port);
+            }
+
+            (*global_page_lock_table_list_)[tab_meta.table_id]->BuildRPCConnection(compute_ips, compute_ports);
+            (*global_page_lock_table_list_)[tab_meta.table_id + 10000]->BuildRPCConnection(compute_ips, compute_ports);
+            (*global_page_lock_table_list_)[tab_meta.table_id + 20000]->BuildRPCConnection(compute_ips, compute_ports);
+
+            bl_indexes[tab_meta.table_id] = new BLinkIndexHandle(this , tab_meta.table_id + 10000);
+            fsm_trees[tab_meta.table_id] = new SecFSM(this , tab_meta.table_id + 20000);
+
+            std::cout << "Init table , blink and fsm , table_id = " << tab_meta.table_id << "\n"; 
+        }
+
+        return exist;
+    }
+
+    table_id_t get_table_id(const std::string tab_name){
+        if (table_exist(tab_name)){
+            assert(node_->db_meta.is_table(tab_name));
+            return node_->db_meta.get_table(tab_name).get_table_id();
+        }
+        return INVALID_TABLE_ID;
+    }
+
+    void desc_table(const std::string tab_name){
+        bool exist = table_exist(tab_name);
+        if (!exist){
+            throw LJ::TableNotFoundError(tab_name);
+        }
+
+        TabMeta tab = get_node()->db_meta.get_table(tab_name);
+
+        std::vector<std::string> captions = {"Field", "Type"};
+        RecordPrinter printer(captions.size());
+        Context context;
+        context.m_data_send = new char[BUFFER_LENGTH];
+        context.m_offset = new int(0);
+        context.m_ellipsis = false;
+
+        printer.print_separator(&context);
+        printer.print_record(captions, &context);
+        printer.print_separator(&context);
+
+        for (auto &col : tab.cols) {
+            std::vector<std::string> field_info = {
+                col.name,
+                coltype2str(col.type),
+            };
+            printer.print_record(field_info, &context);
+        }
+
+        // Print footer
+        printer.print_separator(&context);
+
+        // 立刻打印
+        if (context.m_data_send != nullptr && context.m_offset != nullptr && *context.m_offset > 0) {
+            std::cout.write(context.m_data_send, *context.m_offset);
+        }
+        delete[] context.m_data_send;
+        delete context.m_offset;
     }
 
 
@@ -1145,14 +1371,56 @@ public:
         brpc::Controller cntl;
         storage_service::CreatePageRequest req;
         storage_service::CreatePageResponse resp;
+
+        // SQL 模式下，通过 db_meta 获取表名字
+        if (WORKLOAD_MODE == 4){
+            // B+ 树存在 10000 - 20000，FSM 存在 20000 到 30000
+            int tab_id = 0;
+            if (table_id < 10000){
+                tab_id = table_id;
+            }else if (table_id < 20000){
+                tab_id = table_id - 10000;
+            }else if (table_id < 30000){
+                tab_id = table_id - 20000;
+            }else {
+                assert(false);
+            }
+
+            std::string tab_name = getTableNameFromTableID(tab_id);
+            assert(tab_name != "");
+
+            if (table_id >= 10000 && table_id < 20000){
+                tab_name += ".bl";
+            }else if (table_id >= 20000 && table_id < 30000){
+                tab_name += ".fsm";
+            }
+
+            req.set_table_name(tab_name);
+        }else{
+            req.set_table_name(table_name_meta[table_id]);
+        }
         
         req.set_table_id(table_id);
-        req.set_table_name(table_name_meta[table_id]);
+        
         storage_stub.CreatePage(&cntl , &req , &resp , NULL);
         if (cntl.Failed()) {
             LOG(ERROR) << "Create Page Error";
             assert(false);
         }
+
+        page_id_t new_page = resp.page_no();
+
+        if (table_id < 10000){
+            // 创建了页面之后，需要通知其它节点页面数量变多了，方法是向 page0 写入一个信息
+            char *data = FetchXPage(table_id , 0);
+            RmFileHdr *file_hdr = reinterpret_cast<RmFileHdr*>(data);
+            // 有可能我和别人一起创建了新页面，我创建了 5，别人创建了 6，然后别人更新了 6，那我就不用管了
+            if (file_hdr->num_pages_ < new_page){
+                file_hdr->num_pages_ = new_page;
+            }
+            ReleaseXPage(table_id , 0);
+        }
+
         assert(resp.success());
         return resp.page_no();
     }

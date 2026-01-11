@@ -1,11 +1,15 @@
 #pragma once
 
 #include "vector"
+#include "memory"
 
 #include "sql_common.h"
 #include "execution/ExecutorInsert.h"
 #include "execution/ExecutorUpdate.h"
 #include "execution/ExecutionManager.h"
+#include "execution/ExecutionProjection.h"
+#include "execution/ExecutorBPTree.h"
+
 
 #include "optimizer/plan.h"
 
@@ -32,8 +36,8 @@ struct PortalStmt {
 class Portal {
 public:
     typedef std::shared_ptr<Portal> ptr;
-    Portal(ComputeServer *server){
-        compute_server = server;
+    Portal(DTX *dtx_){
+        dtx = dtx_;
     }
 
     ~Portal() = default;
@@ -42,23 +46,29 @@ public:
 
     std::unique_ptr<AbstractExecutor> convert_plan_executor(std::shared_ptr<Plan> plan) {
         if (auto x = std::dynamic_pointer_cast<ProjectionPlan>(plan)) {
-            // 递归找到子计划，就是给节点加孩子节点的过程
-            // TODO
-            assert(false);
-            // return std::make_unique<ProjectionExecutor>(convert_plan_executor(x->m_subPlan , context), x->m_selCols);
+            return std::make_unique<ProjectionExecutor>(convert_plan_executor(x->m_subPlan), x->m_selCols);
         }else if (auto x = std::dynamic_pointer_cast<ScanPlan>(plan)) {
             // ⚠️⚠️：这里有问题，需要判断，我这里是实在找不到问题了，先用 scan 顶一下
             // return std::make_unique<SeqScanExecutor>(m_smManager , x->m_tableName , x->m_filterConds , context);
             // TODO
-            assert(false);
-            // if (x->m_tag == T_SeqScan) {
-            //     return std::make_unique<SeqScanExecutor>(m_smManager , x->m_tableName , x->m_filterConds , context);
-            // }else if (x->m_tag == T_BPTreeIndexScan) {
-            //     return std::make_unique<BPTreeScanExecutor>(m_smManager , x->m_tableName , x->m_filterConds , x->m_indexCols , context);
-            // }else if (x->m_tag == T_HashIndexScan){
-            //     return std::make_unique<HashScanExecutor>(m_smManager, x->m_tableName, 
-            //                             x->m_filterConds, x->m_hashIndexConds, context, 0);
-            // }
+            if (x->m_tag == T_SeqScan) {
+                assert(false);
+                // TODO
+                // return std::make_unique<SeqScanExecutor>(m_smManager , x->m_tableName , x->m_filterConds , context);
+            }else if (x->m_tag == T_BPTreeIndexScan) {
+                // TODO，这里先这样写着，后续需要优化，因为 m_filterConds 不一定只有一个 cond
+                itemkey_t key = 0;
+                assert(!x->m_filterConds.empty());
+                assert(x->m_filterConds[0].rhs_val.type == TYPE_INT);
+                key = x->m_filterConds[0].rhs_val.int_val;
+                return std::make_unique<BPTreeScanExecuotor>(dtx , x->m_tableName , key);
+            }else if (x->m_tag == T_HashIndexScan){
+                assert(false);
+                // return std::make_unique<HashScanExecutor>(m_smManager, x->m_tableName, 
+                //                         x->m_filterConds, x->m_hashIndexConds, context, 0);
+            }else{
+                assert(false);
+            }
         } else if(auto x = std::dynamic_pointer_cast<JoinPlan>(plan)) {
             // TODO 
             assert(false);
@@ -78,7 +88,7 @@ public:
     }
 
     // 把查询计划给转化为整颗算子树
-    std::shared_ptr<PortalStmt> start(std::shared_ptr<Plan> plan) {
+    std::shared_ptr<PortalStmt> start(std::shared_ptr<Plan> plan , DTX *dtx) {
         if (auto x = std::dynamic_pointer_cast<OtherPlan>(plan)) {
             return std::make_shared<PortalStmt>(PORTAL_CMD_UTILITY , std::vector<TabCol>() , std::unique_ptr<AbstractExecutor>() , plan);
         }else if (auto x = std::dynamic_pointer_cast<DDLPlan>(plan)) {
@@ -119,10 +129,9 @@ public:
                 }
                 case T_Insert: {
                     // TODO
-                    assert(false);
-                    // std::unique_ptr<AbstractExecutor> root =
-                    //     std::make_unique<InsertExecutor>(m_smManager , x->m_tabName , x->m_values , context);
-                    // return std::make_shared<PortalStmt>(PORTAL_DML_WITHOUT_SELECT, std::vector<TabCol>(), std::move(root), plan);
+                    std::unique_ptr<AbstractExecutor> root =
+                        std::make_unique<InsertExecutor>(dtx, x->m_tabName , x->m_values);
+                    return std::make_shared<PortalStmt>(PORTAL_DML_WITHOUT_SELECT, std::vector<TabCol>(), std::move(root), plan);
                 }
                 default: {
                     throw LJ::UnixError();
@@ -161,6 +170,5 @@ public:
     }
 
 private:
-    ComputeServer *compute_server;
-
+    DTX *dtx;
 };

@@ -53,6 +53,7 @@ public:
         m_tableName = std::move(tab_name);
         m_tag = tag;
         m_filterConds = std::move(conds);
+        compute_server = server;
         // TabMeta &tab = sm_manager->m_db.get_table(m_tableName);
         TabMeta &tab = compute_server->get_node()->db_meta.get_table(m_tableName);
         m_cols = tab.cols;
@@ -713,12 +714,12 @@ public:
 class DDLPlan : public Plan{
 public:
     DDLPlan(PlanTag tag, std::string tab_name, std::vector<std::string> col_names, std::vector<ColDef> cols,
-            std::vector<std::string> pkeys = {}, IndexType index_type = IndexType::BTREE_INDEX) {
+            std::string pkey, IndexType index_type = IndexType::BTREE_INDEX) {
         Plan::m_tag = tag;
         m_tabName = std::move(tab_name);
         m_cols = std::move(cols);
         m_tabColNames = std::move(col_names);
-        m_pkeys = std::move(pkeys);
+        m_pkey = std::move(pkey);
         m_indexType = index_type;
     }
 
@@ -766,16 +767,11 @@ public:
         offset += sizeof(int);
         for (auto& col : m_cols) col.serialize(dest, offset);
 
-        int pkey_num = m_pkeys.size();
-        memcpy(dest + offset, &pkey_num, sizeof(int));
-        offset += sizeof(int);
-        for (auto& pkey : m_pkeys) {
-            int key_size = pkey.length();
-            memcpy(dest + offset, &key_size, sizeof(int));
-            offset += sizeof(int);
-            memcpy(dest + offset, pkey.c_str(), key_size);
-            offset += key_size;
-        }
+        int key_size = m_pkey.size();
+        memcpy(dest + offset , &key_size , sizeof(int));
+        offset += key_size;
+        memcpy(dest + offset , m_pkey.c_str() , m_pkey.size());
+        offset += m_pkey.size();
 
         memcpy(dest, &offset, sizeof(int));
 
@@ -824,26 +820,20 @@ public:
             cols_.push_back(std::move(col));
         }
 
-        int pkey_num = *reinterpret_cast<const int*>(src + offset);
+        int key_size = *reinterpret_cast<const int*>(src + offset);
         offset += sizeof(int);
-        std::vector<std::string> pkeys_;
-        for (int i = 0; i < pkey_num; ++i) {
-            int key_size = *reinterpret_cast<const int*>(src + offset);
-            offset += sizeof(int);
-            std::string key(src + offset, key_size);
-            offset += key_size;
-            pkeys_.push_back(std::move(key));
-        }
+        std::string pkey(src + offset , key_size);
+        offset += key_size;
 
         assert(offset == tot_size);
 
-        return std::make_shared<DDLPlan>(tag, tab_name, tab_col_names_, cols_, pkeys_);
+        return std::make_shared<DDLPlan>(tag, tab_name, tab_col_names_, cols_, pkey);
     }
 
     std::string m_tabName;
     std::vector<std::string> m_tabColNames;
     std::vector<ColDef> m_cols;
-    std::vector<std::string> m_pkeys;
+    std::string m_pkey;
     IndexType m_indexType;
 };
 

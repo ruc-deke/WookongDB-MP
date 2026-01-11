@@ -10,6 +10,8 @@
 #include "ycsb/ycsb_db.h"
 #include "tpcc/tpcc_db.h"
 
+
+
 struct thread_params {
   t_id_t thread_id;
   t_id_t thread_global_id; // global thread id = machine_id * thread_num_per_machine + thread_id
@@ -39,4 +41,4 @@ void initThread(thread_params* params,
               YCSB* ycsb_cli);
 
 void RunWorkLoad(ComputeServer* server, std::string bench_name, int thread_id = -1 , int run_cnt = 1);
-void RunSQL(coro_id_t coro_id , std::string sql);
+void RunSQL();

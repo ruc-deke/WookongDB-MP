@@ -18,18 +18,16 @@ int main(int argc, char* argv[]) {
     log_setting.logging_dest = logging::LOG_TO_FILE; // 设置日志写到文件，不写的话不生效
     ::logging::InitLogging(log_setting);     // 应用日志设置
 
-    if (argc == 5){
+    if (argc == 4){
         // SQL 模式，需要以下几个参数： 
-        // 1. 线程数量 
-        // 2. 采取的模式(lazy , eager , 2pc)
-        // 3. 当前节点 id
-        // 4. 打开的数据库
+        // 1. 采取的模式(lazy , eager , 2pc)
+        // 2. 当前节点 id
+        // 3. 打开的数据库
         Handler *handler = new Handler();
         handler->ConfigureComputeNodeRunSQL(argc , argv);
 
-        int node_id = std::stoi(argv[3]);
-        int thread_num = std::stoi(argv[1]);
-        std::string db_name = std::string(argv[4]);
+        int node_id = std::stoi(argv[2]);
+        std::string db_name = std::string(argv[3]);
 
         handler->GenThreadAndCoro(node_id , thread_num , SYSTEM_MODE , db_name);
 

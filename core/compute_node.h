@@ -299,16 +299,6 @@ public:
 
         std::cout << "OpenDB : " << db_name << " Table Num = " << table_num << " Error Code = " << open_db_response.error_code() << "\n";
 
-        // 这里先不初始化了，等到真正去访问具体的表的时候，会初始化的
-        // for (int i = 0 ; i < open_db_response.table_names_size() ; i++){
-        //     TabMeta tab_meta;
-
-        //     tab_meta.name = open_db_response.table_names(i);
-        //     tab_meta.table_id = open_db_response.table_id(i);
-        //     tab_meta.
-
-        // }
-
         // 根据目前表的数量，去初始化锁表和缓冲区
         if (SYSTEM_MODE == 1){
             lazy_local_page_lock_tables.resize(30000);
@@ -321,7 +311,9 @@ public:
             assert(false);
         }
 
-        for (int i = 0 ; i < table_num ; i++){
+        meta_manager_->initParSize();
+        // 直接一口气全初始化了
+        for (int i = 0 ; i < 10000 ; i++){
             meta_manager_->par_size_per_table[i] = partition_size_cfg;
             // 暂时先让 FSM 和 BLink 的页面分区大小为 100
             meta_manager_->par_size_per_table[i + 10000] = 100;
@@ -332,6 +324,9 @@ public:
         for(int table_id = 0; table_id < table_num ; table_id++) {
             assert(table_pool_size_cfg > 0 && blink_buffer_pool_cfg > 0 && fsm_pool_size_cfg > 0);
             // 表本体
+            pool_size_per_table = table_pool_size_cfg;
+            pool_size_per_blink = blink_buffer_pool_cfg;
+            pool_size_per_fsm = fsm_pool_size_cfg;
             local_buffer_pools[table_id] = new BufferPool(table_pool_size_cfg , 10000);
             // BLink 树
             local_buffer_pools[table_id + 10000] = new BufferPool(blink_buffer_pool_cfg , 10000);
@@ -339,9 +334,8 @@ public:
             local_buffer_pools[table_id + 20000] = new BufferPool(fsm_pool_size_cfg , 5000);
         }
 
-        // 调度器，负责处理事务
-        scheduler = new Scheduler(thread_num , false , "SQL_Scheduler");
-        scheduler->start();
+        // 调度器，负责处理事务，先初始化，后续再往里边添加线程
+        scheduler = new Scheduler("SQL_Scheduler");
     }
 
     ~ComputeNode(){
@@ -546,68 +540,6 @@ public:
         return ts_cnt;
     }
 
-public:
-    // 判断 table 是否存在
-    bool table_exist(const std::string table_name){
-        // db_meta 只是一个缓存层，就算删除表信息没有及时同步到 node，去存储里面拿也照样拿不到页面
-        // 后续可以设置一个通知，某个节点把表给删了，通知其它节点下
-        if (db_meta.is_table(table_name)){
-            return true;
-        }
-
-        // 如果 db_meta 没有，那就去存储层求证下，确实没有这个表
-        storage_service::StorageService_Stub storage_stub(&storage_channel);
-        storage_service::TableExistRequest request;
-        storage_service::TableExistResponse response;
-        brpc::Controller cntl;
-
-        request.set_table_name(table_name);
-        storage_stub.TableExist(&cntl , &request , &response , NULL);
-        bool exist = response.ans();
-
-        if (exist){
-            TabMeta tab_meta;
-            tab_meta.name = table_name;
-
-            int cur_offset = 0;
-            for (int i = 0 ; i < response.col_names_size() ; i++){
-                std::string col = response.col_names(i);
-                ColMeta c;
-                c.tab_name = table_name;
-                c.name = col;
-                if (response.col_types(i) == "TYPE_INT"){
-                    c.type = ColType::TYPE_INT;
-                }else if (response.col_types(i) == "TYPE_FLOAT"){
-                    c.type = ColType::TYPE_FLOAT;
-                }else if (response.col_types(i) == "TYPE_STRING"){
-                    c.type = ColType::TYPE_STRING;
-                }else {
-                    assert(false);
-                }
-                c.len = response.col_lens(i);
-                c.offset = cur_offset;
-                cur_offset += c.len;
-
-                tab_meta.cols.emplace_back(c);
-            }
-
-            for (int i = 0 ; i < response.primary_size() ; i++){
-                tab_meta.primary_keys.emplace_back(response.primary(i));
-            }
-
-            db_meta.set_table_meta(table_name , tab_meta);
-        }
-
-        return exist;
-    }
-
-    table_id_t get_table_id(const std::string tab_name){
-        if (table_exist(tab_name)){
-            assert(db_meta.is_table(tab_name));
-            return db_meta.get_table(tab_name).get_table_id();
-        }
-        return INVALID_TABLE_ID;
-    }
 
 public:
     // DBMeta，缓存 DB 信息
@@ -679,6 +611,9 @@ public:
     int max_par_txn_queue;
     int max_global_txn_queue;
     int epoch = 0;
+    int pool_size_per_table = 100;
+    int pool_size_per_blink = 100;
+    int pool_size_per_fsm = 100;
 
     // 时间戳阶段转化用的
     std::atomic<TsPhase> ts_phase{TsPhase::BEGIN};

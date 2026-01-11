@@ -18,7 +18,7 @@ public:
         m_tab = dtx->compute_server->get_node()->db_meta.get_table(tab_name);
         file_hdr = dtx->compute_server->get_file_hdr(m_tab.table_id);
 
-        assert(!m_tab.primary_keys.empty());
+        assert(m_tab.primary_key != "");
     }
 
     std::unique_ptr<DataItem> Next() override {

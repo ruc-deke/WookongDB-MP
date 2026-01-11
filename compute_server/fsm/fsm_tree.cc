@@ -21,7 +21,8 @@ SecFSM::SecFSM(ComputeServer* compute_server, table_id_t table_id)
     meta_.leaves_per_page = LEAVES_PER_PAGE;
     meta_.children_per_page = CHILDREN_PER_PAGE;
     meta_.timestamp = 0;
-    meta_.table_id = table_id; // 未关联任何表
+    meta_.table_id = table_id; 
+    std::cout << "Meta.tableID = " << meta_.table_id << "\n";
 }
 
 SecFSM::~SecFSM() {
@@ -35,6 +36,7 @@ bool SecFSM::initialize(table_id_t table_id) {
 
     if (table_id != INVALID_TABLE_ID) {
         meta_.table_id = table_id;
+        assert(false);
     }
 
     if (initialized_) {

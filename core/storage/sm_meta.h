@@ -73,7 +73,7 @@ struct TabMeta{
     std::string name;                       // 表名
     std::vector<ColMeta> cols;              // 列
     std::vector<IndexMeta> indexes;         // 索引
-    std::vector<std::string> primary_keys;  // 主键
+    std::string primary_key;  // 主键
 
     table_id_t table_id;                    // 表 ID
 
@@ -87,7 +87,7 @@ struct TabMeta{
         }
         // 需要添加以下两行：
         indexes = other.indexes;
-        primary_keys = other.primary_keys;
+        primary_key = other.primary_key;
     }
 
     bool is_col(const std::string &col_name) const {
@@ -117,6 +117,14 @@ struct TabMeta{
 
         return false;
     }
+
+    bool is_primary(const std::string col_name){
+        if (col_name == primary_key){
+            return true;
+        }
+        return false;
+    }
+
     // 同上
     IndexMeta get_index_meta(const std::vector<std::string>& col_names) {
         int len = col_names.size();
@@ -132,7 +140,7 @@ struct TabMeta{
             }
             if (j == col_names.size()) return indexes[i];
         }
-        throw LJ::IndexNotFoundError("smMeta::get_index_meta Error");
+        throw std::logic_error("smMeta::get_index_meta Error");
     }
 
     // 返回 col_name 列对应的元信息
@@ -163,11 +171,8 @@ struct TabMeta{
         for (auto &index : tab.indexes) {
             os << index << "\n";
         }
-        // 序列化主键信息
-        os << tab.primary_keys.size() << "\n";
-        for (auto &pk : tab.primary_keys) {
-            os << pk << "\n";
-        }
+        os << tab.primary_key << "\n";
+
         return os;
     }
 
@@ -184,14 +189,11 @@ struct TabMeta{
             IndexMeta index;
             is >> index;
             tab.indexes.push_back(index);
-        }
-        // 反序列化主键信息
-        is >> n;
-        for(size_t i = 0; i < n; ++i) {
-            std::string pk;
-            is >> pk;
-            tab.primary_keys.push_back(pk);
-        }
+        }// 反序列化主键信息
+        std::string pk;
+        is >> pk;
+        tab.primary_key = pk;
+        
         return is;
     }
 };
@@ -213,7 +215,6 @@ public:
     TabMeta &get_table(const std::string &table_name){
         auto it = m_tabs.find(table_name);
         if (it == m_tabs.end()){
-            // LJ_LOG_ERROR(g_logger) << "DBMeta::get_table Error , table not exist";
             throw LJ::TableNotFoundError("not exist");
         }
         return it->second;

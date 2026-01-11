@@ -22,6 +22,7 @@ public:
     std::vector<Value> values;                  // insert 的值
     
     Query() = default;
+    ~Query() = default;
 };
 
 class Analyze{

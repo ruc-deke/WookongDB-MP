@@ -37,6 +37,13 @@ Scheduler::Scheduler(size_t threads, bool use_caller, const std::string& name)
     std::cout << "Thread Count = " << m_threadCount << "\n";
 }
 
+Scheduler::Scheduler(const std::string &name){
+    m_name = name;
+    // 不采用 caller 模式
+    m_rootThread = -1;
+    m_threadCount = 0;
+}
+
 Scheduler::~Scheduler(){
     assert(m_stopping);
     if (GetThis() == this){
@@ -50,6 +57,19 @@ Scheduler* Scheduler::GetThis() {
 
 Fiber* Scheduler::GetMainFiber() {
     return t_scheduler_fiber;
+}
+
+int Scheduler::addThread(){
+    MutexType::Lock lock(m_mutex);
+    assert(m_name == "SQL_Scheduler");
+    std::cout << "Add A Thread\n";
+    m_threads.emplace_back(new Thread(std::bind(&Scheduler::sql_run , this) , m_name + "_" + std::to_string(m_threadCount)));
+    m_threadIds.push_back(m_threads[m_threadCount]->getID());
+
+    int ret = m_threads[m_threadCount]->getID();
+    m_threadCount++;
+
+    return ret;
 }
 
 void Scheduler::start(){

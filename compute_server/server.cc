@@ -474,7 +474,34 @@ std::string ComputeServer::rpc_fetch_page_from_storage(table_id_t table_id, page
     storage_service::GetPageResponse response;
     auto page_id_pb = request.add_page_id();
     page_id_pb->set_page_no(page_id);
-    page_id_pb->set_table_name(table_name_meta[table_id]);
+
+    // SQL 模式下，通过 db_meta 获取表名字
+    if (WORKLOAD_MODE == 4){
+        // B+ 树存在 10000 - 20000，FSM 存在 20000 到 30000
+        int tab_id = 0;
+        if (table_id < 10000){
+            tab_id = table_id;
+        }else if (table_id < 20000){
+            tab_id = table_id - 10000;
+        }else if (table_id < 30000){
+            tab_id = table_id - 20000;
+        }else {
+            assert(false);
+        }
+
+        std::string tab_name = getTableNameFromTableID(tab_id);
+        assert(tab_name != "");
+
+        if (table_id >= 10000 && table_id < 20000){
+            tab_name += ".bl";
+        }else if (table_id >= 20000 && table_id < 30000){
+            tab_name += ".fsm";
+        }
+
+        page_id_pb->set_table_name(tab_name);
+    }else{
+        page_id_pb->set_table_name(table_name_meta[table_id]);
+    }
 
     
     brpc::Controller cntl;

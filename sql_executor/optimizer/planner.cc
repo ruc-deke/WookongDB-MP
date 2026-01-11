@@ -1,5 +1,6 @@
 #include "planner.h"
 #include "sql_executor/parser/ast.h"
+#include <cassert>
 
 // 添加类型转换函数
 static IndexType convert_ast_index_type_to_lj(ast::IndexType ast_type) {
@@ -46,7 +47,10 @@ bool Planner::get_index_cols(std::string tab_name, std::vector<Condition> curr_c
     }
 
     TabMeta &tab = compute_server->get_node()->db_meta.get_table(tab_name);
-    if (tab.is_index(index_col_names)){
+    if (index_col_names.size() == 1 && tab.is_primary(index_col_names[0])){
+        type = IndexType::BTREE_INDEX;
+        return true;
+    }else if (tab.is_index(index_col_names)){
         IndexMeta index_meta = tab.get_index_meta(index_col_names);
         type = index_meta.type;
         return true;
@@ -370,10 +374,7 @@ std::shared_ptr<Plan> Planner::do_planner(std::shared_ptr<Query> query){
     std::shared_ptr<Plan> plannerRoot;
     if (auto x = std::dynamic_pointer_cast<ast::CreateTable>(query->m_parse)){      // CreatTable
         std::vector<ColDef> col_defs;
-        std::vector<std::string> primary_keys;
-
-        // 先假设 primary_keys 的名字是 "pri_key"
-        primary_keys.emplace_back("pri_keys");
+        std::string pri_key = "";
 
         for (auto &field : x->fields) {
             // 尝试将字段转换为 ast::ColDef
@@ -390,7 +391,11 @@ std::shared_ptr<Plan> Planner::do_planner(std::shared_ptr<Query> query){
                 
                 // 检查是否为主键列
                 if (sv_col_def->is_primary) {
-                    primary_keys.push_back(sv_col_def->col_name);
+                    // 应该只有一个主键列
+                    if (pri_key != ""){
+                        throw std::logic_error("主键只能是单个列！且需要为int类型");
+                    }
+                    pri_key = (sv_col_def->col_name);
                 }
             }else {
                 // 不应该走到这，保险点放个 assert
@@ -400,17 +405,11 @@ std::shared_ptr<Plan> Planner::do_planner(std::shared_ptr<Query> query){
         }
 
         // 先假定 primary_keys 不为空
-        assert(!primary_keys.empty());
-        if (!primary_keys.empty()){
-            std::cout << "Primarys : ";
-            for (size_t i = 0 ; i < primary_keys.size() ; i++){
-                std::cout << primary_keys[i];
-                if (i < primary_keys.size() - 1) std::cout << ", ";
-            }
-            std::cout << std::endl;
-        }
+        assert(pri_key != "");
 
-        plannerRoot = std::make_shared<DDLPlan>(T_CreateTable , x->tab_name ,std::vector<std::string>() , col_defs , primary_keys);
+        std::cout << "pri key = " << pri_key << "\n";
+
+        plannerRoot = std::make_shared<DDLPlan>(T_CreateTable , x->tab_name ,std::vector<std::string>() , col_defs , pri_key);
 
     }else if (auto x = std::dynamic_pointer_cast<ast::DropTable>(query->m_parse)){      // DropTable
         // TOOD 目前不支持删表
@@ -422,8 +421,6 @@ std::shared_ptr<Plan> Planner::do_planner(std::shared_ptr<Query> query){
         // TODO 目前不支持创建索引，唯一的索引是创建表的时候创建的 B+ 树索引
         throw LJ::UnsupportedOperationError("CreateIndex");
     }else if (auto x = std::dynamic_pointer_cast<ast::InsertStmt>(query->m_parse)){     // Insert
-        // 插入是最底层的节点，所以没有 subPlan
-        assert(false);
         // TODO 目前插入的 table_id 设置为 0，后边看下怎么搞，其实只要拿到 tab_name 就可以通过 db_meta 解析出 table_id，先不管了
         plannerRoot = std::make_shared<DMLPlan>(T_Insert , std::shared_ptr<Plan>() ,
             x->m_tabName , 0 , query->values ,std::vector<Condition>() , std::vector<SetClause>());
@@ -502,7 +499,6 @@ std::shared_ptr<Plan> Planner::do_planner(std::shared_ptr<Query> query){
         plannerRoot = std::make_shared<DMLPlan>(T_select, projection, std::string(), -1 , std::vector<Value>(),
                                                 std::vector<Condition>(), std::vector<SetClause>());
     }else {
-        assert(false);
         throw LJ::UnixError();
     }
     return plannerRoot;

@@ -268,12 +268,14 @@ private:
             }
         }else if (bench_name == "tpcc"){
 
+        }else if (bench_name == "sql") {
+            return custom_filename; 
         }else {
             assert(false);
         }
     }
 private:
-    std::shared_ptr<StorageBufferPoolManager> buffer_pool_;
+    StorageBufferPoolManager *buffer_pool_;
     DiskManager *dm_;
     
     S_FSMMetaData meta_;
@@ -282,6 +284,13 @@ private:
     bool initialized_;
 
     std::string bench_name;
+    std::string custom_filename; // 新增：用于 SQL 模式或其他自定义表名场景
+
+public:
+    // 新增：设置自定义文件名的接口
+    void set_custom_filename(const std::string& name) {
+        custom_filename = name;
+    }
 };
 
 // 简易断言辅助

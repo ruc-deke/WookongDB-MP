@@ -98,7 +98,8 @@ enum TXStatus : int {
 enum ColType{
     TYPE_INT = 0,
     TYPE_FLOAT = 1,
-    TYPE_STRING = 2
+    TYPE_STRING = 2,
+    TYPE_ITEMKEY = 3,   // 主键的类型，指定为 uint64_t
 };
 
 // 目前只支持 B+ 树索引

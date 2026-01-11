@@ -6,6 +6,8 @@
 #include "memory"
 #include "iostream"
 
+#include "common.h"
+
 enum JoinType{
     INNER_JOIN,
     LEFT_JOIN,

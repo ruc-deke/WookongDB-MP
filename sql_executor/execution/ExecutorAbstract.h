@@ -28,6 +28,8 @@ public:
         return ColMeta();
     };
 
+    virtual itemkey_t getKey() const {return -1;}
+
     std::vector<ColMeta>::const_iterator get_col(const std::vector<ColMeta> &rec_cols, const TabCol &target) {
         auto pos = std::find_if(rec_cols.begin(), rec_cols.end(), [&](const ColMeta &col) {
             return col.tab_name == target.tab_name && col.name == target.col_name;
