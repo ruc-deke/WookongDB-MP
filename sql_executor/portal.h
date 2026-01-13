@@ -9,6 +9,8 @@
 #include "execution/ExecutionManager.h"
 #include "execution/ExecutionProjection.h"
 #include "execution/ExecutorBPTree.h"
+#include "execution/ExecutorSeqScan.h"
+#include "execution/ExecutionDelete.h"
 
 
 #include "optimizer/plan.h"
@@ -48,22 +50,28 @@ public:
         if (auto x = std::dynamic_pointer_cast<ProjectionPlan>(plan)) {
             return std::make_unique<ProjectionExecutor>(convert_plan_executor(x->m_subPlan), x->m_selCols);
         }else if (auto x = std::dynamic_pointer_cast<ScanPlan>(plan)) {
-            // ⚠️⚠️：这里有问题，需要判断，我这里是实在找不到问题了，先用 scan 顶一下
-            // return std::make_unique<SeqScanExecutor>(m_smManager , x->m_tableName , x->m_filterConds , context);
-            // TODO
             if (x->m_tag == T_SeqScan) {
-                assert(false);
-                // TODO
-                // return std::make_unique<SeqScanExecutor>(m_smManager , x->m_tableName , x->m_filterConds , context);
+                return std::make_unique<SeqScanExecutor>(dtx , x->m_tableName , x->m_filterConds);
             }else if (x->m_tag == T_BPTreeIndexScan) {
-                // TODO，这里先这样写着，后续需要优化，因为 m_filterConds 不一定只有一个 cond
+                // 走到这里，说明条件里面一定有，主键 = 值的这种情况出现，因此要做的就是把这个条件给找出来，可能有多个，找到一个就行
                 itemkey_t key = 0;
-                assert(!x->m_filterConds.empty());
-                assert(x->m_filterConds[0].rhs_val.type == TYPE_INT);
-                key = x->m_filterConds[0].rhs_val.int_val;
-                return std::make_unique<BPTreeScanExecuotor>(dtx , x->m_tableName , key);
-            }else if (x->m_tag == T_HashIndexScan){
+                for (int i = 0 ; i < x->m_filterConds.size() ; i++){
+                    // 右边一定是值，左右一定是主键
+                    if (!x->m_filterConds[i].is_rhs_val){
+                        continue;
+                    }
+                    std::string tab_name = x->m_filterConds[i].lhs_col.tab_name;
+                    TabMeta tab = dtx->compute_server->get_node()->db_meta.get_table(tab_name);
+                    if (tab.is_primary(x->m_filterConds[i].lhs_col.col_name)
+                            && x->m_filterConds[i].op == OP_EQ){
+                        key = x->m_filterConds[i].rhs_val.int_val;
+                        return std::make_unique<BPTreeScanExecuotor>(dtx , x->m_tableName , key);
+                    }
+                }
+                // 一定可以找到一个列
                 assert(false);
+            }else if (x->m_tag == T_HashIndexScan){
+                throw std::logic_error("UnSupport Command");
                 // return std::make_unique<HashScanExecutor>(m_smManager, x->m_tableName, 
                 //                         x->m_filterConds, x->m_hashIndexConds, context, 0);
             }else{
@@ -103,29 +111,42 @@ public:
                 }
                 case T_Update: {
                     // Update 的 subplan 是一个 scan，用来扫描要更新的数据
-                    // TODO
-                    assert(false);
-                    // std::unique_ptr<AbstractExecutor> scan = convert_plan_executor(x->m_subPlan , context);
-                    // std::vector<Rid> rids;
-                    // for (scan->beginTuple() ; !scan->is_end() ; scan->nextTuple()){
-                    //     rids.push_back(scan->rid());
-                    // }
-                    // std::unique_ptr<AbstractExecutor> root =
-                    //     std::make_unique<UpdateExecutor>(m_smManager , x->m_tabName , x->m_setClauses , x->m_conds , rids , context);
-                    // return std::make_shared<PortalStmt>(PORTAL_DML_WITHOUT_SELECT, std::vector<TabCol>(), std::move(root), plan);
+                    std::unique_ptr<AbstractExecutor> scan = convert_plan_executor(x->m_subPlan);
+                    std::vector<Rid> rids;
+                    if (x->m_subPlan->m_tag == T_SeqScan){
+                        for (scan->beginTuple() ; !scan->is_end() ; scan->nextTuple()){
+                            rids.push_back(scan->rid());
+                            dtx->compute_server->ReleaseSPage(scan->getTab().table_id , scan->rid().page_no_);
+                        }
+                    }else if (x->m_subPlan->m_tag == T_BPTreeIndexScan){
+                        // 只有一个主键等值，那只需要 beginTuple 即可
+                        scan->beginTuple();
+                        rids.push_back(scan->rid());
+                    }else {
+                        assert(false);
+                    }
+                    std::unique_ptr<AbstractExecutor> root =
+                        std::make_unique<UpdateExecutor>(dtx , x->m_tabName , x->m_setClauses , x->m_conds , rids);
+                    return std::make_shared<PortalStmt>(PORTAL_DML_WITHOUT_SELECT, std::vector<TabCol>(), std::move(root), plan);
                 }
                 case T_Delete: {
-                    // 先扫描一遍表，获取到要删除的全部数据
-                    // TODO
-                    assert(false);
-                    // std::unique_ptr<AbstractExecutor> scan = convert_plan_executor(x->m_subPlan , context);
-                    // std::vector<Rid> rids;
-                    // for (scan->beginTuple(); !scan->is_end(); scan->nextTuple()) {
-                    //     rids.push_back(scan->rid());
-                    // }
-                    // std::unique_ptr<AbstractExecutor> root =
-                    //     std::make_unique<DeleteExecutor>(m_smManager , x->m_tabName , x->m_conds , rids , context);
-                    // return std::make_shared<PortalStmt>(PORTAL_DML_WITHOUT_SELECT, std::vector<TabCol>(), std::move(root), plan);
+                    std::unique_ptr<AbstractExecutor> scan = convert_plan_executor(x->m_subPlan);
+                    std::vector<Rid> rids;
+                    if (x->m_subPlan->m_tag == T_SeqScan){
+                        for (scan->beginTuple() ; !scan->is_end() ; scan->nextTuple()){
+                            rids.push_back(scan->rid());
+                            dtx->compute_server->ReleaseSPage(scan->getTab().table_id , scan->rid().page_no_);
+                        }
+                    }else if (x->m_subPlan->m_tag == T_BPTreeIndexScan){
+                        // 只有一个主键等值，那只需要 beginTuple 即可
+                        scan->beginTuple();
+                        rids.push_back(scan->rid());
+                    }else {
+                        assert(false);
+                    }
+                    std::unique_ptr<AbstractExecutor> root =
+                        std::make_unique<DeleteExecutor>(dtx , x->m_tabName , x->m_conds , rids);
+                    return std::make_shared<PortalStmt>(PORTAL_DML_WITHOUT_SELECT, std::vector<TabCol>(), std::move(root), plan);
                 }
                 case T_Insert: {
                     // TODO
@@ -148,7 +169,7 @@ public:
     void run(std::shared_ptr<PortalStmt> portal , QlManager *ql , DTX *dtx) {
         switch (portal->tag) {
             case PORTAL_ONE_SELECT: {
-                ql->select_from(std::move(portal->root) , std::move(portal->sel_cols));
+                ql->select_from(std::move(portal->root) , std::move(portal->sel_cols) , dtx);
                 break;
             }
             case PORTAL_DML_WITHOUT_SELECT: {

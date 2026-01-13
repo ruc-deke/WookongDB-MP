@@ -209,7 +209,7 @@ void ComputeServer::ts_switch_phase_hot_new(uint64_t time_slice){
                     k3 = node_->getScheduler()->getTaskQueueSize(2);
                 }
             }
-            LOG(INFO) << "Hot Activate Size = " << hot_size << " After = " << k1 << " " << k2 << " " << k3;
+            // LOG(INFO) << "Hot Activate Size = " << hot_size << " After = " << k1 << " " << k2 << " " << k3;
         }
 
         // time_slice us 后再调度回来
@@ -337,7 +337,7 @@ void ComputeServer::ts_switch_phase(uint64_t time_slice){
                     ts_par_lock_request.add_start_page_no(start_page_id);
                     ts_par_lock_request.add_end_page_no(end_page_id);
 
-                    LOG(INFO) << "Start Page ID = " << start_page_id << " End Page ID = " << end_page_id;
+                    // LOG(INFO) << "Start Page ID = " << start_page_id << " End Page ID = " << end_page_id;
                 }
             }
         }
@@ -397,11 +397,11 @@ void ComputeServer::ts_switch_phase(uint64_t time_slice){
 
         if (ComputeNodeCount != 1){
             std::lock_guard<std::mutex> lk(node_->switch_mtx);
-            LOG(INFO) << "Now Time Slice ID = " << node_->ts_cnt;
-            LOG(INFO) << "TSParLock Time = " << std::fixed << std::setprecision(3) << (duration_parxlock_time / 1000.0) << "ms";
-            LOG(INFO) << "Slice Queue Size = " << active_cnt;
-            LOG(INFO) << "Node Left Fiber Cnt = " << node_->getScheduler()->getTaskQueueSize(node_->ts_cnt);
-            LOG(INFO) << "Dirty Page Size = " << node_->dirty_pages.size();
+            // LOG(INFO) << "Now Time Slice ID = " << node_->ts_cnt;
+            // LOG(INFO) << "TSParLock Time = " << std::fixed << std::setprecision(3) << (duration_parxlock_time / 1000.0) << "ms";
+            // LOG(INFO) << "Slice Queue Size = " << active_cnt;
+            // LOG(INFO) << "Node Left Fiber Cnt = " << node_->getScheduler()->getTaskQueueSize(node_->ts_cnt);
+            // LOG(INFO) << "Dirty Page Size = " << node_->dirty_pages.size();
             for (auto &[table_id , page_id] : node_->dirty_pages){
                 // DEBUG: 验证页面确实在当前时间片分区内
                 assert(is_partitioned_page(table_id , page_id , node_->ts_cnt));
@@ -419,7 +419,7 @@ void ComputeServer::ts_switch_phase(uint64_t time_slice){
 
         auto ts_baga_time = std::chrono::high_resolution_clock::now();
         auto duration_baga = std::chrono::duration_cast<std::chrono::microseconds>(ts_baga_time - ts_unlock_start).count();
-        LOG(INFO) << "Unlock Time Real = " << std::fixed << std::setprecision(3) << (duration_baga / 1000.0) << "ms";
+        // LOG(INFO) << "Unlock Time Real = " << std::fixed << std::setprecision(3) << (duration_baga / 1000.0) << "ms";
 
         cntl.Reset();
         partable_stub.TsParXUnlock(&cntl , &ts_par_unlock_req , &ts_par_unlock_resp , NULL);
@@ -430,7 +430,7 @@ void ComputeServer::ts_switch_phase(uint64_t time_slice){
 
         auto ts_unlock_end = std::chrono::high_resolution_clock::now();
         auto duration_unlock_time = std::chrono::duration_cast<std::chrono::microseconds>(ts_unlock_end - ts_unlock_start).count();
-        LOG(INFO) << "Unlock Time = " << std::fixed << std::setprecision(3) << (duration_unlock_time / 1000.0) << "ms";
+        // LOG(INFO) << "Unlock Time = " << std::fixed << std::setprecision(3) << (duration_unlock_time / 1000.0) << "ms";
         // auto unlock_par_time = std::chrono::high_resolution_clock::now();
         // 完成标志由 TsParXUnlock 服务端合并处理，无需额外 RPC
 
@@ -444,7 +444,7 @@ void ComputeServer::ts_switch_phase(uint64_t time_slice){
                     need_loop = false;
                 }
                 if (!need_loop){
-                    LOG(INFO) << "TRY WAIT CNT = " << tmp_cnt;
+                    // LOG(INFO) << "TRY WAIT CNT = " << tmp_cnt;
                 }
             }
             
@@ -457,7 +457,7 @@ void ComputeServer::ts_switch_phase(uint64_t time_slice){
         auto ts_end_time = std::chrono::high_resolution_clock::now();
         auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(ts_end_time - ts_start_time).count();
 
-        LOG(INFO) << "Real Time = " << std::fixed << std::setprecision(3) << (duration_us / 1000.0) << "ms\n";
+        // LOG(INFO) << "Real Time = " << std::fixed << std::setprecision(3) << (duration_us / 1000.0) << "ms\n";
     }
 }
 
@@ -490,23 +490,23 @@ void ComputeServer::ts_switch_phase(uint64_t time_slice){
 
 //         auto lock_time = std::chrono::high_resolution_clock::now();
 //         auto duration_unlock = std::chrono::duration_cast<std::chrono::microseconds>(lock_time - ts_start_time).count();
-//         LOG(INFO) << "Lock Time = " << std::fixed << std::setprecision(3) << (duration_unlock / 1000.0) << "ms";
+//         // LOG(INFO) << "Lock Time = " << std::fixed << std::setprecision(3) << (duration_unlock / 1000.0) << "ms";
         
 //         // 2.
 //         node_->setPhaseHot(TsPhase::RUNNING);
 //         int queue_size = node_->getScheduler()->activateHot();
-//         LOG(INFO) << "RUNNING Start , Now Hot Queue Size = " << queue_size;
+//         // LOG(INFO) << "RUNNING Start , Now Hot Queue Size = " << queue_size;
 //         {
 //             node_->getScheduler()->YieldWithTime(hot_slice);
 //         }
-//         LOG(INFO) << "RUNNING End , Now Hot Queue Size = " << node_->getScheduler()->getWaitHotSize();
+//         // LOG(INFO) << "RUNNING End , Now Hot Queue Size = " << node_->getScheduler()->getWaitHotSize();
         
 //         node_->getScheduler()->stopHot();
 //         node_->setPhaseHot(TsPhase::SWITCHING);
         
 //         auto ts_running_end_time = std::chrono::high_resolution_clock::now();
 //         auto duration_running = std::chrono::duration_cast<std::chrono::microseconds>(ts_running_end_time - lock_time).count();
-//         LOG(INFO) << "RUNNING Real Time = " << std::fixed << std::setprecision(3) << (duration_running / 1000.0) << "ms";
+//         // LOG(INFO) << "RUNNING Real Time = " << std::fixed << std::setprecision(3) << (duration_running / 1000.0) << "ms";
 //         // 3.
 //         node_id_t next_node_id = (node_id + 1) % ComputeNodeCount;
 //         compute_node_service::ComputeNodeService_Stub stub(get_compute_channel() + next_node_id);
@@ -539,7 +539,7 @@ void ComputeServer::ts_switch_phase(uint64_t time_slice){
 //         auto ts_end_time = std::chrono::high_resolution_clock::now();
 //         auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(ts_end_time - ts_start_time).count();
 //         auto duration_us2 = std::chrono::duration_cast<std::chrono::microseconds>(ts_end_time - ts_running_end_time).count();
-//         LOG(INFO) << "UNLOCK Real Time = " << std::fixed << std::setprecision(3) << (duration_us2 / 1000.0) << "ms";
-//         LOG(INFO) << "Hot Real Time = " << std::fixed << std::setprecision(3) << (duration_us / 1000.0) << "ms\n";
+//         // LOG(INFO) << "UNLOCK Real Time = " << std::fixed << std::setprecision(3) << (duration_us2 / 1000.0) << "ms";
+//         // LOG(INFO) << "Hot Real Time = " << std::fixed << std::setprecision(3) << (duration_us / 1000.0) << "ms\n";
 //     }
 // }

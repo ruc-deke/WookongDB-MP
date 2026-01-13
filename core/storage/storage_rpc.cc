@@ -343,22 +343,7 @@ namespace storage_service{
         memset(zero_page, 0, PAGE_SIZE);
         disk_manager_->write_page(fd, new_page_no, zero_page, PAGE_SIZE);
 
-        LOG(INFO) << "Create a Page , table_id = " << table_id << " page_id = " << new_page_no << "\n";
-        
-        bool is_file = (table_path.find("_bl") == std::string::npos && table_path.find("_fsm") == std::string::npos);
-        if (is_file){
-            // RM 文件：按 RM 页头偏移写 next_free，并维护 RM 文件头
-            int next_free = RM_NO_PAGE;
-            disk_manager_->update_value(fd, new_page_no, OFFSET_NEXT_FREE_PAGE_NO,
-                                        reinterpret_cast<char*>(&next_free), sizeof(int));
-        
-            int new_num_pages = static_cast<int>(new_page_no) + 1;
-            disk_manager_->update_value(fd, PAGE_NO_RM_FILE_HDR, OFFSET_NUM_PAGES,
-                                        reinterpret_cast<char*>(&new_num_pages), sizeof(int));
-            int first_free_page_no = static_cast<int>(new_page_no);
-            disk_manager_->update_value(fd, PAGE_NO_RM_FILE_HDR, OFFSET_FIRST_FREE_PAGE_NO,
-                                        reinterpret_cast<char*>(&first_free_page_no), sizeof(int));
-        }
+        // LOG(INFO) << "Create a Page , table_id = " << table_id << " page_id = " << new_page_no << "\n";
         
         response->set_page_no(new_page_no);
         response->set_success(true);

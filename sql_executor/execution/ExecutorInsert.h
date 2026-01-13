@@ -25,7 +25,7 @@ public:
     }
 
     // 对于 Insert 来说，Next() 就是直接执行插入了
-    std::unique_ptr<DataItem> Next() override {
+    DataItem* Next() override {
         auto insert_item = std::make_shared<DataItem>(m_tab.table_id , record_size);
         itemkey_t primary_key = -1;
 
@@ -57,6 +57,10 @@ public:
 
     Rid &rid() override {
         return m_rid;
+    }
+
+    TabMeta getTab() const override {
+        return m_tab;
     }
 
 private:

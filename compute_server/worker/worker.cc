@@ -408,7 +408,7 @@ void RunSQL(){
 
       // 执行计划
       auto portalStmt = sql_portal->start(plan , sql_dtx);
-      sql_portal->run(portalStmt, sql_ql.get(), nullptr);
+      sql_portal->run(portalStmt, sql_ql.get(), sql_dtx);
 
       sql_portal->drop();
       if (need_commit){
@@ -782,7 +782,7 @@ void initThread(thread_params* params,
               YCSB *ycsb_cli){
     static std::atomic<int> cnt{1};
     int thread_id_logic = cnt++;
-    LOG(INFO) << "INIT Thread , Thread ID = " << getThreadID(); 
+    // LOG(INFO) << "INIT Thread , Thread ID = " << getThreadID(); 
     bench_name = params->bench_name;
     std::string config_filepath = "../../config/" + bench_name + "_config.json";
   

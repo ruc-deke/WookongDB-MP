@@ -174,29 +174,29 @@ DataItemPtr DTX::GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid,
     return itemPtr;
 }
 
-std::unique_ptr<DataItem> DTX::GetDataItemFromPage(table_id_t table_id , Rid rid , char *data , RmFileHdr *file_hdr , itemkey_t &pri_key , bool is_w){
+DataItem* DTX::GetDataItemFromPage(table_id_t table_id , Rid rid , char *data , RmFileHdr *file_hdr , itemkey_t &pri_key , bool is_w){
     char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
     char *slots = bitmap + file_hdr->bitmap_size_;
     char* tuple = slots + rid.slot_no_ * (file_hdr->record_size_ + sizeof(itemkey_t));
 
-    // DataItem *disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
-    // disk_item->value = reinterpret_cast<uint8_t*>(disk_item) + sizeof(DataItem);
+    DataItem *disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+    disk_item->value = reinterpret_cast<uint8_t*>(disk_item) + sizeof(DataItem);
 
-    DataItem* disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
-    auto itemPtr = std::make_unique<DataItem>(disk_item->table_id, static_cast<int>(disk_item->value_size));
-    itemPtr->lock = disk_item->lock;
-    itemPtr->version = disk_item->version;
-    itemPtr->prev_lsn = disk_item->prev_lsn;
-    itemPtr->valid = disk_item->valid;
-    itemPtr->user_insert = disk_item->user_insert;
-    memcpy(itemPtr->value, reinterpret_cast<char*>(disk_item) + sizeof(DataItem), itemPtr->value_size);
+    // DataItem* disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+    // auto itemPtr = std::make_unique<DataItem>(disk_item->table_id, static_cast<int>(disk_item->value_size));
+    // itemPtr->lock = disk_item->lock;
+    // itemPtr->version = disk_item->version;
+    // itemPtr->prev_lsn = disk_item->prev_lsn;
+    // itemPtr->valid = disk_item->valid;
+    // itemPtr->user_insert = disk_item->user_insert;
+    // memcpy(itemPtr->value, reinterpret_cast<char*>(disk_item) + sizeof(DataItem), itemPtr->value_size);
     
     pri_key = *reinterpret_cast<itemkey_t*>(tuple);
 
     if (!is_w){
         UndoDataItem(disk_item);
     }
-    return itemPtr;
+    return disk_item;
 
 }
 

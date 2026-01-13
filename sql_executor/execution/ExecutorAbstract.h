@@ -23,10 +23,12 @@ public:
     virtual void nextTuple() {}
     virtual bool is_end() const {return true;}
     virtual Rid &rid() = 0;
-    virtual std::unique_ptr<DataItem> Next() = 0;
+    virtual DataItem* Next() = 0;
     virtual ColMeta get_col_offset(const TabCol &target) {
         return ColMeta();
     };
+
+    virtual TabMeta getTab() const = 0;
 
     virtual itemkey_t getKey() const {return -1;}
 

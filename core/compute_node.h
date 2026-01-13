@@ -296,6 +296,9 @@ public:
 
         // 目前这个数据库里的表的数量
         int table_num = open_db_response.table_num();
+        for (int i = 0 ; i < open_db_response.table_names_size() ; i++){
+            table_names.emplace_back(open_db_response.table_names(i));
+        }
 
         std::cout << "OpenDB : " << db_name << " Table Num = " << table_num << " Error Code = " << open_db_response.error_code() << "\n";
 
@@ -544,6 +547,7 @@ public:
 public:
     // DBMeta，缓存 DB 信息
     DBMeta db_meta;
+    std::vector<std::string> table_names;
 
 
 private:
@@ -579,7 +583,6 @@ private:
     Phase phase = Phase::BEGIN;
     bool is_running = true;
     Scheduler* scheduler;
-
     
 
 public:

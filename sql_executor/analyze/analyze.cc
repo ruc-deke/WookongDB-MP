@@ -130,7 +130,7 @@ void Analyze::check_clause(const std::vector<std::string>& tab_names, std::vecto
 
         // 5. 类型兼容性检查:左右操作数类型必须相同
         if ((lhs_type != rhs_type)) {
-            if (!(lhs_type == ColType::TYPE_ITEMKEY && rhs_type == ColType::TYPE_INT)){
+            if (!(lhs_type == ColType::TYPE_ITEMKEY && rhs_type == ColType::TYPE_INT || lhs_type == ColType::TYPE_INT && rhs_type == ColType::TYPE_ITEMKEY)){
                 throw LJ::TypeMismatchError(
                     typeToStr(lhs_type),
                     typeToStr(rhs_type),
@@ -193,7 +193,11 @@ std::shared_ptr<Query> Analyze::do_analyze(std::shared_ptr<ast::TreeNode> parse)
         for (auto &set_clause : query->m_clauses) {
             auto lhs_col = tab.get_col(set_clause.lhs.col_name);
             if (lhs_col.type != set_clause.rhs.type) {
-                throw UnixError();
+                if (!(lhs_col.type == ColType::TYPE_INT && set_clause.rhs.type == ColType::TYPE_ITEMKEY)){
+                    if (!(lhs_col.type == ColType::TYPE_ITEMKEY && set_clause.rhs.type == ColType::TYPE_INT)){
+                        throw std::logic_error("left col and right col don't match");
+                    }
+                }
             }
             set_clause.rhs.init_dataItem(lhs_col.len);
         }

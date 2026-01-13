@@ -291,11 +291,3 @@ enum NodeType: int {
     COMPUTE_NODE,
     STORAGE_NODE
 };
-
-class RecScan{
-public:
-    virtual ~RecScan() = default;
-    virtual void next() = 0;
-    virtual bool is_end() const = 0;
-    virtual Rid rid() const = 0;
-};

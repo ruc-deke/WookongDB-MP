@@ -51,6 +51,8 @@ bool Planner::get_index_cols(std::string tab_name, std::vector<Condition> curr_c
         type = IndexType::BTREE_INDEX;
         return true;
     }else if (tab.is_index(index_col_names)){
+        // 目前只支持 主键索引，不会走到这
+        assert(false);
         IndexMeta index_meta = tab.get_index_meta(index_col_names);
         type = index_meta.type;
         return true;
@@ -70,7 +72,6 @@ std::vector<Condition> Planner::pop_conds(std::vector<Condition> &conds , const 
                 it = conds.erase(it);
             }
         }else if (it->lhs_col.tab_name.compare(it->rhs_col.tab_name) == 0){
-            assert(false);
             // 这里之前是没有这个条件判断的，到时候看看需不需要这个条件判断
             if (it->rhs_col.tab_name.compare(tab_name) == 0){
                 tab_conds.emplace_back(std::move(*it));
@@ -157,11 +158,12 @@ std::shared_ptr<Plan> Planner::make_one_rel(std::shared_ptr<Query> query) {
                 T_SeqScan , current_sql_id_ , current_plan_id_++ , compute_server , tables[i] , curr_cond , index_col_names
             ));
         }else if (type == IndexType::BTREE_INDEX){
-            // 这里应该是 IndexScan，我还没实现
             table_scan_executors.push_back(std::make_shared<ScanPlan>(
                 T_BPTreeIndexScan , current_sql_id_ , current_plan_id_++ , compute_server , tables[i] , curr_cond , index_col_names
             ));
         }else if (type == IndexType::HASH_INDEX){
+            // 目前不支持哈希索引
+            assert(false);
             std::vector<Condition> hash_conds, filter_conds;
             check_primary_index_match(tables[i], curr_cond, hash_conds, filter_conds);
             
@@ -405,7 +407,9 @@ std::shared_ptr<Plan> Planner::do_planner(std::shared_ptr<Query> query){
         }
 
         // 先假定 primary_keys 不为空
-        assert(pri_key != "");
+        if (pri_key == ""){
+            throw std::logic_error("主键不能为空，且需要为 INT 类型\n示例：Create Table student(id int , age int , primary key(id));");
+        }
 
         std::cout << "pri key = " << pri_key << "\n";
 
@@ -474,11 +478,11 @@ std::shared_ptr<Plan> Planner::do_planner(std::shared_ptr<Query> query){
                 T_SeqScan , current_sql_id_ , current_plan_id_++ , compute_server , tab_name , query->m_conds , std::vector<Condition>() , std::vector<TabCol>()
             );
         }else if (type == IndexType::BTREE_INDEX){
-            assert(false);
             table_scan_executors = std::make_shared<ScanPlan>(
                 T_BPTreeIndexScan , current_sql_id_ , current_plan_id_++ , compute_server , tab_name , query->m_conds , index_col_names
             );
         }else if (type == IndexType::HASH_INDEX){
+            assert(false);
             // 同样拆分条件，避免 m_hashConds 为空
             std::vector<Condition> hash_conds, filter_conds;
             check_primary_index_match(tab_name, query->m_conds, hash_conds, filter_conds);

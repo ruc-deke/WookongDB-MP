@@ -8,19 +8,13 @@ void QlManager::run_mutli_query(std::shared_ptr<Plan> plan){
                 break;
             }
             case T_CreateIndex: {
-                assert(false);
-                // m_smManager->create_index(x->m_tabName , x->m_tabColNames , x->m_indexType , context);
-                // break;
+                throw std::logic_error("Unsupport Command");
             }
             case T_DropTable: {
-                assert(false);
-                // m_smManager->drop_table(x->m_tabName , context);
-                // break;
+                throw std::logic_error("Unsupport Command");
             }
             case T_DropIndex: {
-                assert(false);
-                // m_smManager->drop_index(x->m_tabName , x->m_tabColNames , context);
-                // break;
+                throw std::logic_error("Unsupport Command");
             }
             default: {
                 throw LJ::InternalError("Error");
@@ -43,33 +37,27 @@ void QlManager::run_cmd_utility(std::shared_ptr<Plan> plan){
                 break;
             }
             case T_DescTable: {
-                // TODO
-                // m_smManager->desc_table(x->m_tabName , context);
                 compute_server->desc_table(x->m_tabName);
                 break;
             }
             case T_Transaction_begin:{
                 // TODO
                 assert(false);
-                // m_transactionManager->begin(context->m_txn , context->m_logManager);
                 break;
             }
             case T_Transaction_commit: {
                 // TODO
                 assert(false);
-                // m_transactionManager->commit(context->m_txn , context->m_logManager);
                 break;
             }
             case T_Transaction_rollback: {
                 // TODO
                 assert(false);
-                // m_transactionManager->abort(context->m_txn , context->m_logManager);
                 break;
             }
             case T_Transaction_abort: {
                 // TODO
                 assert(false);
-                // m_transactionManager->abort(context->m_txn , context->m_logManager);
                 break;
             }
             default: {
@@ -79,7 +67,7 @@ void QlManager::run_cmd_utility(std::shared_ptr<Plan> plan){
         }
     }
 }
-void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, std::vector<TabCol> sel_cols){
+void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, std::vector<TabCol> sel_cols , DTX *dtx){
     // TODO
     std::vector<std::string> captions;
 
@@ -102,7 +90,6 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
     int checkpointed_result_num = 0;
 
     // 真正执行 SQL Plan
-    // LJ_LOG_INFO(g_logger) << "Begin Select";
     for (executorTreeRoot->beginTuple() ; !executorTreeRoot->is_end() ; executorTreeRoot->nextTuple()) {
         // Next 就是读取到数据
         auto Tuple = executorTreeRoot->Next();
@@ -127,6 +114,10 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
             }
             columns.push_back(col_str);
         }
+        
+        // 打印完了后，释放掉页面
+        dtx->compute_server->ReleaseSPage(executorTreeRoot->getTab().table_id , executorTreeRoot->rid().page_no_);
+
         rec_printer.print_record(columns, &context); // 最后输出的记录
         num_rec++;
     }

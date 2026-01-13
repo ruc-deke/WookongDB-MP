@@ -51,19 +51,23 @@ public:
         return m_prev->rid();
     }
 
-    std::unique_ptr<DataItem> Next() override {
+    TabMeta getTab() const override {
+        return m_prev->getTab();
+    }
+
+    DataItem* Next() override {
         auto child_dataItem = m_prev->Next();
-        m_key = m_prev->getKey();
 
         if (!child_dataItem){
             return nullptr;
         }
 
-        auto ret_dataItem = std::make_unique<DataItem>(m_len , true);
+        DataItem *ret_dataItem = new DataItem(m_len , true);
+        // auto ret_dataItem = std::make_unique<DataItem>(m_len , true);
+        
         int sel_num = m_selIndexes.size();
         auto prev_cols = m_prev->cols();
 
-        // assert(false);  
         // 把数据放到构造的投影列里面去
         for (int i = 0 ; i < sel_num ; i++){
             ColMeta prev_col = prev_cols[m_selIndexes[i]];
@@ -84,7 +88,7 @@ public:
     }
 
     itemkey_t getKey() const override {
-        return m_key;
+        return m_prev->getKey();
     }
 
 private:
@@ -92,6 +96,4 @@ private:
     std::vector<ColMeta> m_cols;    //投影到的列
     size_t m_len;
     std::vector<size_t> m_selIndexes;   // 投影到的列的列号
-
-    itemkey_t m_key = -1;
 };

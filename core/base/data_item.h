@@ -36,7 +36,7 @@ struct DataItem {
 
   // Build an empty item for fetching data from remote
   DataItem(table_id_t t)
-      : table_id(t), value_size(0),  lock(0), version(0), valid(1), user_insert(0) {}
+      : table_id(t), value_size(0),  value(nullptr) , lock(0), version(0), valid(1), user_insert(0) {}
   DataItem(table_id_t t , int val_size)
       : table_id(t), lock(0), value(nullptr), value_size(val_size), version(0), prev_lsn(0), valid(1), user_insert(0) {
     value = new uint8_t[value_size];

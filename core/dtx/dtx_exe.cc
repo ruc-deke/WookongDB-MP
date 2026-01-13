@@ -34,7 +34,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
         read_only_set.erase(read_only_set.begin() + i);
         i--; // Move back one step
         tx_status = TXStatus::TX_VAL_NOTFOUND; // Value not found
-        LOG(INFO) << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item_key << " not found ";
+        // LOG(INFO) << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item_key << " not found ";
         continue;
       }
       ro_fetch_tasks.emplace_back(i, std::make_pair(rid, &read_only_set[i].second));
@@ -54,7 +54,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
         read_write_set.erase(read_write_set.begin() + i);
         i--; // Move back one step
         tx_status = TXStatus::TX_VAL_NOTFOUND; // Value not found
-        LOG(INFO) << "Thread id:" << local_t_id << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item_key << " not found ";
+        // LOG(INFO) << "Thread id:" << local_t_id << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item_key << " not found ";
         continue;
       }
       rw_fetch_tasks.emplace_back(i, std::make_pair(rid, &read_write_set[i].second));
@@ -213,7 +213,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
           DataItem* orginal_item = nullptr;
 
           RmFileHdr *file_hdr = compute_server->get_file_hdr(item.item_ptr->table_id);
-          *item.item_ptr = *GetDataItemFromPageRW(item.item_ptr->table_id, data, rid, orginal_item , file_hdr , item_key);
+          GetDataItemFromPageRW(item.item_ptr->table_id, data, rid, orginal_item , file_hdr , item_key);
 
           if(orginal_item->lock == UNLOCKED) {
             orginal_item->lock = EXCLUSIVE_LOCKED;
@@ -304,7 +304,7 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
   clock_gettime(CLOCK_REALTIME, &end_send_log_time);
   tx_write_commit_log_time += (end_send_log_time.tv_sec - end_ts_time.tv_sec) + (double)(end_send_log_time.tv_nsec - end_ts_time.tv_nsec) / 1000000000;
 
-  // 对于写过的每个元组，需要再访问一次页面，把这个元组的锁信息和版本号给更新一下
+
   for(size_t i = 0 ; i < read_write_set.size() ; i++){
     DataSetItem& data_item = read_write_set[i].second;
     itemkey_t item_key = read_write_set[i].first;
@@ -472,9 +472,10 @@ void DTX::TxAbort(coro_yield_t& yield) {
 
         // assert(original_item->key == data_item.item_ptr->key);
         assert(original_item->lock == EXCLUSIVE_LOCKED);
-        LOG(INFO) << "TxAbort , inserted key = " << item_key;
+        // LOG(INFO) << "TxAbort , inserted key = " << item_key;
 
         original_item->lock = UNLOCKED;
+        original_item->valid = 0;
 
         struct timespec start_time2, end_time2;
         clock_gettime(CLOCK_REALTIME, &start_time2);
@@ -517,8 +518,9 @@ void DTX::TxAbort(coro_yield_t& yield) {
 
         // assert(original_item->key == data_item.item_ptr->key);
         assert(original_item->lock == EXCLUSIVE_LOCKED);
-        LOG(INFO) << "TxAbort , Deleted key = " << item_key;
+        // LOG(INFO) << "TxAbort , Deleted key = " << item_key;
         original_item->lock = UNLOCKED;
+        original_item->valid = 0;
 
         struct timespec start_time2, end_time2;
         clock_gettime(CLOCK_REALTIME, &start_time2);

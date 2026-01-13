@@ -1,17 +1,34 @@
 #pragma once
 
 #include "core/base/page.h"
-#include "compute_server/server.h"
+#include "dtx/dtx.h"
 
-class Scan{
+class RecScan{
 public:
-    Scan(ComputeServer *server , table_id_t tabl_id);
-    void next();
-    bool is_end() const ;
-    Rid rid() const;
+    virtual ~RecScan() = default;
+    virtual void next() = 0;
+    virtual bool is_end() const = 0;
+    virtual Rid rid() const = 0;
+
+    virtual DataItem* getDataItem() const = 0;
+    virtual itemkey_t getKey() const = 0;
+};
+
+class Scan : public RecScan{
+public:
+    Scan(DTX *dtx , table_id_t tabl_id);
+    void next() override;
+    bool is_end() const override;
+    Rid rid() const override;
+    DataItem* getDataItem() const override;
+    itemkey_t getKey() const override;
 
 private:
-    ComputeServer *compute_server;
+    DTX *m_dtx;
+    RmFileHdr* m_fileHdr;
     Rid m_rid;
-    table_id_t table_id;
+    itemkey_t m_key;
+    table_id_t m_tableID;
+
+    DataItem* m_item;
 };

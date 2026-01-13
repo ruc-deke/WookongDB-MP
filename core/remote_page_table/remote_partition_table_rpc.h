@@ -472,7 +472,7 @@ class PartitionTableImpl : public PartitionTableService {
                        ::google::protobuf::Closure* done){
         brpc::ClosureGuard done_guard(done);
         node_id_t node_id = request->node_id();
-        LOG(INFO) << "Receive Finish From Node : " << node_id;
+        // LOG(INFO) << "Receive Finish From Node : " << node_id;
         global_epoch_mutex.lock();
         bool need_to_update = true;
         for (int i = 0 ; i < ComputeNodeCount ; i++){

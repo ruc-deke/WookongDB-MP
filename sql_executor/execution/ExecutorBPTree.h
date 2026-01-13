@@ -29,16 +29,16 @@ public:
         if (is_end()){
             return;
         }
+        Next();
     }
 
-    std::unique_ptr<DataItem> Next() override {
+    DataItem* Next() override {
         RmFileHdr *file_hdr = dtx->compute_server->get_file_hdr(m_tableID);
         char *data = dtx->compute_server->FetchSPage(m_tableID , m_rid.page_no_);
-        std::unique_ptr<DataItem> item = dtx->GetDataItemFromPage(m_tableID , m_rid , data , file_hdr , m_key , false);
-        dtx->compute_server->ReleaseSPage(m_tableID , m_rid.page_no_);
+        DataItem *data_item = dtx->GetDataItemFromPage(m_tableID , m_rid , data , file_hdr , m_key , false);
         end = true;
 
-        return item;
+        return data_item;
     }
 
     Rid &rid() override {
@@ -49,9 +49,15 @@ public:
         return ;
     }
 
+
+    TabMeta getTab() const override {
+        return m_tab;
+    }
+
     bool is_end() const override {
         return end;
     }
+
 
     const std::vector<ColMeta> &cols() const override {
         return m_cols;

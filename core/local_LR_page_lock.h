@@ -112,7 +112,7 @@ public:
     }
 
     bool LockExclusive() {
-        // // LOG(INFO) << "LockExclusive: " << page_id << std::endl;
+        // LOG(INFO) << "LockExclusive: " << page_id << std::endl;
         bool lock_remote = false;
         bool try_latch = true;
         while(try_latch){

@@ -299,7 +299,7 @@ class SmallBank {
         }
         *acct_id = dtx->page_cache->SearchRandom(seed, table_id, page_id);
 
-        // LOG(INFO) << "target node id = " << target_node_id << " node page cnt = " << node_page_cnt << " chosen page id = " << page_id
+        // // LOG(INFO) << "target node id = " << target_node_id << " node page cnt = " << node_page_cnt << " chosen page id = " << page_id
         //     << " par cnt = " << par_cnt << " is hot = " << is_hot
         //     << " is_par = " << is_partitioned << " key = " << *acct_id;
   }
