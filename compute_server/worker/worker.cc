@@ -393,6 +393,8 @@ void RunSQL(){
         sql_dtx->TxBegin(iter);
       }
 
+      LOG(INFO) << "Run SQL" << sql_str << "\n\n";
+
       // 词法分析：将 SQL 字符串转换为 token 流
       YY_BUFFER_STATE b = yy_scan_string(sql_str.c_str());
       // 语法分析：将 token 流解析为抽象语法树 (AST)
@@ -414,6 +416,7 @@ void RunSQL(){
       // 执行计划
       auto portalStmt = sql_portal->start(plan , sql_dtx);
       auto res = sql_portal->run(portalStmt, sql_ql.get(), sql_dtx);
+
 
       if (res == run_stat::TXN_BEGIN){
         if (txn_begin == true){

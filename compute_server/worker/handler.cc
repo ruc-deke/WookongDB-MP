@@ -168,8 +168,6 @@ void Handler::GenThreadAndCoro(node_id_t node_id , int thread_num, int sys_mode 
 
   socket_start_client(global_meta_man->remote_server_nodes[0].ip, global_meta_man->remote_server_meta_port);
 
-  // std::cout << "finish start client\n";
-
   // TODO
   // 在这里监听，来一个连接我新建一个线程和一个 DTX
   // 先假设只有一个连接，后续再添加下多连接逻辑
@@ -224,7 +222,7 @@ void Handler::GenThreads(std::string bench_name) {
     }else {
         LOG(FATAL) << "Unsupported benchmark name: " << bench_name;
     }
-    std::cout << "WORKLOAD_MODE = " << WORKLOAD_MODE << "\n";
+  std::cout << "WORKLOAD_MODE = " << WORKLOAD_MODE << "\n";
   std::string config_filepath = "../../config/compute_node_config.json";
   auto json_config = JsonConfig::load_file(config_filepath);
   auto client_conf = json_config.get("local_compute_node");

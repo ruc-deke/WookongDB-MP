@@ -66,7 +66,7 @@ public:
                     if (tab.is_primary(x->m_filterConds[i].lhs_col.col_name)
                             && x->m_filterConds[i].op == OP_EQ){
                         key = x->m_filterConds[i].rhs_val.int_val;
-                        return std::make_unique<BPTreeScanExecuotor>(dtx , x->m_tableName , key);
+                        return std::make_unique<BPTreeScanExecutor>(dtx , x->m_tableName , key);
                     }
                 }
                 // 一定可以找到一个列
@@ -88,9 +88,7 @@ public:
             return join;
         } else if (auto x = std::dynamic_pointer_cast<SortPlan>(plan)) {
             // TODO
-            assert(false);
-            // return std::make_unique<SortExecutor>(convert_plan_executor(x->subplan_, context),
-            //                                     x->sel_col_, x->is_desc_);
+            throw std::logic_error("UnSupport Command");
         }
         return nullptr;
     }
@@ -124,7 +122,9 @@ public:
                     }else if (x->m_subPlan->m_tag == T_BPTreeIndexScan){
                         // 只有一个主键等值，那只需要 beginTuple 即可
                         scan->beginTuple();
-                        rids.push_back(scan->rid());
+                        if (!scan->is_end()){
+                            rids.push_back(scan->rid());
+                        }
                     }else {
                         assert(false);
                     }

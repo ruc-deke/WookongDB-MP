@@ -76,6 +76,52 @@ struct DataItem {
     memcpy(undo_buffer, (char*)this, sizeof(DataItem));
     memcpy(undo_buffer + sizeof(DataItem), value, value_size);
   }
+
+  DataItem(const DataItem& other)
+      : table_id(other.table_id),
+        lock(other.lock),
+        value_size(other.value_size),
+        version(other.version),
+        prev_lsn(other.prev_lsn),
+        valid(other.valid),
+        user_insert(other.user_insert) {
+    if (other.value != nullptr) {
+      value = new uint8_t[value_size];
+      memcpy(value, other.value, value_size);
+    } else {
+      value = nullptr;
+    }
+  }
+
+  DataItem& operator=(const DataItem& other) {
+    if (this == &other) {
+      return *this; // 防止自赋值 (a = a)
+    }
+
+    // 先释放自己原有的内存，防止内存泄漏
+    if (value != nullptr) {
+      delete[] value;
+    }
+
+    // 拷贝所有普通成员变量
+    table_id = other.table_id;
+    lock = other.lock;
+    value_size = other.value_size;
+    version = other.version;
+    prev_lsn = other.prev_lsn;
+    valid = other.valid;
+    user_insert = other.user_insert;
+
+    // 深拷贝 value 指向的内存
+    if (other.value != nullptr) {
+      value = new uint8_t[value_size];
+      memcpy(value, other.value, value_size);
+    } else {
+      value = nullptr;
+    }
+
+    return *this;
+  }
 };
 
 // const size_t DataItemSize = sizeof(DataItem); // 32 bytes

@@ -114,37 +114,6 @@ bool SmallBankDTX::TxBalance(SmallBank* smallbank_client, uint64_t* seed, coro_y
   auto chk_obj = std::make_shared<DataItem>((table_id_t)SmallBankTableType::kCheckingTable);
   dtx->AddToReadOnlySet(chk_obj, chk_key.item_key);
 
-  // static std::atomic<int> node_begin_account{100000000 * dtx->compute_server->getNodeID() + 300001};
-  // static std::atomic<int> node_now_account{100000000 * dtx->compute_server->getNodeID() + 300001};
-  // 测试插入
-  // {  
-  //   // 插入 10 个
-  //   for (int i = 0 ; i < 10 ; i++){
-  //     int insert_account = node_now_account.fetch_add(1);
-  //     auto insert_item = std::make_shared<DataItem>(0, sizeof(smallbank_savings_val_t), insert_account, 1);
-  //     smallbank_savings_val_t *insert_val = (smallbank_savings_val_t*)(insert_item->value);
-  //     insert_val->bal = 102.23;
-  //     dtx->AddToInsertSet(insert_item);
-  //   }
-  // }
-
-  // 测试删除
-  {
-    // if (node_now_account > node_begin_account + 500) {
-    //   int delete_account = node_now_account.load() - 100;
-    //   auto delete_item = std::make_shared<DataItem>(0, sizeof(smallbank_savings_val_t), delete_account, 1);
-    //   dtx->AddToDeleteSet(delete_item);
-    // }
-
-    // for (int i = 0 ; i < 3 ; i++){
-    //   int rand_account = FastRand(seed) % 300000;
-    //   auto delete_item = std::make_shared<DataItem>(0 , sizeof(smallbank_savings_val_t) , rand_account , 1);
-    //   dtx->AddToDeleteSet(delete_item);
-    // }
-  }
-
-  
-
   if (!dtx->TxExe(yield)) return false;
 
   smallbank_savings_val_t* sav_val = (smallbank_savings_val_t*)sav_obj->value;

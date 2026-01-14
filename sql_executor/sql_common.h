@@ -13,65 +13,64 @@ struct Value{
     std::string str_val;
     itemkey_t item_val;
 
-    DataItem *data_item;      // 单个记录
+    DataItemPtr data_item;
 
     Value() : type(TYPE_INT), int_val(0), data_item(nullptr) , item_val(0) {}
 
     ~Value() {
         if (data_item != nullptr) {
-            delete data_item;
             data_item = nullptr;
         }
     }
 
     // 拷贝构造函数
-    Value(const Value& other) {
-        type = other.type;
-        int_val = other.int_val;
-        float_val = other.float_val;
-        str_val = other.str_val;
-        item_val = other.item_val;
-        if (other.data_item != nullptr) {
-            data_item = new DataItem();
-            // 深拷贝 DataItem 的内容
-            *data_item = *other.data_item;
-            // 因为 DataItem 里面还有指针，需要根据情况处理，这里假设 DataItem 可以简单拷贝或者需要特殊处理
-            // 注意：DataItem 结构体中包含 value 指针，需要深拷贝
-            data_item->value = new uint8_t[other.data_item->value_size];
-            memcpy(data_item->value, other.data_item->value, other.data_item->value_size);
-        } else {
-            data_item = nullptr;
-        }
-    }
+    // Value(const Value& other) {
+    //     type = other.type;
+    //     int_val = other.int_val;
+    //     float_val = other.float_val;
+    //     str_val = other.str_val;
+    //     item_val = other.item_val;
+    //     if (other.data_item != nullptr) {
+    //         data_item = new DataItem();
+    //         // 深拷贝 DataItem 的内容
+    //         *data_item = *other.data_item;
+    //         // 因为 DataItem 里面还有指针，需要根据情况处理，这里假设 DataItem 可以简单拷贝或者需要特殊处理
+    //         // 注意：DataItem 结构体中包含 value 指针，需要深拷贝
+    //         data_item->value = new uint8_t[other.data_item->value_size];
+    //         memcpy(data_item->value, other.data_item->value, other.data_item->value_size);
+    //     } else {
+    //         data_item = nullptr;
+    //     }
+    // }
 
     // 赋值运算符
-    Value& operator=(const Value& other) {
-        if (this == &other) {
-            return *this;
-        }
-        type = other.type;
-        int_val = other.int_val;
-        float_val = other.float_val;
-        str_val = other.str_val;
-        item_val = other.item_val;
+    // Value& operator=(const Value& other) {
+    //     if (this == &other) {
+    //         return *this;
+    //     }
+    //     type = other.type;
+    //     int_val = other.int_val;
+    //     float_val = other.float_val;
+    //     str_val = other.str_val;
+    //     item_val = other.item_val;
         
-        if (data_item != nullptr) {
-            delete data_item;
-            data_item = nullptr;
-        }
+    //     if (data_item != nullptr) {
+    //         delete data_item;
+    //         data_item = nullptr;
+    //     }
 
-        if (other.data_item != nullptr) {
-            data_item = new DataItem();
-            *data_item = *other.data_item;
-            data_item->value = new uint8_t[other.data_item->value_size];
-            memcpy(data_item->value, other.data_item->value, other.data_item->value_size);
-        }
-        return *this;
-    }
+    //     if (other.data_item != nullptr) {
+    //         data_item = new DataItem();
+    //         *data_item = *other.data_item;
+    //         data_item->value = new uint8_t[other.data_item->value_size];
+    //         memcpy(data_item->value, other.data_item->value, other.data_item->value_size);
+    //     }
+    //     return *this;
+    // }
 
     void init_dataItem(int table_id , int len){
         assert(data_item == nullptr);
-        data_item = new DataItem(table_id , len);
+        data_item = std::make_shared<DataItem>(table_id , len);
         if (type == ColType::TYPE_INT){
             assert(len == sizeof(int));
             *(int*)(data_item->value) = int_val;
@@ -92,7 +91,7 @@ struct Value{
     // 当 Value 作为右常量值的时候，不需要什么 table_id，你只需要知道它的值即可
     void init_dataItem(int len){
         assert(data_item == nullptr);
-        data_item = new DataItem(len , true);
+        data_item = std::make_shared<DataItem>(len , true);
         if (type == ColType::TYPE_INT){
             assert(len == sizeof(int));
             *(int*)(data_item->value) = int_val;

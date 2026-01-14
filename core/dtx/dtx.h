@@ -120,8 +120,8 @@ class DTX {
   void AddLogToTxn();
   void SendLogToStoragePool(uint64_t bid, brpc::CallId* cid); // use for rpc
 
-  DataItemPtr GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr *file_hdr , itemkey_t item_key);
-  DataItemPtr GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid, DataItem*& orginal_item , RmFileHdr *file_hdr , itemkey_t item_key);
+  DataItem* GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr *file_hdr , itemkey_t item_key);
+  DataItem* GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid , RmFileHdr *file_hdr , itemkey_t item_key);
 
   DataItem* GetDataItemFromPage(table_id_t table_id , Rid rid , char *data , RmFileHdr *file_hdr , itemkey_t &pri_key , bool is_w);
 

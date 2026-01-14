@@ -2,9 +2,9 @@
 
 #include "ExecutorAbstract.h"
 
-class BPTreeScanExecuotor : public AbstractExecutor {
+class BPTreeScanExecutor : public AbstractExecutor {
 public:
-    BPTreeScanExecuotor(DTX *dtx_ , const std::string &tab_name , itemkey_t key){
+    BPTreeScanExecutor(DTX *dtx_ , const std::string &tab_name , itemkey_t key){
         dtx = dtx_;
         m_tabName = tab_name;
         m_key = key;

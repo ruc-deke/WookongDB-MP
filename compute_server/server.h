@@ -593,6 +593,8 @@ public:
 
     char *FetchSPage(table_id_t table_id , page_id_t page_id){
         Page *page = nullptr;
+        assert(table_id >= 0 && table_id < 30000);
+        assert(page_id >= 0);
         if(SYSTEM_MODE == 0) {
             // Eager
             page = rpc_fetch_s_page(table_id, page_id);
@@ -617,6 +619,7 @@ public:
 
     char *FetchXPage(table_id_t table_id , page_id_t page_id){
         assert(table_id >= 0 && table_id < 30000);
+        assert(page_id >= 0);
         Page *page = nullptr;
         if(SYSTEM_MODE == 0) {
             page = rpc_fetch_x_page(table_id,page_id);

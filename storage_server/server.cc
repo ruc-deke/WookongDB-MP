@@ -22,7 +22,7 @@ void LoadData(node_id_t machine_id,
     smallbank_server->LoadTable(machine_id, machine_num);
 
     // rm_manager->get_bufferPoolManager()->clear_all_pages();
-    // smallbank_server->VerifyData();
+    smallbank_server->VerifyData();
   } else if (workload == "tpcc") {
       TPCC* tpcc_server = new TPCC(rm_manager);
       tpcc_server->LoadTable(machine_id, machine_num);

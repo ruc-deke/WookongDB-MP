@@ -94,7 +94,6 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
 
           RmFileHdr *file_hdr = compute_server->get_file_hdr(item.item_ptr->table_id);
           *item.item_ptr = *GetDataItemFromPageRO(item.item_ptr->table_id, data, rid , file_hdr , item_key);
-          // 没取 magic，需要取一下 
           
           item.is_fetched = true;
           ReleaseSPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page
@@ -185,7 +184,8 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
       DataItem* orginal_item = nullptr;
 
       RmFileHdr *file_hdr = compute_server->get_file_hdr(item.item_ptr->table_id);
-      *item.item_ptr = *GetDataItemFromPageRW(item.item_ptr->table_id, data, rid, orginal_item , file_hdr , item_key);
+      orginal_item = GetDataItemFromPageRW(item.item_ptr->table_id, data, rid , file_hdr , item_key);
+      *item.item_ptr = *orginal_item;
 
       if(orginal_item->lock == UNLOCKED) {
         orginal_item->lock = EXCLUSIVE_LOCKED;
@@ -213,7 +213,8 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
           DataItem* orginal_item = nullptr;
 
           RmFileHdr *file_hdr = compute_server->get_file_hdr(item.item_ptr->table_id);
-          GetDataItemFromPageRW(item.item_ptr->table_id, data, rid, orginal_item , file_hdr , item_key);
+          orginal_item = GetDataItemFromPageRW(item.item_ptr->table_id, data, rid , file_hdr , item_key);
+          *item.item_ptr = *orginal_item;
 
           if(orginal_item->lock == UNLOCKED) {
             orginal_item->lock = EXCLUSIVE_LOCKED;
@@ -321,7 +322,7 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
     DataItem* orginal_item = nullptr;
 
     RmFileHdr *file_hdr = compute_server->get_file_hdr(data_item.item_ptr->table_id);
-    GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid, orginal_item , file_hdr , item_key);
+    orginal_item = GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid , file_hdr , item_key);
 
     // 把元组的锁给释放，并标记版本号
     orginal_item->version = commit_ts;
@@ -351,7 +352,7 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
     DataItem* orginal_item = nullptr;
 
     RmFileHdr *file_hdr = compute_server->get_file_hdr(data_item.item_ptr->table_id);
-    GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid, orginal_item , file_hdr , item_key);
+    orginal_item = GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid  , file_hdr , item_key);
 
     // 验证在 TxExe 阶段读取到的数据，和我现在读取到的数据是一致的
     assert(orginal_item->lock == EXCLUSIVE_LOCKED);
@@ -384,7 +385,7 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
     DataItem* orginal_item = nullptr;
 
     RmFileHdr *file_hdr = compute_server->get_file_hdr(data_item.item_ptr->table_id);
-    GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid, orginal_item , file_hdr , item_key);
+    orginal_item = GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid , file_hdr , item_key);
 
     // 验证在 TxExe 阶段读取到的数据，和我现在读取到的数据是一致的
     // assert(orginal_item->key == data_item.item_ptr->key);
@@ -424,7 +425,7 @@ void DTX::TxAbort(coro_yield_t& yield) {
         DataItem* orginal_item = nullptr;
 
         RmFileHdr *file_hdr = compute_server->get_file_hdr(data_item.item_ptr->table_id);
-        GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid, orginal_item , file_hdr , item_key);
+        orginal_item = GetDataItemFromPageRW(data_item.item_ptr->table_id, page, rid  , file_hdr , item_key);
 
         // assert(orginal_item->key == data_item.item_ptr->key);
         // assert(orginal_item->lock == EXCLUSIVE_LOCKED);
@@ -467,8 +468,7 @@ void DTX::TxAbort(coro_yield_t& yield) {
 
         DataItem *original_item = nullptr;
 
-        
-        GetDataItemFromPageRW(data_item.item_ptr->table_id , page , rid , original_item , file_hdr , item_key);
+        original_item = GetDataItemFromPageRW(data_item.item_ptr->table_id , page , rid  , file_hdr , item_key);
 
         // assert(original_item->key == data_item.item_ptr->key);
         assert(original_item->lock == EXCLUSIVE_LOCKED);
@@ -514,7 +514,7 @@ void DTX::TxAbort(coro_yield_t& yield) {
 
         DataItem *original_item = nullptr;
         RmFileHdr *file_hdr = compute_server->get_file_hdr(data_item.item_ptr->table_id);
-        GetDataItemFromPageRW(data_item.item_ptr->table_id , page , rid , original_item , file_hdr , item_key);
+        original_item = GetDataItemFromPageRW(data_item.item_ptr->table_id , page , rid , file_hdr , item_key);
 
         // assert(original_item->key == data_item.item_ptr->key);
         assert(original_item->lock == EXCLUSIVE_LOCKED);
