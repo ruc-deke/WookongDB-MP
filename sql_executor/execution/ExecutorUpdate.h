@@ -33,16 +33,27 @@ public:
     DataItem* Next() override {
         int rid_num = m_rids.size();
         for (int i = 0 ; i < rid_num ; i++){
-            char *data = m_dtx->compute_server->FetchSPage(m_tab.table_id , m_rids[i].page_no_);
-            itemkey_t key_useless;      //没用的，占个位
+            char *data = m_dtx->compute_server->FetchXPage(m_tab.table_id , m_rids[i].page_no_);
+            itemkey_t key_useless;
             DataItem *data_item = m_dtx->GetDataItemFromPage(m_tab.table_id , m_rids[i] , data , file_hdr , key_useless , true);
+            if (data_item->valid == 0){
+                m_dtx->compute_server->ReleaseXPage(m_tab.table_id , m_rids[i].page_no_);
+                continue;
+            }
+            // 如果访问的元组上锁了，且不是本事务上锁的，那就回滚
+            if (data_item->lock == EXCLUSIVE_LOCKED && data_item->user_insert != m_dtx->compute_server->getNodeID()){
+                m_dtx->compute_server->ReleaseXPage(m_tab.table_id , m_rids[i].page_no_);
+                m_dtx->tx_status = TXStatus::TX_ABORTING;
+                return nullptr;
+            }
 
-            // 这里不能在这个地方就写，不然回滚挺麻烦的，所以需要一个数据结构把改完之后的数据记下来，提交的时候再写回
-            // 性能问题应该不大，本身提交的时候，就需要拿一下页面的写锁，把写锁给放了
+            data_item->lock = EXCLUSIVE_LOCKED;
+            data_item->user_insert = m_dtx->compute_server->getNodeID();
+
             int set_num = m_setClauses.size();
-            // 这里不包含主键
-            char *new_data = new char[data_item->value_size];
-            memcpy(new_data , data_item->value , data_item->value_size);
+
+            // char *new_data = new char[data_item->value_size];
+            // memcpy(new_data , data_item->value , data_item->value_size);
 
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
             char *slots = bitmap + file_hdr->bitmap_size_;
@@ -56,18 +67,13 @@ public:
                     m_pkeys.emplace_back((itemkey_t)m_setClauses[k].rhs.data_item->value);
                     std::cout << "Update PKey = " << (itemkey_t)m_setClauses[k].rhs.data_item->value << "\n";
                 }else {
-                    memcpy(new_data + col_meta.offset , m_setClauses[k].rhs.data_item->value , col_meta.len);
+                    memcpy(data_item->value + col_meta.offset , m_setClauses[k].rhs.data_item->value , col_meta.len);
                 }
             }
 
             itemkey_t* target_item_key = reinterpret_cast<itemkey_t*>(tuple);
 
-            DataItemPtr item_ptr = std::make_shared<DataItem>(m_tab.table_id , (size_t)(data_item->value_size) , (uint8_t*)new_data);
-            m_dtx->AddToReadWriteSet(item_ptr , *target_item_key);
-            
-            delete[] new_data;
-
-            m_dtx->compute_server->ReleaseSPage(m_tab.table_id , m_rids[i].page_no_);
+            m_dtx->compute_server->ReleaseXPage(m_tab.table_id , m_rids[i].page_no_);
         }
 
         return nullptr;

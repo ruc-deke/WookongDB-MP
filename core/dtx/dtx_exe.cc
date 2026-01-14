@@ -158,7 +158,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
     } else if (SYSTEM_MODE == 2){
       // 2pc TODO
     } else {
-      Rid delete_rid = compute_server->delete_entry(delete_set[i].second.item_ptr.get() , key);
+      Rid delete_rid = compute_server->delete_entry(delete_set[i].second.item_ptr->table_id , key);
       // 如果删除的元组不存在，先按回滚处理
       if (delete_rid.page_no_ == -1){
         tx_status = TXStatus::TX_ABORTING;

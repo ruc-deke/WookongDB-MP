@@ -265,6 +265,9 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
 }
 
 void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_id) {
+    // SQL 模式下，一个线程同一时间内只能持有一个页面
+    assert(node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->getLock() == 1);
+
     LOG(INFO) << "Releasing S Page " << "table_id = " << table_id << " page_id = " << page_id;
     LRLocalPageLock *lr_lock = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id);
     auto [unlock_remote, need_unpin] = lr_lock->tryUnlockShared();
@@ -328,6 +331,11 @@ void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_
 }
 
 void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_id) {
+    // SQL 模式下，一个线程同一时间内只能持有一个页面
+    // int debug_lock = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->getLock();
+    // assert(debug_lock == EXCLUSIVE_LOCKED);
+    // assert(node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->getLock() == EXCLUSIVE_LOCKED);
+
     LOG(INFO) << "Release X Page , table_id = " << table_id << " page_id = " << page_id;
     int unlock_remote = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->tryUnlockExclusive();
     LRLocalPageLock *lr_lock = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id);

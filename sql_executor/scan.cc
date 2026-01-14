@@ -16,13 +16,14 @@ Scan::Scan(DTX *dtx , table_id_t table_id){
         if (slot_no < m_fileHdr->num_records_per_page_) {
             m_item = dtx->GetDataItemFromPage(m_tableID , {.page_no_ = page_no , .slot_no_ = slot_no} , data , m_fileHdr , m_key , false);
 
-            // 等 ExecutorSeqScan 来放掉锁
             if (m_item->valid == true){
                 m_rid.page_no_ = page_no;
                 m_rid.slot_no_ = slot_no;
                 found_record = true;
                 break;
             }
+        }else {
+            dtx->compute_server->ReleaseSPage(table_id , page_no);
         }
     }
 

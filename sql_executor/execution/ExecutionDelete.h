@@ -24,19 +24,11 @@ public:
     DataItem* Next() override {
         int rid_num = m_rids.size();
         for (int i = 0 ; i < rid_num ; i++){
-            char *data = m_dtx->compute_server->FetchSPage(m_tab.table_id , m_rids[i].page_no_);
-            itemkey_t delete_key;
-            DataItem *data_item = m_dtx->GetDataItemFromPage(m_tab.table_id , m_rids[i] , data , m_fileHdr , delete_key , true);
-
-            // char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-            // char *slots = bitmap + m_fileHdr->bitmap_size_;
-            // char* tuple = slots + m_rids[i].slot_no_ * (m_fileHdr->record_size_ + sizeof(itemkey_t));
-            // itemkey_t* target_item_key = reinterpret_cast<itemkey_t*>(tuple);
-
-            DataItemPtr item_ptr = std::make_shared<DataItem>(m_tab.table_id);
-
-            m_dtx->AddToDeleteSet(item_ptr , delete_key);
-            m_dtx->compute_server->ReleaseSPage(m_tab.table_id , m_rids[i].page_no_);
+            Rid res = m_dtx->compute_server->delete_entry(m_tab.table_id , m_rids[i].page_no_);
+            if (res.page_no_ == INVALID_PAGE_ID){
+                m_dtx->tx_status = TXStatus::TX_ABORTING;
+                return nullptr;
+            }
         }
 
         return nullptr;

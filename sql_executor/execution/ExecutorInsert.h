@@ -33,7 +33,7 @@ public:
         for (size_t i = 0 ; i < m_values.size() ; i++) {
             auto &val = m_values[i];
             auto &col = m_tab.cols[i];
-
+            
             // 提取主键
             if (col.type == ColType::TYPE_ITEMKEY){
                 primary_key = m_values[i].int_val;
@@ -50,7 +50,11 @@ public:
         assert(m_tab.primary_key != "");
         assert(primary_key != -1);
 
-        dtx->AddToInsertSet(insert_item , primary_key);
+        Rid rid = dtx->compute_server->insert_entry(insert_item.get() , primary_key);
+        if (rid.page_no_ == INVALID_PAGE_ID){
+            dtx->tx_status = TXStatus::TX_ABORTING;
+            return nullptr;
+        }
 
         return nullptr;
     }

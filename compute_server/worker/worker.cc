@@ -417,6 +417,12 @@ void RunSQL(){
       auto portalStmt = sql_portal->start(plan , sql_dtx);
       auto res = sql_portal->run(portalStmt, sql_ql.get(), sql_dtx);
 
+      // 如果发生错误需要回滚了，那就关闭事务
+      if (sql_dtx->tx_status == TXStatus::TX_ABORTING){
+        sql_dtx->TxAbort(baga);
+        txn_begin = false;
+        continue;
+      }
 
       if (res == run_stat::TXN_BEGIN){
         if (txn_begin == true){
@@ -425,25 +431,12 @@ void RunSQL(){
         txn_begin = true;
       }else if (res == run_stat::TXN_COMMIT){
         txn_begin = false;
-        int res = sql_dtx->TxExe(baga);
-        if (!res){
-          sql_dtx->TxAbort(baga);
-          throw std::logic_error("Tx Abort");
-        }else{
-          sql_dtx->TxCommit(baga);
-        }
+        sql_dtx->TxCommit(baga);
       }else if (res == run_stat::TXN_ABORT || res == run_stat::TXN_ROLLBACK){
-        // 这里因为还没执行 update 和 insert 操作，所以应该是不需要做啥事情，直接返回就行
-        txn_begin = false;
+        sql_dtx->TxAbort(baga);
       }else if (res == run_stat::NORMAL){
         if (!txn_begin){
-          int res = sql_dtx->TxExe(baga);
-          if (!res){
-            sql_dtx->TxAbort(baga);
-            throw std::logic_error("Tx Abort");
-          }else{
-            sql_dtx->TxCommit(baga);
-          }
+          sql_dtx->TxCommit(baga);
         }
       }else {
         assert(false);

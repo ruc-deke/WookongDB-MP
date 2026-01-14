@@ -309,9 +309,9 @@ public:
     }
 
     // 先实现一个简易版本的 delete
-    Rid delete_entry(DataItem *item , itemkey_t item_key){
+    Rid delete_entry(table_id_t table_id , itemkey_t item_key){
         // 其实 BLink 也应该有版本机制，目前还没实现，先实现一个简易版本的 delete 和 insert，验证 FSM 功能的可行性
-        Rid delete_rid = get_rid_from_blink(item->table_id , item_key);
+        Rid delete_rid = get_rid_from_blink(table_id , item_key);
         // 如果 B+ 树里边都没有，那说明根本没插入过这个 key，直接删了就行
         if (delete_rid.page_no_ == -1){
             std::cout << "Not Found On BLink , RollBack , key = " << item_key << "\n";
@@ -322,7 +322,7 @@ public:
 
         // 目前只支持 lazy 模式删除数据项
         if (SYSTEM_MODE == 1){
-            page = rpc_lazy_fetch_x_page(item->table_id , delete_rid.page_no_ , true);
+            page = rpc_lazy_fetch_x_page(table_id , delete_rid.page_no_ , true);
         }else {
             assert(false);
         }
@@ -332,9 +332,8 @@ public:
         char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
         // 元组已经被删除了，所以不需要再删除
         if (!Bitmap::is_set(bitmap , delete_rid.slot_no_)){
-            std::cout << "Delete Entry , Exist In BLink , But Tuple Has been deleted\n";
             if (SYSTEM_MODE == 1){
-                rpc_lazy_release_x_page(item->table_id , delete_rid.page_no_);
+                rpc_lazy_release_x_page(table_id , delete_rid.page_no_);
             }else{
                 assert(false);
             }
@@ -342,13 +341,13 @@ public:
         }
 
         // 检查元组是否已经上锁了，如果上锁了，返回 {-1 , -1}
-        RmFileHdr *file_hdr = get_file_hdr(item->table_id);
+        RmFileHdr *file_hdr = get_file_hdr(table_id);
         char *slots = bitmap + file_hdr->bitmap_size_;
         char* tuple = slots + delete_rid.slot_no_ * (file_hdr->record_size_ + sizeof(itemkey_t));
         DataItem* target_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
-        if (target_item->lock == EXCLUSIVE_LOCKED || target_item->valid == 0){
+        if ((target_item->lock == EXCLUSIVE_LOCKED && target_item->user_insert != getNodeID()) || target_item->valid == 0){
             if (SYSTEM_MODE == 1){
-                rpc_lazy_release_x_page(item->table_id , delete_rid.page_no_);
+                rpc_lazy_release_x_page(table_id , delete_rid.page_no_);
             }else {
                 assert(false);
             }
@@ -359,17 +358,16 @@ public:
         // 做 3 个事情：加锁 + 逻辑删除 + FSM 回收空间
         target_item->lock = EXCLUSIVE_LOCKED;
         target_item->valid = 0;
+        target_item->user_insert = getNodeID();
+        
         Bitmap::reset(bitmap, delete_rid.slot_no_);
         page_hdr->num_records_--;
 
         std::cout << "Delete , key = " << item_key<< "\n";
-        
-        // int count=Bitmap::getfreeposnum(bitmap,file_hdr->num_records_per_page_ );
-        // update_page_space(item->table_id,delete_rid.page_no_,(sizeof(DataItem)+sizeof(itemkey_t))*count);
 
         // 3. 释放掉页面锁
         if (SYSTEM_MODE == 1){
-            rpc_lazy_release_x_page(item->table_id , delete_rid.page_no_);
+            rpc_lazy_release_x_page(table_id , delete_rid.page_no_);
         }else {
             assert(false);
         }
@@ -382,10 +380,8 @@ public:
         // 目前的删除策略里，不会去删除 B+ 树里面的 key，只会把元组的 BitMap 给置为 false，所以如果在 B+ 树里边找到了 key，就去检查下元组是否真的存在
         Rid rid = get_rid_from_blink(item->table_id , item_key);
         if (rid.page_no_ != -1){
-            // LOG(INFO) << "Insert Key = " << item_key << " Has In BLink , Should Update Value";
             Page *page = nullptr;
             if (SYSTEM_MODE == 1){
-                // LOG(INFO) << "1 Fetch X Page , table_id = " << item->table_id << " page_id = " << rid.page_no_;
                 page = rpc_lazy_fetch_x_page(item->table_id , rid.page_no_ , false);
             }else {
                 assert(false);
@@ -412,9 +408,8 @@ public:
                 // assert(target_item->key > 0);
                 // assert(target_item->key == item->key);
 
-                // 3. 检查是否有残留锁（虽然逻辑删除后应该没有锁，但防御性检查一下）
-                if (target_item->lock == EXCLUSIVE_LOCKED){
-                    // LOG(INFO) << "Insert Key = " << item_key  << " Has In BLink , But Has Locked";
+                // 3. 这里有可能加锁，例如某个事物删除了本元组，但是还没提交，如果是本事务删除的，那就允许插入，否则回滚
+                if (target_item->lock == EXCLUSIVE_LOCKED && target_item->user_insert != getNodeID()){
                     if (SYSTEM_MODE == 1){
                         rpc_lazy_release_x_page(item->table_id , rid.page_no_);
                     } else{
@@ -426,6 +421,7 @@ public:
                 memcpy(tuple, &item_key, sizeof(itemkey_t));
                 target_item->lock = EXCLUSIVE_LOCKED;
                 target_item->valid = 1;
+                target_item->user_insert = getNodeID();
 
                 // 4. 释放页面锁
                 if (SYSTEM_MODE == 1){
@@ -436,14 +432,11 @@ public:
                 
                 return rid;
             } else {
-                // 如果位置被占用，说明 key 冲突了
-                // LOG(INFO) << "Insert Key = " << item_key << " Has In BLink , But Has Inserted";
                 if (SYSTEM_MODE == 1){
                     rpc_lazy_release_x_page(item->table_id , rid.page_no_);
                 }else {
                     assert(false);
                 }
-                // LOG(INFO) << "Insert Key Conflict , key = " << item_key;
                 return {-1 , -1};
             }
         }
@@ -519,7 +512,7 @@ public:
             // 写入 DataItem
             DataItem* target_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
             // 如果元组已经上锁，那就返回
-            if (target_item && target_item->lock == EXCLUSIVE_LOCKED){
+            if (target_item && target_item->lock == EXCLUSIVE_LOCKED && target_item->user_insert != getNodeID()){
                 // TODO：更新 FSM 信息
 
                 // LOG(INFO) << "Try To Insert A Key Which is Locked , Need To RollBack";
@@ -540,6 +533,9 @@ public:
             // 2.2 把元组里边的锁设置成 EXCLUSIVE_LOCKED
             // // LOG(INFO) << "Set EXCLUSIVE LOCKED , key = " << item->key;
             target_item->lock = EXCLUSIVE_LOCKED;
+            target_item->valid = 1;
+            target_item->user_insert = getNodeID();
+
             int count=Bitmap::getfreeposnum(bitmap,file_hdr->num_records_per_page_ );
             // 3. 插入到 BLink 
             // LOG(INFO) << "Insert Into BLink , table_id = " << item->table_id << " page_id = " << free_page_id << " slot no = " << slot_no;

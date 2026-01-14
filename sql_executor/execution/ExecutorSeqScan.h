@@ -126,6 +126,8 @@ public:
 
             if (check_conds(item)){
                 break;
+            }else {
+                m_dtx->compute_server->ReleaseSPage(m_tab.table_id , m_rid.page_no_);
             }
         }
     }
