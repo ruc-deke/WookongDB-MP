@@ -94,10 +94,10 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
 
           RmFileHdr *file_hdr = compute_server->get_file_hdr(item.item_ptr->table_id);
           *item.item_ptr = *GetDataItemFromPageRO(item.item_ptr->table_id, data, rid , file_hdr , item_key);
+          // 没取 magic，需要取一下 
           
           item.is_fetched = true;
           ReleaseSPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page
-          // no need to shared lock the data, bacause in mvcc protocol, write dose not block read
         } else if (SYSTEM_MODE == 2){
           // 2PC
           // 1. 先获取到页面所在的节点 ID

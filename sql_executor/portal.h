@@ -11,6 +11,7 @@
 #include "execution/ExecutorBPTree.h"
 #include "execution/ExecutorSeqScan.h"
 #include "execution/ExecutionDelete.h"
+#include "execution/ExecutorJoin.h"
 
 
 #include "optimizer/plan.h"
@@ -78,14 +79,13 @@ public:
                 assert(false);
             }
         } else if(auto x = std::dynamic_pointer_cast<JoinPlan>(plan)) {
-            // TODO 
-            assert(false);
-            // std::unique_ptr<AbstractExecutor> left = convert_plan_executor(x->m_left, context);
-            // std::unique_ptr<AbstractExecutor> right = convert_plan_executor(x->m_right, context);
-            // std::unique_ptr<AbstractExecutor> join = std::make_unique<JoinExecutor>(
-            //                     std::move(left),
-            //                     std::move(right), std::move(x->m_conds));
-            // return join;
+            std::unique_ptr<AbstractExecutor> left = convert_plan_executor(x->m_left);
+            std::unique_ptr<AbstractExecutor> right = convert_plan_executor(x->m_right);
+            std::unique_ptr<AbstractExecutor> join = std::make_unique<JoinExecutor>(
+                                std::move(left),
+                                std::move(right), std::move(x->m_conds),
+                                dtx);
+            return join;
         } else if (auto x = std::dynamic_pointer_cast<SortPlan>(plan)) {
             // TODO
             assert(false);
@@ -115,6 +115,9 @@ public:
                     std::vector<Rid> rids;
                     if (x->m_subPlan->m_tag == T_SeqScan){
                         for (scan->beginTuple() ; !scan->is_end() ; scan->nextTuple()){
+                            if (scan->is_end()){
+                                break;
+                            }
                             rids.push_back(scan->rid());
                             dtx->compute_server->ReleaseSPage(scan->getTab().table_id , scan->rid().page_no_);
                         }
@@ -134,6 +137,9 @@ public:
                     std::vector<Rid> rids;
                     if (x->m_subPlan->m_tag == T_SeqScan){
                         for (scan->beginTuple() ; !scan->is_end() ; scan->nextTuple()){
+                            if (scan->is_end()){
+                                break;
+                            }
                             rids.push_back(scan->rid());
                             dtx->compute_server->ReleaseSPage(scan->getTab().table_id , scan->rid().page_no_);
                         }
@@ -149,7 +155,6 @@ public:
                     return std::make_shared<PortalStmt>(PORTAL_DML_WITHOUT_SELECT, std::vector<TabCol>(), std::move(root), plan);
                 }
                 case T_Insert: {
-                    // TODO
                     std::unique_ptr<AbstractExecutor> root =
                         std::make_unique<InsertExecutor>(dtx, x->m_tabName , x->m_values);
                     return std::make_shared<PortalStmt>(PORTAL_DML_WITHOUT_SELECT, std::vector<TabCol>(), std::move(root), plan);
@@ -166,23 +171,22 @@ public:
     }
 
 
-    void run(std::shared_ptr<PortalStmt> portal , QlManager *ql , DTX *dtx) {
+    run_stat run(std::shared_ptr<PortalStmt> portal , QlManager *ql , DTX *dtx) {
         switch (portal->tag) {
             case PORTAL_ONE_SELECT: {
                 ql->select_from(std::move(portal->root) , std::move(portal->sel_cols) , dtx);
-                break;
+                return run_stat::NORMAL;
             }
             case PORTAL_DML_WITHOUT_SELECT: {
                 ql->run_dml(std::move(portal->root));
-                break;
+                return run_stat::NORMAL;
             }
             case PORTAL_MULTI_QUERY: {
                 ql->run_mutli_query(portal->plan);
-                break;
+                return run_stat::NORMAL;
             }
             case PORTAL_CMD_UTILITY: {
-                ql->run_cmd_utility(portal->plan);
-                break;
+                return ql->run_cmd_utility(portal->plan);
             }
             default: {
                 throw LJ::UnixError();

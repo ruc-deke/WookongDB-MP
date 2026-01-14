@@ -62,7 +62,7 @@ Fiber* Scheduler::GetMainFiber() {
 int Scheduler::addThread(){
     MutexType::Lock lock(m_mutex);
     assert(m_name == "SQL_Scheduler");
-    std::cout << "Add A Thread\n";
+    LOG(INFO) << "Add A Thread\n";
     m_threads.emplace_back(new Thread(std::bind(&Scheduler::sql_run , this) , m_name + "_" + std::to_string(m_threadCount)));
     m_threadIds.push_back(m_threads[m_threadCount]->getID());
 

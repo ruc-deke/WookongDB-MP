@@ -18,33 +18,6 @@ public:
         m_fedConds = conditions;
     }
 
-    int compare_val(const char* a, const char* b, ColType type, int col_len) {
-        switch (type) {
-            case ColType::TYPE_INT: {
-                // 目前由于解析器不支持 INT64，所以 ITEMKEY 和 INT 放一起了
-                int ia = *(int*)a;
-                int ib = *(int*)b;
-                return (ia < ib) ? -1 : ((ia > ib) ? 1 : 0);
-            }
-            case ColType::TYPE_ITEMKEY:{
-                int ia = *(int*)a;
-                int ib = *(int*)b;
-                return (ia < ib) ? -1 : ((ia > ib) ? 1 : 0);
-            }
-            case ColType::TYPE_FLOAT: {
-                float fa = *(float*)a;
-                float fb = *(float*)b;
-                return (fa < fb) ? -1 : ((fa > fb) ? 1 : 0);
-            }
-            case ColType::TYPE_STRING: {
-                return strncmp(a, b, col_len);
-            }
-            default:{
-                assert(false);
-            }
-        }
-    }
-
     // 检查某一行中，给出的条件的 left 和 right 是否满足条件(单个条件，比如 a.age > b.age)
     bool check_cond(Condition condition , DataItem *cur_item) {
         auto left_col_it = get_col(m_cols , condition.lhs_col);

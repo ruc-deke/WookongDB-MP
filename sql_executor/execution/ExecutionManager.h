@@ -15,7 +15,7 @@ public:
     }
 
     void run_mutli_query(std::shared_ptr<Plan> plan);
-    void run_cmd_utility(std::shared_ptr<Plan> plan);
+    run_stat run_cmd_utility(std::shared_ptr<Plan> plan);
     void select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, std::vector<TabCol> sel_cols , DTX *dtx);
     void run_dml(std::shared_ptr<AbstractExecutor> exec);
 

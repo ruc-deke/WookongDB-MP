@@ -3,6 +3,7 @@
 
 #include "dtx/dtx.h"
 #include "config.h"
+#include "workload/ycsb/ycsb_db.h"
 #include "record.h"
 
 DTX::DTX(ComputeServer *server , brpc::Channel *data_channel , brpc::Channel *log_channel , brpc::Channel *server_channel , TxnLog *txn_l2og){
@@ -132,7 +133,10 @@ DataItemPtr DTX::GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid 
     itemPtr->prev_lsn = disk_item->prev_lsn;
     itemPtr->valid = disk_item->valid;
     itemPtr->user_insert = disk_item->user_insert;
-    memcpy(itemPtr->value, reinterpret_cast<char*>(disk_item) + sizeof(DataItem), itemPtr->value_size);
+    memcpy(itemPtr->value, reinterpret_cast<char*>(disk_item) + sizeof(DataItem), disk_item->value_size);
+
+    ycsb_user_table_val* val = reinterpret_cast<ycsb_user_table_val*>(itemPtr->value);
+    assert(val->magic == ycsb_user_table_magic);
 
     // 验证 key 正确
     itemkey_t *disk_key = reinterpret_cast<itemkey_t*>(tuple);
@@ -166,9 +170,6 @@ DataItemPtr DTX::GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid,
 
     itemkey_t *disk_key = reinterpret_cast<itemkey_t*>(tuple);
     assert(*disk_key == item_key);
-
-    // DataItem *disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
-    // disk_item->value = reinterpret_cast<uint8_t*>(disk_item) + sizeof(DataItem);
 
     orginal_item = disk_item;
     return itemPtr;

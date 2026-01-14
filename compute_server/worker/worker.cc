@@ -380,14 +380,19 @@ void RunSQL(){
 
   uint64_t run_seed = seed;
 
-  bool need_commit = true;
+  bool txn_begin = false;
+  coro_yield_t baga;
   while (true){
     std::string sql_str = get_sql_line();
     ExecResult res;
 
     try {
       uint64_t iter = ++tx_id_generator;  // Global atomic transaction id
-      sql_dtx->TxBegin(iter);
+      // 如果当前不在一个事务内，也就是只执行单个SQL，那就重新创建一个事务，然后把这个 SQL 包在此事务里
+      if (!txn_begin){
+        sql_dtx->TxBegin(iter);
+      }
+
       // 词法分析：将 SQL 字符串转换为 token 流
       YY_BUFFER_STATE b = yy_scan_string(sql_str.c_str());
       // 语法分析：将 token 流解析为抽象语法树 (AST)
@@ -408,11 +413,15 @@ void RunSQL(){
 
       // 执行计划
       auto portalStmt = sql_portal->start(plan , sql_dtx);
-      sql_portal->run(portalStmt, sql_ql.get(), sql_dtx);
+      auto res = sql_portal->run(portalStmt, sql_ql.get(), sql_dtx);
 
-      sql_portal->drop();
-      if (need_commit){
-        coro_yield_t baga;
+      if (res == run_stat::TXN_BEGIN){
+        if (txn_begin == true){
+          throw std::logic_error("Repeated Begin");
+        }
+        txn_begin = true;
+      }else if (res == run_stat::TXN_COMMIT){
+        txn_begin = false;
         int res = sql_dtx->TxExe(baga);
         if (!res){
           sql_dtx->TxAbort(baga);
@@ -420,9 +429,25 @@ void RunSQL(){
         }else{
           sql_dtx->TxCommit(baga);
         }
+      }else if (res == run_stat::TXN_ABORT || res == run_stat::TXN_ROLLBACK){
+        // 这里因为还没执行 update 和 insert 操作，所以应该是不需要做啥事情，直接返回就行
+        txn_begin = false;
+      }else if (res == run_stat::NORMAL){
+        if (!txn_begin){
+          int res = sql_dtx->TxExe(baga);
+          if (!res){
+            sql_dtx->TxAbort(baga);
+            throw std::logic_error("Tx Abort");
+          }else{
+            sql_dtx->TxCommit(baga);
+          }
+        }
+      }else {
+        assert(false);
       }
     }catch (std::exception &e){
       std::cout << e.what() << "\n";
+      sql_dtx->TxAbort(baga);
       continue;
     } 
   }

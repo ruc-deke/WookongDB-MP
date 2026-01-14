@@ -291,3 +291,40 @@ enum NodeType: int {
     COMPUTE_NODE,
     STORAGE_NODE
 };
+
+inline int compare_val(const char* a, const char* b, ColType type, int col_len) {
+    switch (type) {
+        case ColType::TYPE_INT: {
+            // 目前由于解析器不支持 INT64，所以 ITEMKEY 和 INT 放一起了
+            int ia = *(int*)a;
+            int ib = *(int*)b;
+            return (ia < ib) ? -1 : ((ia > ib) ? 1 : 0);
+        }
+        case ColType::TYPE_ITEMKEY:{
+            int ia = *(int*)a;
+            int ib = *(int*)b;
+            return (ia < ib) ? -1 : ((ia > ib) ? 1 : 0);
+        }
+        case ColType::TYPE_FLOAT: {
+            float fa = *(float*)a;
+            float fb = *(float*)b;
+            return (fa < fb) ? -1 : ((fa > fb) ? 1 : 0);
+        }
+        case ColType::TYPE_STRING: {
+            return memcmp(a, b, col_len);
+        }
+        default:{
+            assert(false);
+        }
+    }
+}
+
+
+// run 的时候，需要返回一些信息，这里记录一下
+enum run_stat{
+    NORMAL = 0,
+    TXN_BEGIN = 1,
+    TXN_COMMIT = 2,
+    TXN_ROLLBACK = 3,
+    TXN_ABORT = 4,
+};

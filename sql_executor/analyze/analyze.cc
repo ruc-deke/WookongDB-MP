@@ -43,7 +43,7 @@ TabCol Analyze::check_column(const std::vector<ColMeta>& all_cols, TabCol target
         target.tab_name = tab_name; 
     }else {
         if ((!compute_server->get_node()->db_meta.is_table(target.tab_name)) 
-            || (compute_server->get_node()->db_meta.get_table(target.tab_name).is_col(target.col_name))){
+            || (!compute_server->get_node()->db_meta.get_table(target.tab_name).is_col(target.col_name))){
             throw LJ::ColumnNotFoundError(target.col_name , target.tab_name);
         }
     }

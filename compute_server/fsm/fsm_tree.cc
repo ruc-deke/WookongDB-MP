@@ -22,7 +22,7 @@ SecFSM::SecFSM(ComputeServer* compute_server, table_id_t table_id)
     meta_.children_per_page = CHILDREN_PER_PAGE;
     meta_.timestamp = 0;
     meta_.table_id = table_id; 
-    std::cout << "Meta.tableID = " << meta_.table_id << "\n";
+    // std::cout << "Meta.tableID = " << meta_.table_id << "\n";
 }
 
 SecFSM::~SecFSM() {

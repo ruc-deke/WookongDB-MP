@@ -277,7 +277,7 @@ public:
             std::cout << "Index BufferPool Size Per Table : " << blink_buffer_pool_cfg << "\n";
         }
 
-        std::cout << "Open DB : " << db_name << "\n";
+        // std::cout << "Open DB : " << db_name << "\n";
 
         // meta_manager_->initParSize();
         // 先预设只有一个数据库，打开的就是这个数据库

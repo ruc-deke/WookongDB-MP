@@ -266,6 +266,11 @@ int main(int argc, char* argv[]) {
     }else if (workload == "sql"){
         // TODO，暂时先这样
         table_num = 1;
+    }else{
+        std::cerr << "Please Input Mode \n";
+        std::cerr << "Mode : sql , ycsb , smallbank , tpcc\n";
+        std::cerr << "Example : ./remote_node sql\n";
+        exit(-1);
     }
 
     // 初始化全局的bufferpool和page_lock_table

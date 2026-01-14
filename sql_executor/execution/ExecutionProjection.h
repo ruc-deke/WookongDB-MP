@@ -63,7 +63,6 @@ public:
         }
 
         DataItem *ret_dataItem = new DataItem(m_len , true);
-        // auto ret_dataItem = std::make_unique<DataItem>(m_len , true);
         
         int sel_num = m_selIndexes.size();
         auto prev_cols = m_prev->cols();

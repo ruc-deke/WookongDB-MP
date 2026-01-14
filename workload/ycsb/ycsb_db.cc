@@ -10,7 +10,7 @@ void YCSB::PopulateUserTable(){
     rm_manager->create_file(table_name + "_fsm", tuple_size);
 
     
-    std::cout << "单个元组大小为: " << tuple_size << "\n";
+    // std::cout << "单个元组大小为: " << tuple_size << "\n";
     std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(table_name);
     std::unique_ptr<RmFileHandle> table_file_fsm = rm_manager->open_file(table_name + "_fsm");
 
@@ -25,10 +25,10 @@ void YCSB::PopulateUserTable(){
     int ba = record_count + record_count % num_records_per_page;
     table_file->file_hdr_.num_pages_ = ba / num_records_per_page;
 
-    std::cout << "file_hdr_.record_size_ = " << table_file->file_hdr_.record_size_ << "\n";
-    std::cout << "file_hdr_.num_records_per_page_ = " << table_file->file_hdr_.num_records_per_page_ << "\n";
-    std::cout << "file_hdr_.bitmap_size_ = " << table_file->file_hdr_.bitmap_size_ << "\n";
-    std::cout << "file_hdr_.page_cnt = " << table_file->file_hdr_.num_pages_ << "\n";
+    std::cout << "Table Record Size = " << table_file->file_hdr_.record_size_ << "\n";
+    std::cout << "Table Record Num Per Page = " << table_file->file_hdr_.num_records_per_page_ << "\n";
+    std::cout << "Table Bitmap Size = " << table_file->file_hdr_.bitmap_size_ << "\n";
+    std::cout << "Table Init Page Num = " << table_file->file_hdr_.num_pages_ << "\n";
 
     
     rm_manager->get_diskmanager()->write_page(table_file->GetFd(), RM_FILE_HDR_PAGE, (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));
@@ -115,14 +115,11 @@ void YCSB::VerifyData() {
         itemkey_t* disk_key = reinterpret_cast<itemkey_t*>(tuple);
         assert(*disk_key == key.item_key);
         DataItem* data_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
-
-        // if (id % 300 == 0){
-        //     std::cout << "Verify Key = " << key.item_key << " Real Key = " << *disk_key << "\n";
-        // }
             
         // Check size
         if (data_item->value_size == sizeof(ycsb_user_table_val)) {
             assert(data_item->lock == 0);
+            data_item->value = (uint8_t*)((char*)data_item + sizeof(DataItem));
             
             ycsb_user_table_val* val = reinterpret_cast<ycsb_user_table_val*>(data_item->value);
             assert(val->magic == ycsb_user_table_magic);

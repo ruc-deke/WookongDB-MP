@@ -275,7 +275,7 @@ public:
                 assert(res);
             }
 
-            std::cout << "Server Start Over\n";
+            LOG(INFO) << "Server Start";
 
             if (server.Start(point,&server_options) != 0) {
                 LOG(ERROR) << "Fail to start Server";
@@ -616,6 +616,7 @@ public:
     }
 
     char *FetchXPage(table_id_t table_id , page_id_t page_id){
+        assert(table_id >= 0 && table_id < 30000);
         Page *page = nullptr;
         if(SYSTEM_MODE == 0) {
             page = rpc_fetch_x_page(table_id,page_id);
@@ -637,6 +638,7 @@ public:
         return page->get_data();
     }
     void ReleaseSPage(table_id_t table_id , page_id_t page_id){
+        assert(table_id >= 0 && table_id < 30000);
         if (SYSTEM_MODE == 0){
             rpc_release_s_page(table_id , page_id);
         }else if (SYSTEM_MODE == 1){
@@ -890,7 +892,7 @@ public:
             bl_indexes[tab_meta.table_id] = new BLinkIndexHandle(this , tab_meta.table_id + 10000);
             fsm_trees[tab_meta.table_id] = new SecFSM(this , tab_meta.table_id + 20000);
 
-            std::cout << "Init table , blink and fsm , table_id = " << tab_meta.table_id << "\n"; 
+            // std::cout << "Init table , blink and fsm , table_id = " << tab_meta.table_id << "\n"; 
         }
 
         return exist;

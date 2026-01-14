@@ -24,7 +24,7 @@ void QlManager::run_mutli_query(std::shared_ptr<Plan> plan){
     }
 }
 
-void QlManager::run_cmd_utility(std::shared_ptr<Plan> plan){
+run_stat QlManager::run_cmd_utility(std::shared_ptr<Plan> plan){
     if (auto x = std::dynamic_pointer_cast<OtherPlan>(plan)) {
         switch (x->m_tag) {
             case T_Help: {
@@ -34,31 +34,23 @@ void QlManager::run_cmd_utility(std::shared_ptr<Plan> plan){
             }
             case T_ShowTable: {
                 compute_server->show_tables();
-                break;
+                return run_stat::NORMAL;
             }
             case T_DescTable: {
                 compute_server->desc_table(x->m_tabName);
-                break;
+                return run_stat::NORMAL;
             }
             case T_Transaction_begin:{
-                // TODO
-                assert(false);
-                break;
+                return run_stat::TXN_BEGIN;
             }
             case T_Transaction_commit: {
-                // TODO
-                assert(false);
-                break;
+                return run_stat::TXN_COMMIT;
             }
             case T_Transaction_rollback: {
-                // TODO
-                assert(false);
-                break;
+                return run_stat::TXN_ROLLBACK;
             }
             case T_Transaction_abort: {
-                // TODO
-                assert(false);
-                break;
+                return run_stat::TXN_ABORT;
             }
             default: {
                 throw LJ::InternalError("Error");
@@ -115,8 +107,12 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
             columns.push_back(col_str);
         }
         
-        // 打印完了后，释放掉页面
-        dtx->compute_server->ReleaseSPage(executorTreeRoot->getTab().table_id , executorTreeRoot->rid().page_no_);
+        if (executorTreeRoot->getTab().table_id != INVALID_TABLE_ID){
+            // 打印完了后，释放掉页面
+            dtx->compute_server->ReleaseSPage(executorTreeRoot->getTab().table_id , executorTreeRoot->rid().page_no_);
+        }
+
+        
 
         rec_printer.print_record(columns, &context); // 最后输出的记录
         num_rec++;

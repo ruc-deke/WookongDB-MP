@@ -168,7 +168,7 @@ void Handler::GenThreadAndCoro(node_id_t node_id , int thread_num, int sys_mode 
 
   socket_start_client(global_meta_man->remote_server_nodes[0].ip, global_meta_man->remote_server_meta_port);
 
-  std::cout << "finish start client\n";
+  // std::cout << "finish start client\n";
 
   // TODO
   // 在这里监听，来一个连接我新建一个线程和一个 DTX
@@ -280,7 +280,7 @@ void Handler::GenThreads(std::string bench_name) {
 
   // Send TCP requests to remote servers here, and the remote server establishes a connection with the compute node
   socket_start_client(global_meta_man->remote_server_nodes[0].ip, global_meta_man->remote_server_meta_port);
-  std::cout << "finish start client\n";
+  // std::cout << "finish start client\n";
   
   SmallBank* smallbank_client = nullptr;
   TPCC* tpcc_client = nullptr;

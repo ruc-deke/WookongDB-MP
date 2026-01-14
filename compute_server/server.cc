@@ -41,7 +41,7 @@ int socket_start_client(std::string ip, int port){
     buffer[9] = '\0';
     assert(strcmp(buffer, "SYN-BEGIN") == 0);
 
-    std::cout << "Remote server has build brpc channel with compute nodes" << std::endl;
+    // std::cout << "Remote server has build brpc channel with compute nodes" << std::endl;
 
     // 关闭套接字
     close(clientSocket);
@@ -84,7 +84,7 @@ int socket_finish_client(std::string ip, int port){
     buffer[10] = '\0';
     assert(strcmp(buffer, "SYN-FINISH") == 0);
 
-    std::cout << "Remote server has build brpc channel with compute nodes" << std::endl;
+    // std::cout << "Remote server has build brpc channel with compute nodes" << std::endl;
 
 
     // 关闭套接字
