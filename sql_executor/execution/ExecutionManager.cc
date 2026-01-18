@@ -84,15 +84,48 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
     // 真正执行 SQL Plan
     for (executorTreeRoot->beginTuple() ; !executorTreeRoot->is_end() ; executorTreeRoot->nextTuple()) {
         // Next 就是读取到数据
-        auto Tuple = executorTreeRoot->Next();
-        // 这一步是为了隔绝当表里面本来就没记录的时候的情况
-        if (Tuple == nullptr){
-            break;
+        // auto Tuple = executorTreeRoot->Next();
+        table_id_t table_id = executorTreeRoot->getTab().table_id;
+        Rid rid =  executorTreeRoot->rid();
+        if (table_id == INVALID_PAGE_ID){
+            dtx->compute_server->ReleaseSPage(table_id , rid.page_no_);
+            continue;
         }
+        
+        dtx->compute_server->ReleaseSPage(table_id , rid.page_no_);
+
+        RmFileHdr::ptr file_hdr = dtx->compute_server->get_file_hdr(table_id);
+        itemkey_t pri_key;
+        // 升级为写锁
+        auto page = dtx->compute_server->FetchXPage(table_id , rid.page_no_);
+        DataItem *item = dtx->GetDataItemFromPage(table_id , rid , page , file_hdr , pri_key , true);
+        // 读锁，需要考虑的几个情况
+
+        if (item->lock > 0){
+            if (item->lock != EXCLUSIVE_LOCKED && dtx->read_keys.find({pri_key , table_id}) == dtx->read_keys.end()){
+                // 目前元组是读锁，且本事务不持有该元组读锁，那就加上读锁
+                item->lock++;
+                item->user_insert = dtx->tx_id;
+            }else if (item->lock != EXCLUSIVE_LOCKED){
+                // 本事务已经持有这个元组的读锁了，那啥也不用做
+                assert(dtx->read_keys.find({pri_key , table_id}) != dtx->read_keys.end());
+            }else {
+                // 元组是写锁，需要判断这个写锁是否是本事务加上的，如果是，允许读，否则回滚
+                if (dtx->write_keys.find({pri_key , table_id}) == dtx->write_keys.end()){
+                    dtx->tx_status = TXStatus::TX_ABORTING;
+                    dtx->compute_server->ReleaseXPage(table_id , rid.page_no_);
+                    break;
+                }
+            }
+        }else {
+            dtx->read_keys.insert({pri_key , table_id});
+            item->lock++;
+        }
+
         std::vector<std::string> columns;
         for (auto &col : executorTreeRoot->cols()) {
             std::string col_str;
-            char *rec_buf = (char*)Tuple->value + col.offset;
+            char *rec_buf = (char*)item->value + col.offset;
             if (col.type == ColType::TYPE_INT) {
                 col_str = std::to_string(*(int*)rec_buf);
             }else if (col.type == ColType::TYPE_FLOAT) {
@@ -106,22 +139,20 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
             }
             columns.push_back(col_str);
         }
-        
-        if (executorTreeRoot->getTab().table_id != INVALID_TABLE_ID){
-            // 打印完了后，释放掉页面
-            dtx->compute_server->ReleaseSPage(executorTreeRoot->getTab().table_id , executorTreeRoot->rid().page_no_);
-        }
 
-        
+        dtx->compute_server->ReleaseXPage(table_id , rid.page_no_);
 
         rec_printer.print_record(columns, &context); // 最后输出的记录
         num_rec++;
     }
-    rec_printer.print_separator(&context);
-    RecordPrinter::print_record_count(num_rec , &context);
 
-    if (context.m_data_send != nullptr && context.m_offset != nullptr && *context.m_offset > 0) {
-        std::cout.write(context.m_data_send, *context.m_offset);
+    if (dtx->tx_status != TXStatus::TX_ABORTING){
+        rec_printer.print_separator(&context);
+        RecordPrinter::print_record_count(num_rec , &context);
+
+        if (context.m_data_send != nullptr && context.m_offset != nullptr && *context.m_offset > 0) {
+            std::cout.write(context.m_data_send, *context.m_offset);
+        }
     }
     delete[] context.m_data_send;
     delete context.m_offset;

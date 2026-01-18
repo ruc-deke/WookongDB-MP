@@ -379,11 +379,21 @@ void RunSQL(){
   sql_portal = std::make_shared<Portal>(sql_dtx);
 
   uint64_t run_seed = seed;
+  node_id_t node_id = sql_dtx->compute_server->getNodeID();
 
   bool txn_begin = false;
   coro_yield_t baga;
+
+  int cnt = 100;
   while (true){
-    std::string sql_str = get_sql_line();
+    std::string sql_str;
+    if (cnt > 0 && node_id == 0){
+      sql_str = "insert into og values (" + std::to_string(cnt) + " ,'we','we','we','we');";
+      cnt--;
+    }else {
+      sql_str = get_sql_line();
+    }
+
     ExecResult res;
 
     try {
@@ -419,31 +429,34 @@ void RunSQL(){
 
       // 如果发生错误需要回滚了，那就关闭事务
       if (sql_dtx->tx_status == TXStatus::TX_ABORTING){
-        sql_dtx->TxAbort(baga);
+        sql_dtx->TxAbortSQL(baga);
         txn_begin = false;
         continue;
       }
 
       if (res == run_stat::TXN_BEGIN){
         if (txn_begin == true){
+          txn_begin = false;
           throw std::logic_error("Repeated Begin");
         }
+        std::cout << "Begin TXN\n";
         txn_begin = true;
       }else if (res == run_stat::TXN_COMMIT){
         txn_begin = false;
-        sql_dtx->TxCommit(baga);
+        // sql_dtx->TxCommit(baga);
+        sql_dtx->TxCommitSingleSQL(baga);
       }else if (res == run_stat::TXN_ABORT || res == run_stat::TXN_ROLLBACK){
-        sql_dtx->TxAbort(baga);
+        sql_dtx->TxAbortSQL(baga);
       }else if (res == run_stat::NORMAL){
         if (!txn_begin){
-          sql_dtx->TxCommit(baga);
+          sql_dtx->TxCommitSingleSQL(baga);
         }
       }else {
         assert(false);
       }
     }catch (std::exception &e){
       std::cout << e.what() << "\n";
-      sql_dtx->TxAbort(baga);
+      sql_dtx->TxAbortSQL(baga);
       continue;
     } 
   }

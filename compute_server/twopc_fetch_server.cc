@@ -55,7 +55,7 @@ void ComputeServer::Write_2pc_Local_data(node_id_t node_id, table_id_t table_id,
     Page* page = local_fetch_x_page(table_id, page_id);
     char* page_data = page->get_data();
     char *bitmap = page_data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-    RmFileHdr *file_hdr = get_file_hdr(table_id);
+    RmFileHdr::ptr file_hdr = get_file_hdr(table_id);
     char *slots = bitmap + file_hdr->bitmap_size_;
     char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
     DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
@@ -77,7 +77,7 @@ void ComputeServer::Get_2pc_Local_page(node_id_t node_id, table_id_t table_id, R
         Page* page = local_fetch_s_page(table_id, page_id);
         char* page_data = page->get_data();
         char* bitmap = page_data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR; 
-        RmFileHdr *file_hdr = get_file_hdr(table_id);
+        RmFileHdr::ptr file_hdr = get_file_hdr(table_id);
         char* slots = bitmap + file_hdr->bitmap_size_;
         char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
         // No need to lock, just return the data
@@ -88,7 +88,7 @@ void ComputeServer::Get_2pc_Local_page(node_id_t node_id, table_id_t table_id, R
         Page* page = local_fetch_x_page(table_id, page_id);
         char* page_data = page->get_data();
         char *bitmap = page_data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-        RmFileHdr *file_hdr = get_file_hdr(table_id);
+        RmFileHdr::ptr file_hdr = get_file_hdr(table_id);
         char *slots = bitmap + file_hdr->bitmap_size_;
         char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
         // lock the data
@@ -128,7 +128,7 @@ void ComputeServer::Get_2pc_Remote_page(node_id_t node_id, table_id_t table_id, 
     } else {
         char* page = (char*)response.data().c_str();
         char *bitmap = page + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-        RmFileHdr *file_hdr = get_file_hdr(table_id);
+        RmFileHdr::ptr file_hdr = get_file_hdr(table_id);
         char *slots = bitmap + file_hdr->bitmap_size_;
         char* tuple = slots + rid.slot_no_ * (file_hdr->record_size_ + sizeof(itemkey_t));
         data = new char[sizeof(DataItem)];

@@ -43,7 +43,7 @@ public:
         m_prev->nextTuple();
     }
 
-    bool is_end() const override {
+    bool is_end() override {
         return m_prev->is_end();
     }
 

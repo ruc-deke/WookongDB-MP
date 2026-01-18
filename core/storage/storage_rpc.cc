@@ -343,7 +343,7 @@ namespace storage_service{
         memset(zero_page, 0, PAGE_SIZE);
         disk_manager_->write_page(fd, new_page_no, zero_page, PAGE_SIZE);
 
-        // LOG(INFO) << "Create a Page , table_id = " << table_id << " page_id = " << new_page_no << "\n";
+        std::cout << "Create a Page , table_id = " << table_id << " page_id = " << new_page_no << "\n";
         
         response->set_page_no(new_page_no);
         response->set_success(true);

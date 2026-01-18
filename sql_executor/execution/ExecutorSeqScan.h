@@ -148,6 +148,8 @@ public:
             m_key = m_scan->getKey();
             if (check_conds(item)){
                 break;
+            }else {
+                m_dtx->compute_server->ReleaseSPage(m_tab.table_id , m_rid.page_no_);
             }
         }
     }
@@ -160,7 +162,8 @@ public:
     }
 
     Rid &rid() override {return m_rid;}
-    bool is_end() const override {
+
+    bool is_end() override {
         return m_scan->is_end();
     }
 

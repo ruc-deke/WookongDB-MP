@@ -32,8 +32,13 @@
 #include "remote_page_table/timestamp_rpc.h"
 #include "thread_pool.h"
 
-// static thread_local std::vector<std::pair<table_id_t , std::pair<itemkey_t , bool>>> insert_key;
-// static thread_local int cur_cnt = 0;
+struct ItemTableKeyHash {
+  size_t operator()(const std::pair<itemkey_t, table_id_t>& p) const noexcept {
+    size_t h1 = std::hash<itemkey_t>{}(p.first);
+    size_t h2 = std::hash<table_id_t>{}(p.second);
+    return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
+  }
+};
 
 struct DataSetItem {
   DataSetItem(DataItemPtr item) {
@@ -70,8 +75,18 @@ class DTX {
   bool TxExe(coro_yield_t& yield, bool fail_abort = true);
 
   bool TxCommit(coro_yield_t& yield);
+  bool TxCommitSingle(coro_yield_t& yield);
 
   void TxAbort(coro_yield_t& yield);
+  
+
+  // SQL
+  void TxAbortSQL(coro_yield_t &yield); // SQL 模式的 Abort
+  bool TxCommitSingleSQL(coro_yield_t& yield);
+  
+  void rollback_insert(DataItem *data_item);
+  void rollback_delete(DataItem *data_item);
+  
 
   /*****************************************************/
 
@@ -120,10 +135,13 @@ class DTX {
   void AddLogToTxn();
   void SendLogToStoragePool(uint64_t bid, brpc::CallId* cid); // use for rpc
 
-  DataItem* GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr *file_hdr , itemkey_t item_key);
-  DataItem* GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid , RmFileHdr *file_hdr , itemkey_t item_key);
+  DataItem* GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr::ptr file_hdr , itemkey_t item_key);
+  DataItem* GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid , RmFileHdr::ptr file_hdr , itemkey_t item_key);
 
-  DataItem* GetDataItemFromPage(table_id_t table_id , Rid rid , char *data , RmFileHdr *file_hdr , itemkey_t &pri_key , bool is_w);
+  DataItem* GetDataItemFromPage(table_id_t table_id , Rid rid , char *data , RmFileHdr::ptr file_hdr , itemkey_t &pri_key , bool is_w);
+
+  Rid insert_entry(DataItem *data_item , itemkey_t rid);
+  Rid delete_entry(table_id_t table_id , itemkey_t key);
 
  private:
   void Abort();
@@ -223,7 +241,7 @@ class DTX {
   void Tx2PCAbortAll(coro_yield_t &yield);
   void Tx2PCAbortLocal(coro_yield_t &yield);
 
-  bool TxCommitSingle(coro_yield_t& yield);
+
 
   void ReleaseSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id);
   void ReleaseXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id); 
@@ -262,16 +280,20 @@ class DTX {
 
   TXStatus tx_status;
 
-  /*
-    这个项目采用了悲观并发控制的算法
-    元组的锁保存在记录上，事务执行的过程中，如果发现了冲突，那就回滚
-  */
+
+  // 这个是跑 SmallBank 那些负载用的，SQL 模式不用这个
   std::vector<std::pair<itemkey_t , DataSetItem>> read_only_set;     // 本事务读取过的数据项集合
   std::vector<std::pair<itemkey_t , DataSetItem>> read_write_set;    // 本事务修改的数据项集合
-
-
   std::vector<std::pair<itemkey_t , DataSetItem>> insert_set;        // 本事务插入的数据项集合
   std::vector<std::pair<itemkey_t , DataSetItem>> delete_set;        // 本事务删除的页面集合
+
+  // SQL
+  // -----------------
+  std::unordered_set<std::pair<itemkey_t , table_id_t>, ItemTableKeyHash> read_keys;    // 记录本事务访问过的读集合
+  std::unordered_set<std::pair<itemkey_t , table_id_t>, ItemTableKeyHash> write_keys;   // 记录本事务访问过的写集合
+  std::deque<WriteRecord> write_set;
+
+  //-------------------
 
   IndexCache* index_cache;
   PageCache* page_cache;
@@ -385,6 +407,11 @@ void DTX::Clean() {
   delete_set.clear();
   tx_status = TXStatus::TX_INIT;
   participants.clear();
+
+  // SQL
+  write_keys.clear();
+  read_keys.clear();
+  write_set.clear();
 }
 
 ALWAYS_INLINE

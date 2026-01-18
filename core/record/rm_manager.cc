@@ -9,9 +9,6 @@ void RmManager::create_file(const std::string& filename, int record_size) {
     if(disk_manager_->is_file(filename)){
         disk_manager_->destroy_file(filename);
     }
-    if (record_size < 1 || record_size > RM_MAX_RECORD_SIZE) {
-        throw InvalidRecordSizeError(record_size);
-    }
     disk_manager_->create_file(filename);
     int fd = disk_manager_->open_file(filename);
     

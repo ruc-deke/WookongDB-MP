@@ -15,30 +15,18 @@ public:
 
         m_tab = dtx->compute_server->get_node()->db_meta.get_table(tab_name);
         m_tableID = m_tab.get_table_id();
+        file_hdr = dtx->compute_server->get_file_hdr(m_tableID);
 
         m_cols = m_tab.cols;
-
-        m_rid = dtx->compute_server->get_rid_from_blink(m_tableID , m_key);
-
-        if (m_rid.page_no_ == INVALID_PAGE_ID){
-            end = true;
-        }
     }
 
     void nextTuple() override {
-        if (is_end()){
-            return;
-        }
-        Next();
+        return;
     }
 
     DataItem* Next() override {
-        RmFileHdr *file_hdr = dtx->compute_server->get_file_hdr(m_tableID);
-        char *data = dtx->compute_server->FetchSPage(m_tableID , m_rid.page_no_);
-        DataItem *data_item = dtx->GetDataItemFromPage(m_tableID , m_rid , data , file_hdr , m_key , false);
-        end = true;
-
-        return data_item;
+        assert(false);
+        return nullptr;
     }
 
     Rid &rid() override {
@@ -46,7 +34,15 @@ public:
     }
 
     void beginTuple() override {
-        return ;
+        m_rid = dtx->compute_server->get_rid_from_blink(m_tableID , m_key);
+
+        if (m_rid.page_no_ == INVALID_PAGE_ID){
+            end_scan = true;
+            return;
+        }
+
+        char *page = dtx->compute_server->FetchSPage(m_tableID , m_rid.page_no_);
+        auto data_item = dtx->GetDataItemFromPage(m_tableID , m_rid , page , file_hdr , m_key , false);
     }
 
 
@@ -54,8 +50,14 @@ public:
         return m_tab;
     }
 
-    bool is_end() const override {
-        return end;
+    bool is_end() override {
+        if (end_scan){
+            return true;
+        }else {
+            // 只需要扫描一次即可，找到 key 就行
+            end_scan = true;
+            return false;
+        }
     }
 
 
@@ -73,11 +75,12 @@ private:
     table_id_t m_tableID;
     itemkey_t m_key = -1;
 
-    bool end = false;
+    bool end_scan = false;   // 这里的扫描是只扫描一个 key，所以这个其实没啥用
 
     TabMeta m_tab;
     std::vector<ColMeta> m_cols;
     Rid m_rid;
     DTX *dtx;
+    RmFileHdr::ptr file_hdr;
 
 };

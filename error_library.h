@@ -66,6 +66,9 @@ enum ErrorCode {
     // 磁盘错误
     DISK_READ_ERROR = 11000,
     DISK_WRITE_ERROR = 11001,
+
+    // 其他错误
+    RECORD_TOO_LARGE = 12000,   // 记录太大
 };
 
 // 基础错误类
@@ -525,6 +528,14 @@ public:
     }
 };
 
+class RECORD_TOO_LARGE_ERROR : public QueryError {
+public:
+    RECORD_TOO_LARGE_ERROR(int expected = -1, int actual = -1, const std::string& table = "", const std::string& query = "")
+        : QueryError(ErrorCode::VALUES_COUNT_MISMATCH, "Values count mismatch", query){
+        
+        add_context("Record Too Big" , "Record Too Big");
+    }
+};
 
 // 页面错误
 class PageError : public BaseError {
@@ -663,6 +674,8 @@ inline void throw_error_by_code(int code, const std::string& msg = "") {
             throw DiskReadError("", -1, msg);
         case ErrorCode::DISK_WRITE_ERROR:
             throw DiskWriteError("", -1, msg);
+        case ErrorCode::RECORD_TOO_LARGE:
+            throw RECORD_TOO_LARGE_ERROR(-1 , -1 , msg , msg);
         default:
             throw BaseError(static_cast<ErrorCode>(code), msg.empty() ? "Unknown error" : msg);
     }

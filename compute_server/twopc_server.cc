@@ -22,7 +22,7 @@ namespace twopc_service{
             Page* page = server->local_fetch_x_page(table_id, page_id);
             char* data = page->get_data();
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-            RmFileHdr *file_hdr = server->get_file_hdr(table_id);
+            RmFileHdr::ptr file_hdr = server->get_file_hdr(table_id);
             char *slots = bitmap + file_hdr->bitmap_size_;
             char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
 
@@ -59,7 +59,7 @@ namespace twopc_service{
         Page* page = server->local_fetch_x_page(table_id, page_id);
         char* data = page->get_data();
         char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-        RmFileHdr *file_hdr = server->get_file_hdr(table_id);
+        RmFileHdr::ptr file_hdr = server->get_file_hdr(table_id);
         char *slots = bitmap + file_hdr->bitmap_size_;
         char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
         DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
@@ -135,7 +135,7 @@ namespace twopc_service{
             Page* page = server->local_fetch_x_page(table_id, page_id);
             char* data = page->get_data();
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-            RmFileHdr *file_hdr = server->get_file_hdr(table_id);
+            RmFileHdr::ptr file_hdr = server->get_file_hdr(table_id);
             char *slots = bitmap + file_hdr->bitmap_size_;
             char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
             DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
@@ -194,7 +194,7 @@ namespace twopc_service{
             char* data = page->get_data();
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
             
-            RmFileHdr *file_hdr = server->get_file_hdr(table_id);
+            RmFileHdr::ptr file_hdr = server->get_file_hdr(table_id);
             char *slots = bitmap + file_hdr->bitmap_size_;
             char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
             DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));

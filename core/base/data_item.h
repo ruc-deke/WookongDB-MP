@@ -13,17 +13,15 @@
 
 struct DataItem {
   table_id_t table_id;
-  // itemkey_t key;       // 冗余设计，不要了
 
   lock_t lock;
-
   uint8_t *value;
   int value_size;
 
   uint64_t version;     // Version number
   lsn_t prev_lsn;       // previous lsn, for undo to find the previous version
   uint8_t valid;        // 1: Not deleted, 0: Deleted
-  uint8_t user_insert;  // 1: User insert operation, 0: Not user insert operation
+  uint8_t user_insert;  // 1：本元组在事务中被删除了
 
   DataItem() {}
 

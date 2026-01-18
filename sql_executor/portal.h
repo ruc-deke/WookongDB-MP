@@ -124,6 +124,7 @@ public:
                         scan->beginTuple();
                         if (!scan->is_end()){
                             rids.push_back(scan->rid());
+                            dtx->compute_server->ReleaseSPage(scan->getTab().table_id , scan->rid().page_no_);
                         }
                     }else {
                         assert(false);
@@ -146,7 +147,10 @@ public:
                     }else if (x->m_subPlan->m_tag == T_BPTreeIndexScan){
                         // 只有一个主键等值，那只需要 beginTuple 即可
                         scan->beginTuple();
-                        rids.push_back(scan->rid());
+                        if (!scan->is_end()){
+                            rids.push_back(scan->rid());
+                            dtx->compute_server->ReleaseSPage(scan->getTab().table_id , scan->rid().page_no_);
+                        }
                     }else {
                         assert(false);
                     }

@@ -25,7 +25,7 @@ public:
 
 private:
     DTX *m_dtx;
-    RmFileHdr* m_fileHdr;
+    RmFileHdr::ptr m_fileHdr;
     Rid m_rid;
     itemkey_t m_key;
     table_id_t m_tableID;

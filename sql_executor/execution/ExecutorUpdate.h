@@ -34,26 +34,51 @@ public:
         int rid_num = m_rids.size();
         for (int i = 0 ; i < rid_num ; i++){
             char *data = m_dtx->compute_server->FetchXPage(m_tab.table_id , m_rids[i].page_no_);
-            itemkey_t key_useless;
-            DataItem *data_item = m_dtx->GetDataItemFromPage(m_tab.table_id , m_rids[i] , data , file_hdr , key_useless , true);
+            itemkey_t item_key;
+            DataItem *data_item = m_dtx->GetDataItemFromPage(m_tab.table_id , m_rids[i] , data , file_hdr , item_key , true);
             if (data_item->valid == 0){
                 m_dtx->compute_server->ReleaseXPage(m_tab.table_id , m_rids[i].page_no_);
                 continue;
             }
-            // 如果访问的元组上锁了，且不是本事务上锁的，那就回滚
-            if (data_item->lock == EXCLUSIVE_LOCKED && data_item->user_insert != m_dtx->compute_server->getNodeID()){
-                m_dtx->compute_server->ReleaseXPage(m_tab.table_id , m_rids[i].page_no_);
-                m_dtx->tx_status = TXStatus::TX_ABORTING;
-                return nullptr;
+
+            /*
+                写锁可能遇到的情况：
+                1. 元组没有锁，直接加锁即可
+                2. 元组是写锁，检查是否是本事务加的写锁，如果是的话，那也允许通过，否则回滚
+                3. 元组是读锁：
+                    3.1 lock == 1 and user_insert = 我，这种情况升级锁就行
+                    3.2 lock == 1 and user_insert != 我，回滚
+                    3.3 lock != 1，回滚
+            */
+            if (data_item->lock != 0){
+                if (data_item->lock == 1 && m_dtx->read_keys.find({item_key , m_tab.table_id}) != m_dtx->read_keys.end()){
+                    // 升级锁
+                    m_dtx->read_keys.erase({item_key , m_tab.table_id});
+                    data_item->lock = EXCLUSIVE_LOCKED;
+                }else if (data_item->lock != EXCLUSIVE_LOCKED){
+                    m_dtx->compute_server->ReleaseXPage(m_tab.table_id , m_rids[i].page_no_);
+                    m_dtx->tx_status = TXStatus::TX_ABORTING;
+                    break;
+                }else if (data_item->lock == EXCLUSIVE_LOCKED){
+                    if (m_dtx->write_keys.find({item_key , m_tab.table_id}) == m_dtx->write_keys.end()){
+                        m_dtx->compute_server->ReleaseXPage(m_tab.table_id , m_rids[i].page_no_);
+                        m_dtx->tx_status = TXStatus::TX_ABORTING;
+                        break;
+                    }
+                }else {
+                    assert(false);
+                }
+            }else {
+                m_dtx->write_keys.insert({item_key , m_tab.table_id});
             }
+
+            DataItemPtr item_ptr = std::make_shared<DataItem>(m_tab.table_id , data_item->value_size);
+            memcpy(item_ptr->value , data_item->value , data_item->value_size);
 
             data_item->lock = EXCLUSIVE_LOCKED;
             data_item->user_insert = m_dtx->compute_server->getNodeID();
 
             int set_num = m_setClauses.size();
-
-            // char *new_data = new char[data_item->value_size];
-            // memcpy(new_data , data_item->value , data_item->value_size);
 
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
             char *slots = bitmap + file_hdr->bitmap_size_;
@@ -64,6 +89,8 @@ public:
                 ColMeta col_meta = m_tab.get_col(cur_col);
                 // 主键，用单独的 m_keys 来做
                 if (col_meta.type == ColType::TYPE_ITEMKEY){
+                    // 目前不允许更新主键
+                    assert(false);
                     m_pkeys.emplace_back((itemkey_t)m_setClauses[k].rhs.data_item->value);
                     std::cout << "Update PKey = " << (itemkey_t)m_setClauses[k].rhs.data_item->value << "\n";
                 }else {
@@ -74,6 +101,10 @@ public:
             itemkey_t* target_item_key = reinterpret_cast<itemkey_t*>(tuple);
 
             m_dtx->compute_server->ReleaseXPage(m_tab.table_id , m_rids[i].page_no_);
+
+            // 加入到写集合里
+            WriteRecord write_record = WriteRecord(WType::UPDATE_TUPLE , m_tab.table_id , m_rids[i] , item_ptr , item_key);
+            m_dtx->write_set.push_back(write_record);
         }
 
         return nullptr;
@@ -98,7 +129,7 @@ private:
 
 
     DTX *m_dtx;
-    RmFileHdr* file_hdr;
+    RmFileHdr::ptr file_hdr;
 
     bool m_needUpdatePkey;      // 是否需要更新主键
     std::vector<itemkey_t> m_pkeys;

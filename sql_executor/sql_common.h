@@ -327,3 +327,38 @@ enum run_stat{
     TXN_ROLLBACK = 3,
     TXN_ABORT = 4,
 };
+
+
+// 需要把事务执行过的写操作给记录下来，以供事务回滚
+enum class WType { INSERT_TUPLE = 0, DELETE_TUPLE, UPDATE_TUPLE};
+class WriteRecord {
+   public:
+    WriteRecord() = default;
+
+    // constructor for insert operation
+    WriteRecord(WType wtype, table_id_t tab_id , const Rid &rid , itemkey_t key)
+        : wtype_(wtype), table_id(tab_id), rid_(rid) , item_key(key) {}
+
+    // constructor for delete & update operation
+    WriteRecord(WType wtype, table_id_t tab_id , const Rid &rid, const DataItemPtr &record , itemkey_t key)
+        : wtype_(wtype), table_id(tab_id), rid_(rid), data_item(record) , item_key(key) {}
+
+    ~WriteRecord() = default;
+
+    inline DataItemPtr &GetDataItem() { return data_item; }
+
+    inline Rid &GetRid() { return rid_; }
+
+    inline WType &GetWriteType() { return wtype_; }
+
+    inline table_id_t &GetTableID() { return table_id; }
+
+    inline itemkey_t &GetKey() {return item_key;}
+
+   private:
+    WType wtype_;
+    table_id_t table_id;
+    Rid rid_;
+    itemkey_t item_key;
+    DataItemPtr data_item;
+};

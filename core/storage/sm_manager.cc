@@ -229,7 +229,11 @@ int SmManager::create_table(const std::string &table_name , const std::vector<Co
         tab.table_id = candidate;
     }
 
+
     int record_size = curr_offset;
+    if (record_size < 1 || record_size > RM_MAX_RECORD_SIZE) {
+        return LJ::RECORD_TOO_LARGE;
+    }
     rm_manager->create_file(table_name , record_size);
     // rm_manager->get_diskmanager()->create_file(table_name);
     m_fhs.emplace(table_name , rm_manager->open_file(table_name).release());

@@ -16,7 +16,7 @@ Scan::Scan(DTX *dtx , table_id_t table_id){
         if (slot_no < m_fileHdr->num_records_per_page_) {
             m_item = dtx->GetDataItemFromPage(m_tableID , {.page_no_ = page_no , .slot_no_ = slot_no} , data , m_fileHdr , m_key , false);
 
-            if (m_item->valid == true){
+            if (m_item->valid == true || m_item->lock != 0){
                 m_rid.page_no_ = page_no;
                 m_rid.slot_no_ = slot_no;
                 found_record = true;
@@ -29,8 +29,8 @@ Scan::Scan(DTX *dtx , table_id_t table_id){
 
     // 整张表都是空的情况
     if (!found_record) {
-        m_rid.page_no_ = m_fileHdr->num_records_per_page_;
-        m_rid.slot_no_ = -1;
+        m_rid.page_no_ = m_fileHdr->num_pages_;
+        m_rid.slot_no_ = m_fileHdr->num_records_per_page_;
     }
 }
 
@@ -44,13 +44,20 @@ void Scan::next() {
 
     m_rid.slot_no_ = Bitmap::next_bit(1 , bitmap , max_record , m_rid.slot_no_);
 
-    if (m_rid.slot_no_ == max_record){
+    while (m_rid.slot_no_ == max_record){
         m_dtx->compute_server->ReleaseSPage(m_tableID , m_rid.page_no_);
         m_rid.page_no_++;
+        m_rid.slot_no_ = 0;
         if (m_rid.page_no_ == max_pages){
+            // 设置 is_end 为 true
+            m_rid.slot_no_ = max_record;
             return;
         }
-        next();
+
+        data = m_dtx->compute_server->FetchSPage(m_tableID , m_rid.page_no_);
+        RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(data + OFFSET_PAGE_HDR);
+        char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+        m_rid.slot_no_ = Bitmap::first_bit(1 , bitmap , max_record);
     }
 
     m_item = m_dtx->GetDataItemFromPage(m_tableID , m_rid , data , m_fileHdr , m_key , false);
