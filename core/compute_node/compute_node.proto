@@ -57,6 +57,12 @@ message GetPageResponse {
     bool need_to_storage = 2;
 };
 
+message NotifyCreateTableRequest{
+    sint32 table_id = 1;
+    bytes tab_name = 2;
+};
+message NotifyCreateTableResponse{}
+
 message DTX{
     uint64 seed = 1;
     uint64 tx_type = 2;
@@ -93,4 +99,7 @@ service ComputeNodeService {
     rpc PushPage(PushPageRequest) returns (PushPageResponse);
     rpc NotifyPushPage(NotifyPushPageRequest) returns (NotifyPushPageResponse);
     rpc TransferHotLocate(TransferHotLocateRequest) returns (TransferHotLocateResponse);
+
+    // SQL
+    rpc NotifyCreateTable(NotifyCreateTableRequest) returns (NotifyCreateTableResponse);
 };

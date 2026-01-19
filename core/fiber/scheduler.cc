@@ -391,6 +391,9 @@ void Scheduler::sql_run(){
     Fiber::ptr cb_fiber;
     FiberAndThread ft;
     while(true){
+        if (t_job_finished){
+            break;
+        }
         ft.reset();
         bool is_active = false;
         {
@@ -472,6 +475,7 @@ void Scheduler::sql_run(){
             usleep(10);
         }
     }
+    std::cout << "Thread : " << getThreadID() << " Quit\n";
 }
 
 void Scheduler::run(){

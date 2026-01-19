@@ -90,6 +90,10 @@ public:
         return m_prev->getKey();
     }
 
+    itemkey_t getKey(table_id_t table_id) const override {
+        return m_prev->getKey(table_id);
+    }
+
 private:
     std::unique_ptr<AbstractExecutor> m_prev; // 投影节点的孩子节点
     std::vector<ColMeta> m_cols;    //投影到的列

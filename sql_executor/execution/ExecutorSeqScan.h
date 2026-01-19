@@ -171,6 +171,13 @@ public:
         return m_key;
     }
 
+    itemkey_t getKey(table_id_t table_id) const override {
+        if (table_id == m_tab.table_id) {
+            return m_key;
+        }
+        return (itemkey_t)-1;
+    }
+
 private:
     std::string m_tableName;
     TabMeta m_tab;

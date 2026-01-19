@@ -69,6 +69,11 @@ public:
         return m_key;
     }
 
+    itemkey_t getKey(table_id_t table_id) const override {
+        assert(table_id == m_tableID);
+        return m_key;
+    }
+
 
 private:
     std::string m_tabName;

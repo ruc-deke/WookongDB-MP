@@ -233,6 +233,17 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
     return;
 }
 
+void ComputeNodeServiceImpl::NotifyCreateTable(::google::protobuf::RpcController* controller,
+                       const ::compute_node_service::NotifyCreateTableRequest* request,
+                       ::compute_node_service::NotifyCreateTableResponse* response,
+                       ::google::protobuf::Closure* done){
+    brpc::ClosureGuard done_guard(done);
+    std::string tab_name = request->tab_name();
+    if (server->table_exist(tab_name)){
+        return ;
+    }
+}
+
 void ComputeNodeServiceImpl::GetPage(::google::protobuf::RpcController* controller,
                     const ::compute_node_service::GetPageRequest* request,
                     ::compute_node_service::GetPageResponse* response,
@@ -601,4 +612,15 @@ void ComputeServer::PushPageRPCDone(compute_node_service::PushPageResponse* resp
         2. 自己主动换出？这个不可能，因为一轮只会释放一次页面，而本轮页面没释放的话，下一轮是拿不到锁的
     */
     // server->get_node()->getBufferPoolByIndex(table_id)->DecrementPendingOperations(table_id , page_id , lr_lock);
+}
+
+void ComputeServer::NotifyCreateTableRPCDone(compute_node_service::NotifyCreateTableResponse* response,
+                                             brpc::Controller* cntl,
+                                             std::atomic<bool>* has_error){
+    std::unique_ptr<compute_node_service::NotifyCreateTableResponse> response_guard(response);
+    std::unique_ptr<brpc::Controller> cntl_guard(cntl);
+    if (cntl->Failed()) {
+        LOG(ERROR) << "NotifyCreateTable RPC failed";
+        *has_error = true;
+    }
 }

@@ -94,7 +94,7 @@ namespace ast {
 
         CreateTable(std::string tab_name_, std::vector<std::shared_ptr<Field>> fields_) :
             tab_name(std::move(tab_name_)), fields(std::move(fields_)) {
-            std::cout << "Create Table : " << tab_name_ << "\n";
+            // std::cout << "Create Table : " << tab_name_ << "\n";
         }
         
         // 添加支持主键的构造函数
@@ -102,7 +102,7 @@ namespace ast {
                    std::vector<std::string> primary_keys_) :
             tab_name(std::move(tab_name_)), fields(std::move(fields_)), 
             primary_keys(std::move(primary_keys_)) {
-            std::cout << "Create Table : " << tab_name_ << " With Primary\n";
+            // std::cout << "Create Table : " << tab_name_ << " With Primary\n";
         }
     };
 

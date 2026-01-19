@@ -183,7 +183,6 @@ class PageTableServiceImpl : public PageTableService {
                     const ::page_table_service::PXLockRequest* request,
                     ::page_table_service::PXLockResponse* response,
                     ::google::protobuf::Closure* done){
-        // std::cout << "LRPXLock Begin\n";
         brpc::ClosureGuard done_guard(done);
         page_id_t page_id = request->page_id().page_no();
         table_id_t table_id = request->page_id().table_id();

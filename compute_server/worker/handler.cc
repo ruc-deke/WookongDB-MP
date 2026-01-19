@@ -20,7 +20,10 @@
 #include "cache/index_cache.h"
 #include "util/json_config.h"
 #include "worker.h"
+#include "fiber/scheduler.h"
 #include "workload/ycsb/ycsb_db.h"
+
+#define LISTEN_PORT_BEGIN 9095
 
 std::atomic<uint64_t> tx_id_generator;
 
@@ -168,12 +171,49 @@ void Handler::GenThreadAndCoro(node_id_t node_id , int thread_num, int sys_mode 
 
   socket_start_client(global_meta_man->remote_server_nodes[0].ip, global_meta_man->remote_server_meta_port);
 
-  // TODO
-  // 在这里监听，来一个连接我新建一个线程和一个 DTX
-  // 先假设只有一个连接，后续再添加下多连接逻辑
-  std::atomic<bool> init_finish(false);
-  {
-    int thread_id = compute_server->get_node()->getScheduler()->addThread();
+  int server_fd, new_socket;
+  struct sockaddr_in address;
+  int opt = 1;
+  int addrlen = sizeof(address);
+
+  if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+      perror("socket failed");
+      exit(EXIT_FAILURE);
+  }
+
+  if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
+      perror("setsockopt");
+      exit(EXIT_FAILURE);
+  }
+  int node_port = LISTEN_PORT_BEGIN + node_id;
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = INADDR_ANY;
+  address.sin_port = htons(node_port);
+
+  if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+      perror("bind failed");
+      exit(EXIT_FAILURE);
+  }
+
+  if (listen(server_fd, 20) < 0) {
+      perror("listen");
+      exit(EXIT_FAILURE);
+  }
+
+  std::cout << ">>> Server listening on " << node_port << ". Mode: One Thread Per Connection." << std::endl;
+
+  while(true){
+    // 等待新连接进来
+    if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
+        perror("accept");
+        continue;
+    }    
+    std::cout << "New Connection!\n";
+    // 用于生成全局唯一的线程 ID (在多机环境下通常配合 machine_id)
+    // 这里作为简单的累加计数器
+    std::atomic<int> dynamic_thread_counter(0);
+
+    int thread_id = compute_node->getScheduler()->addThread();
     thread_params param;
     param.thread_global_id = (node_id * thread_num) + thread_id;
     param.thread_id = thread_id;
@@ -187,26 +227,24 @@ void Handler::GenThreadAndCoro(node_id_t node_id , int thread_num, int sys_mode 
     param.thread_num_per_machine = thread_num;
     param.total_thread_num = thread_num * machine_num;
 
+    std::atomic<bool> init_finish(false);
     auto task = [&](){
       initThread(&param , nullptr , nullptr , nullptr);
       init_finish = true;
     };
 
-    // 先初始化一下这个
     compute_node->getScheduler()->schedule(task , thread_id);
-
-    // 等待初始化完成
-    while(true){
-      if (init_finish) break;
-      usleep(50);
+    // 等线程初始化完成
+    while(!init_finish){
+      usleep(10);
     }
 
-    compute_node->getScheduler()->schedule(RunSQL , thread_id);
-  }
-
-  // TODO 这里应该改成监听连接
-  while(true){
-    usleep(1000000);
+    compute_node->getScheduler()->schedule([new_socket](){
+      RunSQL(new_socket);
+      close(new_socket);
+      // 连接断开后，需要回收线程资源
+      Scheduler::setJobFinish(true);
+    }, thread_id);
   }
 
   socket_finish_client(global_meta_man->remote_server_nodes[0].ip, global_meta_man->remote_server_meta_port);

@@ -79,6 +79,11 @@ class ComputeNodeServiceImpl : public ComputeNodeService {
                        const ::compute_node_service::GetPageRequest* request,
                        ::compute_node_service::GetPageResponse* response,
                        ::google::protobuf::Closure* done);
+
+    virtual void NotifyCreateTable(::google::protobuf::RpcController* controller,
+                       const ::compute_node_service::NotifyCreateTableRequest* request,
+                       ::compute_node_service::NotifyCreateTableResponse* response,
+                       ::google::protobuf::Closure* done);
                        
     virtual void LockSuccess(::google::protobuf::RpcController* controller,
                        const ::compute_node_service::LockSuccessRequest* request,
@@ -477,7 +482,29 @@ public:
 
         int error_code = response.error_code();
         if (error_code == 0){
-            return;
+            int table_id = response.table_id();
+            std::atomic<bool> has_rpc_error(false);
+            std::vector<brpc::CallId> cids;
+            for (int i = 0 ; i < ComputeNodeCount ; i++){
+                if (i == getNodeID()){
+                    continue;
+                }
+                brpc::Controller* cntl = new brpc::Controller();
+                compute_node_service::ComputeNodeService_Stub compute_node_stub(&nodes_channel[i]);
+                compute_node_service::NotifyCreateTableRequest notify_request;
+                compute_node_service::NotifyCreateTableResponse* notify_response = new compute_node_service::NotifyCreateTableResponse();
+                notify_request.set_table_id(table_id);
+                notify_request.set_tab_name(tab_name);
+                cids.push_back(cntl->call_id());
+                compute_node_stub.NotifyCreateTable(cntl , &notify_request , notify_response ,
+                    brpc::NewCallback(ComputeServer::NotifyCreateTableRPCDone, notify_response, cntl, &has_rpc_error));
+            }
+            for (auto cid : cids){
+                brpc::Join(cid);
+            }
+            if (has_rpc_error.load()){
+                assert(false);
+            }
         }else {
             std::cout << "Error Code = " << error_code << "\n";
             LJ::throw_error_by_code(error_code);
@@ -485,11 +512,11 @@ public:
     }
 
     void dropTable(const std::string &tab_name){
-        // TODO
-        // 这个比较麻烦，太多边界条件了，比如你把 table_id = 10 给删了，但是节点 2 正在访问怎么办，考虑的有点多，先不支持 dropTable 了
+        // 目前的想法是，先通知其它节点 drop table，然后其它节点给这个表加上写锁，不允许后续的访问，然后再把表删了
+        
     }
 
-    void show_tables(){
+    std::string show_tables(){
         std::vector<std::string> captions = {"Tables"};
         RecordPrinter printer(captions.size());
         Context context;
@@ -521,12 +548,29 @@ public:
         printer.print_separator(&context);
         RecordPrinter::print_record_count(resp.tab_name_size() , &context);
 
+        std::string ret;
         // 立刻打印
         if (context.m_data_send != nullptr && context.m_offset != nullptr && *context.m_offset > 0) {
             std::cout.write(context.m_data_send, *context.m_offset);
+            ret.assign(context.m_data_send, *context.m_offset);
         }
         delete[] context.m_data_send;
         delete context.m_offset;
+
+        return ret;
+    }
+
+    void r_lock_tabMeta(){
+        tab_rw_mutex.rdlock();
+    }
+    void r_unlock_tabMeta(){
+        tab_rw_mutex.unlock();
+    }
+    void w_lock_tabMeta(){
+        tab_rw_mutex.wrlock();
+    }
+    void w_unlock_tabMeta(){
+        tab_rw_mutex.unlock();
     }
 
     // 判断 table 是否存在
@@ -654,7 +698,7 @@ public:
         return INVALID_TABLE_ID;
     }
 
-    void desc_table(const std::string tab_name){
+    std::string desc_table(const std::string tab_name){
         bool exist = table_exist(tab_name);
         if (!exist){
             throw LJ::TableNotFoundError(tab_name);
@@ -684,17 +728,20 @@ public:
         // Print footer
         printer.print_separator(&context);
 
+        std::string ret;
         // 立刻打印
         if (context.m_data_send != nullptr && context.m_offset != nullptr && *context.m_offset > 0) {
-            std::cout.write(context.m_data_send, *context.m_offset);
+            ret.assign(context.m_data_send, *context.m_offset);
         }
         delete[] context.m_data_send;
         delete context.m_offset;
+
+        return ret;
     }
-
-
     // SQL END
     // --------------------------------------------------
+
+    // blink
     void insert_into_blink(table_id_t table_id , itemkey_t key , Rid value){
         bl_indexes[table_id]->insert_entry(&key , value);
     }
@@ -726,6 +773,10 @@ public:
                                 int table_id,
                                 int page_id,
                                 ComputeServer* server);
+
+    static void NotifyCreateTableRPCDone(compute_node_service::NotifyCreateTableResponse* response,
+                                         brpc::Controller* cntl,
+                                         std::atomic<bool>* has_error);
 
     // ****************** for eager release *********************
     Page* rpc_fetch_s_page(table_id_t table_id, page_id_t page_id);
@@ -1386,6 +1437,9 @@ private:
     // 时间片轮转的，表示当前多少个协程已经完成了或者没必要启动了
     std::atomic<int> alive_fiber_cnt;
     std::unordered_set<uint64_t> hot_page_set;
+
+    // SQL
+    RWMutex tab_rw_mutex;
 };
 
 int socket_start_client(std::string ip, int port);

@@ -411,7 +411,7 @@ std::shared_ptr<Plan> Planner::do_planner(std::shared_ptr<Query> query){
             throw std::logic_error("主键不能为空，且需要为 INT 类型\n示例：Create Table student(id int , age int , primary key(id));");
         }
 
-        std::cout << "pri key = " << pri_key << "\n";
+        // std::cout << "pri key = " << pri_key << "\n";
 
         plannerRoot = std::make_shared<DDLPlan>(T_CreateTable , x->tab_name ,std::vector<std::string>() , col_defs , pri_key);
 

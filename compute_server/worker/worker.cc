@@ -360,7 +360,7 @@ std::string get_sql_line(){
     }
 }
 
-void RunSQL(){
+void RunSQL(int sock){
   DTX *sql_dtx = new DTX(
     meta_man,
     thread_gid,
@@ -383,19 +383,32 @@ void RunSQL(){
 
   bool txn_begin = false;
   coro_yield_t baga;
+  char buffer[10240] = {0};
+  std::string response;
 
-  int cnt = 100;
+
   while (true){
-    std::string sql_str;
-    if (cnt > 0 && node_id == 0){
-      sql_str = "insert into og values (" + std::to_string(cnt) + " ,'we','we','we','we');";
-      cnt--;
-    }else {
-      sql_str = get_sql_line();
+    ExecResult res;
+    
+    // sql_str = get_sql_line();
+    memset(buffer, 0, sizeof(buffer));
+    ssize_t valread = read(sock, buffer, sizeof(buffer));
+    // 客户端退出了
+    if (valread <= 0){
+      break;
     }
 
-    ExecResult res;
+    std::string sql_str(buffer , valread);
+    while (!sql_str.empty() && (sql_str.back() == '\n' || sql_str.back() == '\r')) {
+        sql_str.pop_back();
+    }
+    if(sql_str.empty()){
+      response = "Empty Command";
+      send(sock, response.c_str(), response.length(), 0);
+      continue;
+    }
 
+    // 真正地去执行 SQL
     try {
       uint64_t iter = ++tx_id_generator;  // Global atomic transaction id
       // 如果当前不在一个事务内，也就是只执行单个SQL，那就重新创建一个事务，然后把这个 SQL 包在此事务里
@@ -403,7 +416,7 @@ void RunSQL(){
         sql_dtx->TxBegin(iter);
       }
 
-      LOG(INFO) << "Run SQL" << sql_str << "\n\n";
+      LOG(INFO) << "Run SQL" << sql_str;
 
       // 词法分析：将 SQL 字符串转换为 token 流
       YY_BUFFER_STATE b = yy_scan_string(sql_str.c_str());
@@ -412,7 +425,8 @@ void RunSQL(){
           yy_delete_buffer(b);
           res.success = false;
           res.error = "Syntax error";
-          std::cout << res.error << "\n";
+          response = res.error;
+          send(sock, response.c_str(), response.length(), 0);
           continue;
       }
 
@@ -431,6 +445,8 @@ void RunSQL(){
       if (sql_dtx->tx_status == TXStatus::TX_ABORTING){
         sql_dtx->TxAbortSQL(baga);
         txn_begin = false;
+        response = "Tx Abort , RollBack";
+        send(sock, response.c_str(), response.length(), 0);
         continue;
       }
 
@@ -439,11 +455,9 @@ void RunSQL(){
           txn_begin = false;
           throw std::logic_error("Repeated Begin");
         }
-        std::cout << "Begin TXN\n";
         txn_begin = true;
       }else if (res == run_stat::TXN_COMMIT){
         txn_begin = false;
-        // sql_dtx->TxCommit(baga);
         sql_dtx->TxCommitSingleSQL(baga);
       }else if (res == run_stat::TXN_ABORT || res == run_stat::TXN_ROLLBACK){
         sql_dtx->TxAbortSQL(baga);
@@ -454,9 +468,12 @@ void RunSQL(){
       }else {
         assert(false);
       }
+      response = sql_ql->getRes();
+      send(sock, response.c_str(), response.length(), 0);
     }catch (std::exception &e){
-      std::cout << e.what() << "\n";
+      response = e.what();
       sql_dtx->TxAbortSQL(baga);
+      send(sock, response.c_str(), response.length(), 0);
       continue;
     } 
   }
@@ -816,7 +833,6 @@ void initThread(thread_params* params,
               YCSB *ycsb_cli){
     static std::atomic<int> cnt{1};
     int thread_id_logic = cnt++;
-    // LOG(INFO) << "INIT Thread , Thread ID = " << getThreadID(); 
     bench_name = params->bench_name;
     std::string config_filepath = "../../config/" + bench_name + "_config.json";
   

@@ -19,6 +19,11 @@ public:
     void select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, std::vector<TabCol> sel_cols , DTX *dtx);
     void run_dml(std::shared_ptr<AbstractExecutor> exec);
 
+    const std::string getRes() const {
+        return run_res;
+    }
+
 private:
     ComputeServer *compute_server;
+    std::string run_res;
 };
