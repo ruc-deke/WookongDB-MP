@@ -416,8 +416,7 @@ std::shared_ptr<Plan> Planner::do_planner(std::shared_ptr<Query> query){
         plannerRoot = std::make_shared<DDLPlan>(T_CreateTable , x->tab_name ,std::vector<std::string>() , col_defs , pri_key);
 
     }else if (auto x = std::dynamic_pointer_cast<ast::DropTable>(query->m_parse)){      // DropTable
-        // TOOD 目前不支持删表
-        throw LJ::UnsupportedOperationError("DropTable");
+        plannerRoot = std::make_shared<DDLPlan>(T_DropTable , x->tab_name , std::vector<std::string>() , std::vector<ColDef>() , "");
     }else if (auto x = std::dynamic_pointer_cast<ast::DropIndex>(query->m_parse)){      // DropIndex
         // TODO 目前不支持 DropIndex
         throw LJ::UnsupportedOperationError("DropIndex" , "" , "");

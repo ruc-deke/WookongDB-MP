@@ -4,8 +4,8 @@
     "attempted_num": 10000,
     "num_hot_record": 20000, 
     "use_zipfian": 1,           
-    "read_percent": 50,           
-    "write_percent": 50,
+    "read_percent": 30,           
+    "write_percent": 70,
     "field_len": 100,
     "TX_HOT": 50
   }

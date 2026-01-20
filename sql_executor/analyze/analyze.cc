@@ -4,7 +4,7 @@
 // 获取到 tab_names 里面的全部列名
 void Analyze::get_all_cols(const std::vector<std::string>& tab_names, std::vector<ColMeta>& all_cols){
     for (auto &sel_tab_name : tab_names) {
-        const auto &sel_tab_cols = compute_server->get_node()->db_meta.get_table(sel_tab_name).cols;
+        const auto &sel_tab_cols = m_dtx->compute_server->get_node()->db_meta.get_table(sel_tab_name).cols;
         all_cols.insert(all_cols.end() , sel_tab_cols.begin() , sel_tab_cols.end());
     }
 }
@@ -42,8 +42,8 @@ TabCol Analyze::check_column(const std::vector<ColMeta>& all_cols, TabCol target
         }
         target.tab_name = tab_name; 
     }else {
-        if ((!compute_server->get_node()->db_meta.is_table(target.tab_name)) 
-            || (!compute_server->get_node()->db_meta.get_table(target.tab_name).is_col(target.col_name))){
+        if ((!m_dtx->compute_server->get_node()->db_meta.is_table(target.tab_name)) 
+            || (!m_dtx->compute_server->get_node()->db_meta.get_table(target.tab_name).is_col(target.col_name))){
             throw LJ::ColumnNotFoundError(target.col_name , target.tab_name);
         }
     }
@@ -111,7 +111,7 @@ void Analyze::check_clause(const std::vector<std::string>& tab_names, std::vecto
         }
 
         // 获取到左操作数的操作参数
-        TabMeta &lhs_tab = compute_server->get_node()->db_meta.get_table(cond.lhs_col.tab_name);
+        TabMeta &lhs_tab = m_dtx->compute_server->get_node()->db_meta.get_table(cond.lhs_col.tab_name);
         auto lhs_col = lhs_tab.get_col(cond.lhs_col.col_name);
         ColType lhs_type = lhs_col.type;
 
@@ -123,7 +123,7 @@ void Analyze::check_clause(const std::vector<std::string>& tab_names, std::vecto
             rhs_type = cond.rhs_val.type;
         } else {
             // 右操作数是列引用:获取列的数据类型
-            TabMeta &rhs_tab = compute_server->get_node()->db_meta.get_table(cond.rhs_col.tab_name);
+            TabMeta &rhs_tab = m_dtx->compute_server->get_node()->db_meta.get_table(cond.rhs_col.tab_name);
             auto rhs_col = rhs_tab.get_col(cond.rhs_col.col_name);
             rhs_type = rhs_col.type;
         }
@@ -149,9 +149,10 @@ std::shared_ptr<Query> Analyze::do_analyze(std::shared_ptr<ast::TreeNode> parse)
         query->m_tables = std::move(x->tabs);
         // 先检查表是否存在
         for (auto tbl : query->m_tables) {
-            if (!compute_server->table_exist(std::string(tbl))){
+            if (!m_dtx->compute_server->table_exist(std::string(tbl))){
                 throw LJ::TableNotFoundError(tbl);
             }
+            m_dtx->tab_names.emplace_back(tbl);
         }
 
         // 把 query 加上请求的表的列
@@ -189,7 +190,8 @@ std::shared_ptr<Query> Analyze::do_analyze(std::shared_ptr<ast::TreeNode> parse)
             query->m_clauses.push_back(set_clause);
         }
 
-        TabMeta &tab = compute_server->get_node()->db_meta.get_table(x->m_tabName);
+        TabMeta &tab = m_dtx->compute_server->get_node()->db_meta.get_table(x->m_tabName);
+
         for (auto &set_clause : query->m_clauses) {
             auto lhs_col = tab.get_col(set_clause.lhs.col_name);
             if (lhs_col.type != set_clause.rhs.type) {
@@ -205,16 +207,20 @@ std::shared_ptr<Query> Analyze::do_analyze(std::shared_ptr<ast::TreeNode> parse)
         get_clause(x->m_conds, query->m_conds);
         std::vector<std::string> tab_names = {x->m_tabName};
         check_clause(tab_names, query->m_conds);
+
+        m_dtx->tab_names.emplace_back(x->m_tabName);
     }else if (auto x = std::dynamic_pointer_cast<ast::DeleteStmt>(parse)) {
         // Delete 语句
         get_clause(x->m_conds, query->m_conds);
         std::vector<std::string> tab_names = {x->m_tabName};
         check_clause(tab_names, query->m_conds);
+        m_dtx->tab_names.emplace_back(x->m_tabName);
     }else if (auto x = std::dynamic_pointer_cast<ast::InsertStmt>(parse)) {
         // insert 语句
         for (auto &sv_val : x->m_vals) {
             query->values.push_back(convert_sv_value(sv_val));
         }
+        m_dtx->tab_names.emplace_back(x->m_tabName);
     }else {
         // 其他的不需要经过 Analyzer 处理
     }

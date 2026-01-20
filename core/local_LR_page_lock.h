@@ -269,7 +269,6 @@ public:
         bool need_unpin = false;
         mutex.lock();
         // SQL 验证
-        assert(lock == 1);
         assert(lock > 0);
         assert(lock != EXCLUSIVE_LOCKED);
         assert(!is_granting);

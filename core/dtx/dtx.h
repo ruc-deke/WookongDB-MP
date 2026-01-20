@@ -292,6 +292,7 @@ class DTX {
   std::unordered_set<std::pair<itemkey_t , table_id_t>, ItemTableKeyHash> read_keys;    // 记录本事务访问过的读集合
   std::unordered_set<std::pair<itemkey_t , table_id_t>, ItemTableKeyHash> write_keys;   // 记录本事务访问过的写集合
   std::deque<WriteRecord> write_set;
+  std::vector<std::string> tab_names;
 
   //-------------------
 

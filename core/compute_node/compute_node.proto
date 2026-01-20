@@ -63,6 +63,23 @@ message NotifyCreateTableRequest{
 };
 message NotifyCreateTableResponse{}
 
+message NotifyDropTableRequest{
+    bytes tab_name = 1;
+};
+message NotifyDropTableResponse{
+    bool ok = 1;
+};
+message quitDropTableRequest{
+    bytes tab_name = 1;
+};
+message quitDropTableResponse{
+};
+
+message ClearTableRequest{
+    sint32 table_id = 1;
+};
+message ClearTableResponse{};
+
 message DTX{
     uint64 seed = 1;
     uint64 tx_type = 2;
@@ -102,4 +119,7 @@ service ComputeNodeService {
 
     // SQL
     rpc NotifyCreateTable(NotifyCreateTableRequest) returns (NotifyCreateTableResponse);
+    rpc NotifyDropTable(NotifyDropTableRequest) returns (NotifyDropTableResponse);
+    rpc quitDropTable(quitDropTableRequest) returns (quitDropTableResponse);
+    rpc ClearTable(ClearTableRequest) returns (ClearTableResponse);
 };

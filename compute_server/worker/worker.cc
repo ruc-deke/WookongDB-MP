@@ -377,6 +377,7 @@ void RunSQL(int sock){
     thread_txn_log
   );
   sql_portal = std::make_shared<Portal>(sql_dtx);
+  sql_analyze  = std::make_shared<Analyze>(sql_dtx);
 
   uint64_t run_seed = seed;
   node_id_t node_id = sql_dtx->compute_server->getNodeID();
@@ -386,6 +387,8 @@ void RunSQL(int sock){
   char buffer[10240] = {0};
   std::string response;
 
+  // 本次事务，访问的全部表
+  std::vector<std::string> acquired_tables;
 
   while (true){
     ExecResult res;
@@ -434,6 +437,14 @@ void RunSQL(int sock){
       auto query = sql_analyze->do_analyze(ast::parse_tree);
       yy_delete_buffer(b);
 
+      // 如果正在删除表的话，那就等会
+      for (auto &tab_name : sql_dtx->tab_names){
+        while(!compute_server->addTableUse(tab_name)){
+          usleep(1000);
+        }
+        acquired_tables.push_back(tab_name);
+      }
+
       // 查询优化
       auto plan = sql_optimizer->plan_query(query);
 
@@ -447,6 +458,11 @@ void RunSQL(int sock){
         txn_begin = false;
         response = "Tx Abort , RollBack";
         send(sock, response.c_str(), response.length(), 0);
+        for(auto &tab_name : acquired_tables){
+          compute_server->decreaseTableUse(tab_name);
+        }
+        sql_dtx->tab_names.clear();
+        acquired_tables.clear();
         continue;
       }
 
@@ -470,10 +486,21 @@ void RunSQL(int sock){
       }
       response = sql_ql->getRes();
       send(sock, response.c_str(), response.length(), 0);
+
+      for(auto &tab_name : acquired_tables){
+        compute_server->decreaseTableUse(tab_name);
+      }
+      sql_dtx->tab_names.clear();
+      acquired_tables.clear();
     }catch (std::exception &e){
       response = e.what();
-      sql_dtx->TxAbortSQL(baga);
-      send(sock, response.c_str(), response.length(), 0);
+      sql_dtx->TxAbortSQL(baga);      send(sock, response.c_str(), response.length(), 0);
+
+      for(auto &tab_name : acquired_tables){
+        compute_server->decreaseTableUse(tab_name);
+      }
+      sql_dtx->tab_names.clear();
+      acquired_tables.clear();
       continue;
     } 
   }
@@ -876,7 +903,6 @@ void initThread(thread_params* params,
     page_cache = params->page_cache;
     compute_server = params->compute_server;
 
-    sql_analyze  = std::make_shared<Analyze>(compute_server);
     sql_planner = std::make_shared<Planner>(compute_server);
     sql_optimizer = std::make_shared<Optimizer>(compute_server , sql_planner);
     sql_ql = std::make_shared<QlManager>(compute_server);

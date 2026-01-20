@@ -68,6 +68,10 @@ class StoragePoolImpl : public StorageService{
                         const ::storage_service::CreateTableRequest *request ,
                         ::storage_service::CreateTableResponse *response ,
                       ::google::protobuf::Closure *done);
+    virtual void DropTable(::google::protobuf::RpcController* controller,
+                       const ::storage_service::DropTableRequest* request,
+                       ::storage_service::DropTableResponse* response,
+                       ::google::protobuf::Closure* done);
     virtual void ShowTable(::google::protobuf::RpcController* controller,
                        const ::storage_service::ShowTableRequest* request,
                        ::storage_service::ShowTableResponse* response,

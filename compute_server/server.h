@@ -85,6 +85,20 @@ class ComputeNodeServiceImpl : public ComputeNodeService {
                        ::compute_node_service::NotifyCreateTableResponse* response,
                        ::google::protobuf::Closure* done);
                        
+    virtual void NotifyDropTable(::google::protobuf::RpcController* controller,
+                       const ::compute_node_service::NotifyDropTableRequest* request,
+                       ::compute_node_service::NotifyDropTableResponse* response,
+                       ::google::protobuf::Closure* done);
+    virtual void quitDropTable(::google::protobuf::RpcController* controller,
+                       const ::compute_node_service::quitDropTableRequest* request,
+                       ::compute_node_service::quitDropTableResponse* response,
+                       ::google::protobuf::Closure* done);
+
+    virtual void ClearTable(::google::protobuf::RpcController* controller,
+                       const ::compute_node_service::ClearTableRequest* request,
+                       ::compute_node_service::ClearTableResponse* response,
+                       ::google::protobuf::Closure* done);
+                       
     virtual void LockSuccess(::google::protobuf::RpcController* controller,
                        const ::compute_node_service::LockSuccessRequest* request,
                        ::compute_node_service::LockSuccessResponse* response,
@@ -512,8 +526,168 @@ public:
     }
 
     void dropTable(const std::string &tab_name){
-        // 目前的想法是，先通知其它节点 drop table，然后其它节点给这个表加上写锁，不允许后续的访问，然后再把表删了
-        
+        // 先给表加上锁，等待访问这个表的事务做完，同时不让后续事务再访问这个表
+        tryDropTable(tab_name);
+
+        bool exist = table_exist(tab_name);
+        if (!exist){
+            NotifyDropTableOver();
+            throw LJ::TableNotFoundError(tab_name);
+        }
+
+        TabMeta tab = get_node()->db_meta.get_table(tab_name);
+        table_id_t table_id = tab.table_id;
+
+        // 通知其它节点先尝试 dropTable，如果有节点失败的话，就放弃 dropTable
+        for (int i = 0 ; i < ComputeNodeCount ; i++){
+            if (i == getNodeID()){
+                continue;
+            }
+            brpc::Controller* cntl = new brpc::Controller();
+            compute_node_service::ComputeNodeService_Stub compute_node_stub(&nodes_channel[i]);
+            compute_node_service::NotifyDropTableRequest notify_request;
+            compute_node_service::NotifyDropTableResponse* notify_response = new compute_node_service::NotifyDropTableResponse();
+            notify_request.set_tab_name(tab_name);
+            compute_node_stub.NotifyDropTable(cntl , &notify_request , notify_response , NULL);
+            if (!notify_response->ok()){
+                // 只要有一个节点不允许 drop，那就放弃 drop
+                for (int j = 0 ; j < i ; j++){
+                    brpc::Controller cntl_quit;
+                    compute_node_service::ComputeNodeService_Stub quit_stub(&nodes_channel[j]);
+                    compute_node_service::quitDropTableRequest quit_req;
+                    compute_node_service::quitDropTableResponse quit_resp;
+                    quit_req.set_tab_name(tab_name);
+                    quit_stub.quitDropTable(&cntl_quit , &quit_req , &quit_resp , NULL);
+                }
+                throw std::logic_error("Not Allow To Drop now , please Try Later");
+            }
+        }
+
+        // 此时所有节点都已经设置好 dropTable 标记了，可以开始删除表了
+
+        // 通知存储层 DropTable
+        storage_service::StorageService_Stub storage_stub(get_storage_channel());
+        storage_service::DropTableRequest request;
+        storage_service::DropTableResponse response;
+        brpc::Controller cntl;
+        request.set_tab_name(tab_name);
+        storage_stub.DropTable(&cntl , &request , &response , NULL);
+        if (cntl.Failed()){
+            assert(false);
+        }
+
+        int error_code = response.error_code();
+        if (error_code == 0){
+            for (int j = 0 ; j < ComputeNodeCount ; j++){
+                if (j == getNodeID()){
+                    continue;
+                }else {
+                    brpc::Controller cntl;
+                    compute_node_service::ComputeNodeService_Stub stub(&nodes_channel[j]);
+                    compute_node_service::ClearTableRequest req;
+                    compute_node_service::ClearTableResponse resp;
+                    req.set_table_id(table_id);
+                    stub.ClearTable(&cntl, &req, &resp, NULL);
+                }
+            }
+
+            table_id_t tab_id = get_node()->db_meta.get_table(tab_name).table_id;
+            clearTable(table_id);
+            NotifyDropTableOver();
+
+        }else {
+            // 存储层不允许删除表，那就通知其它节点放弃删除表
+            for (int i = 0 ; i < ComputeNodeCount ; i++){
+                if (i == getNodeID()){
+                    NotifyDropTableOver();
+                }else {
+                    brpc::Controller cntl_quit;
+                    compute_node_service::ComputeNodeService_Stub quit_stub(&nodes_channel[i]);
+                    compute_node_service::quitDropTableRequest quit_req;
+                    compute_node_service::quitDropTableResponse quit_resp;
+                    quit_req.set_tab_name(tab_name);
+                    quit_stub.quitDropTable(&cntl_quit , &quit_req , &quit_resp , NULL);
+                }
+            }
+            LJ::throw_error_by_code(error_code);
+        }
+    }
+
+
+    // 清理掉 table 的缓冲区，FSM，锁表等信息
+    void clearTable(table_id_t table_id){
+        {
+            std::lock_guard<std::mutex> lk(tab_meta_mtx);
+            std::string tab_name = getTableNameFromTableID(table_id);
+            assert(tab_name != "");
+            get_node()->db_meta.m_tabs.erase(tab_name);
+            table_use.erase(tab_name);
+        }
+        assert(table_id < 10000);
+
+        if (SYSTEM_MODE == 1){
+            if (get_node()->lazy_local_page_lock_tables[table_id]){
+                delete get_node()->lazy_local_page_lock_tables[table_id];
+                get_node()->lazy_local_page_lock_tables[table_id] = nullptr;
+            }
+            if (get_node()->lazy_local_page_lock_tables[table_id + 10000]){
+                delete get_node()->lazy_local_page_lock_tables[table_id + 10000];
+                get_node()->lazy_local_page_lock_tables[table_id + 10000] = nullptr;
+            }
+            if (get_node()->lazy_local_page_lock_tables[table_id + 20000]){
+                delete get_node()->lazy_local_page_lock_tables[table_id + 20000];
+                get_node()->lazy_local_page_lock_tables[table_id + 20000] = nullptr;
+            }
+        }else {
+            assert(false);
+        }
+
+        if (get_node()->local_buffer_pools[table_id]){
+            delete get_node()->local_buffer_pools[table_id];
+            get_node()->local_buffer_pools[table_id] = nullptr;
+        }
+        if (get_node()->local_buffer_pools[table_id + 10000]){
+            delete get_node()->local_buffer_pools[table_id + 10000];
+            get_node()->local_buffer_pools[table_id + 10000] = nullptr;
+        }
+        if (get_node()->local_buffer_pools[table_id + 20000]){
+            delete get_node()->local_buffer_pools[table_id + 20000];
+            get_node()->local_buffer_pools[table_id + 20000] = nullptr;
+        }
+
+        if ((*global_page_lock_table_list_)[table_id]){
+            delete (*global_page_lock_table_list_)[table_id];
+            (*global_page_lock_table_list_)[table_id] = nullptr;
+        }
+        if ((*global_valid_table_list_)[table_id]){
+            delete (*global_valid_table_list_)[table_id];
+            (*global_valid_table_list_)[table_id] = nullptr;
+        }
+        if ((*global_page_lock_table_list_)[table_id + 10000]){
+            delete (*global_page_lock_table_list_)[table_id + 10000];
+            (*global_page_lock_table_list_)[table_id + 10000] = nullptr;
+        }
+        if ((*global_valid_table_list_)[table_id + 10000]){
+            delete (*global_valid_table_list_)[table_id + 10000];
+            (*global_valid_table_list_)[table_id + 10000] = nullptr;
+        }
+        if ((*global_page_lock_table_list_)[table_id + 20000]){
+            delete (*global_page_lock_table_list_)[table_id + 20000];
+            (*global_page_lock_table_list_)[table_id + 20000] = nullptr;
+        }
+        if ((*global_valid_table_list_)[table_id + 20000]){
+            delete (*global_valid_table_list_)[table_id + 20000];
+            (*global_valid_table_list_)[table_id + 20000] = nullptr;
+        }
+
+        if (bl_indexes.size() > static_cast<size_t>(table_id) && bl_indexes[table_id]){
+            delete bl_indexes[table_id];
+            bl_indexes[table_id] = nullptr;
+        }
+        if (fsm_trees.size() > static_cast<size_t>(table_id) && fsm_trees[table_id]){
+            delete fsm_trees[table_id];
+            fsm_trees[table_id] = nullptr;
+        }
     }
 
     std::string show_tables(){
@@ -551,26 +725,13 @@ public:
         std::string ret;
         // 立刻打印
         if (context.m_data_send != nullptr && context.m_offset != nullptr && *context.m_offset > 0) {
-            std::cout.write(context.m_data_send, *context.m_offset);
+            // std::cout.write(context.m_data_send, *context.m_offset);
             ret.assign(context.m_data_send, *context.m_offset);
         }
         delete[] context.m_data_send;
         delete context.m_offset;
 
         return ret;
-    }
-
-    void r_lock_tabMeta(){
-        tab_rw_mutex.rdlock();
-    }
-    void r_unlock_tabMeta(){
-        tab_rw_mutex.unlock();
-    }
-    void w_lock_tabMeta(){
-        tab_rw_mutex.wrlock();
-    }
-    void w_unlock_tabMeta(){
-        tab_rw_mutex.unlock();
     }
 
     // 判断 table 是否存在
@@ -777,6 +938,10 @@ public:
     static void NotifyCreateTableRPCDone(compute_node_service::NotifyCreateTableResponse* response,
                                          brpc::Controller* cntl,
                                          std::atomic<bool>* has_error);
+
+    static void NotifyDropTableRPCDone(compute_node_service::NotifyDropTableResponse* response,
+                                       brpc::Controller* cntl,
+                                       std::atomic<bool>* has_error);
 
     // ****************** for eager release *********************
     Page* rpc_fetch_s_page(table_id_t table_id, page_id_t page_id);
@@ -1421,6 +1586,79 @@ public:
         alive_fiber_cnt.fetch_sub(desc_cnt);
     }
 
+    bool addTableUse(const std::string &tab_name){
+        tab_meta_mtx.lock();
+        if (is_dropingTable){
+            tab_meta_mtx.unlock();
+            return false;
+        }
+        if (table_use.find(tab_name) == table_use.end()){
+            table_use[tab_name] = 1;
+        }else {
+            table_use[tab_name]++;
+        }
+        tab_meta_mtx.unlock();
+        return true;
+    }
+    void decreaseTableUse(const std::string &tab_name){
+        std::lock_guard<std::mutex> lk(tab_meta_mtx);
+        assert(table_use.find(tab_name) != table_use.end());
+        assert(table_use[tab_name] > 0);
+        table_use[tab_name]--;
+    }
+    bool tryDropTable(const std::string &tab_name){
+        assert(node_->db_meta.is_table(tab_name));
+
+        {
+            std::lock_guard<std::mutex> lk(tab_meta_mtx);
+            if (is_dropingTable){
+                return false;
+            }
+            if (is_creatingTable){
+                return false;
+            }
+            is_dropingTable = true;
+        }
+
+        while(true){
+            tab_meta_mtx.lock();
+            assert(!is_creatingTable);
+            assert(is_dropingTable);
+
+            // 等事务处理完这个表，我再删除
+            if (table_use[tab_name] > 0){
+                tab_meta_mtx.unlock();
+                usleep(30);
+                continue;
+            }else {
+                tab_meta_mtx.unlock();
+                break;
+            }
+        }
+
+        return true;
+    }
+    
+    void NotifyDropTableOver(){
+        std::lock_guard<std::mutex> lk(tab_meta_mtx);
+        assert(is_dropingTable);
+        is_dropingTable = false;
+    }
+    bool tryCreateTable(){
+        std::lock_guard<std::mutex> lk(tab_meta_mtx);
+        // 正在删除表，不允许建新表
+        if (is_dropingTable){
+            return false;
+        }
+        is_creatingTable = true;
+        return true;
+    }
+    void NotifyCreateTableSuccess(){
+        std::lock_guard<std::mutex> lk(tab_meta_mtx);
+        assert(is_creatingTable);
+        is_creatingTable = false;
+    }
+
 public:
     std::vector<BLinkIndexHandle*> bl_indexes;
     std::vector<SecFSM*> fsm_trees;
@@ -1439,7 +1677,10 @@ private:
     std::unordered_set<uint64_t> hot_page_set;
 
     // SQL
-    RWMutex tab_rw_mutex;
+    std::unordered_map<std::string , int> table_use;
+    std::mutex tab_meta_mtx;
+    bool is_dropingTable;
+    bool is_creatingTable;
 };
 
 int socket_start_client(std::string ip, int port);

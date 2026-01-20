@@ -272,7 +272,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
 
 bool DTX::TxCommit(coro_yield_t& yield){
   struct timespec start_time, end_time;
-  std::cout << "TxCommit\n";
+  // std::cout << "TxCommit\n";
     clock_gettime(CLOCK_REALTIME, &start_time);
     bool commit_status = false;
   if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3 || SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
@@ -578,7 +578,7 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
 }
 
 void DTX::TxAbort(coro_yield_t& yield) {
-  std::cout << "TxAbort\n";
+  // std::cout << "TxAbort\n";
     struct timespec start_time, end_time;
     clock_gettime(CLOCK_REALTIME, &start_time);
   if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3 || SYSTEM_MODE == 12 || SYSTEM_MODE == 13){

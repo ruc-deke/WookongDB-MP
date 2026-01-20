@@ -302,6 +302,11 @@ int SmManager::drop_table(const std::string &table_name){
     // 2. 关闭并删除表文件
     auto file_it = m_fhs.find(table_name);
     assert(file_it != m_fhs.end()); // 前边验证了存在文件，那一定在 file_it 里
+    
+    int fd = file_it->second->GetFd();
+    rm_manager->get_diskmanager()->close_file(fd);
+    delete file_it->second;
+
     m_fhs.erase(file_it);
     rm_manager->get_diskmanager()->destroy_file(table_name);
 

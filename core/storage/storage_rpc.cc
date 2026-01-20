@@ -277,6 +277,18 @@ namespace storage_service{
         response->set_error_code(error_code);
     }
 
+    void StoragePoolImpl::DropTable(::google::protobuf::RpcController* controller,
+                       const ::storage_service::DropTableRequest* request,
+                       ::storage_service::DropTableResponse* response,
+                       ::google::protobuf::Closure* done){
+        brpc::ClosureGuard done_guard(done);
+        std::lock_guard<std::mutex> lk(mutex);
+        assert(sm_manager);
+        std::string tab_name = request->tab_name();
+        int error_code = sm_manager->drop_table(tab_name);
+        response->set_error_code(error_code);
+    }
+
     void StoragePoolImpl::TableExist(::google::protobuf::RpcController* controller,
                        const ::storage_service::TableExistRequest* request,
                        ::storage_service::TableExistResponse* response,

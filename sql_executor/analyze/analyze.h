@@ -10,7 +10,7 @@
 #include "sql_executor/sql_common.h"
 #include "sql_executor/parser/ast.h"
 #include "core/storage/sm_meta.h"
-#include "compute_server/server.h"
+#include "core/dtx/dtx.h"
 
 class Query{
 public:
@@ -27,9 +27,9 @@ public:
 
 class Analyze{
 public:
-     typedef std::shared_ptr<Analyze> ptr;
+    typedef std::shared_ptr<Analyze> ptr;
      
-    Analyze(ComputeServer *s) : compute_server(s) {}
+    Analyze(DTX *s) : m_dtx(s) {}
     Analyze() = delete;
     ~Analyze(){}
 
@@ -44,5 +44,5 @@ public:
     CompOp convert_sv_comp_op(ast::SvCompOp op);
 
 private:
-    ComputeServer *compute_server;
+    DTX *m_dtx;
 };

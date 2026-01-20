@@ -5,16 +5,21 @@ void QlManager::run_mutli_query(std::shared_ptr<Plan> plan){
     if (auto x = std::dynamic_pointer_cast<DDLPlan>(plan)) {
         switch (x->m_tag) {
             case T_CreateTable: {
+                if (!compute_server->tryCreateTable()){
+                    throw std::logic_error("Dropping Table , Please Wait A Minute");
+                }
                 run_res = "Create Table Success";
                 compute_server->create_table(x->m_tabName , x->m_cols , x->m_pkey);
+                compute_server->NotifyCreateTableSuccess();
                 break;
             }
             case T_CreateIndex: {
                 throw std::logic_error("Unsupport Command");
             }
             case T_DropTable: {
+                compute_server->dropTable(x->m_tabName);
                 run_res = "Drop Table Success";
-                throw std::logic_error("Unsupport Command");
+                break;
             }
             case T_DropIndex: {
                 throw std::logic_error("Unsupport Command");

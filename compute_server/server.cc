@@ -244,6 +244,40 @@ void ComputeNodeServiceImpl::NotifyCreateTable(::google::protobuf::RpcController
     }
 }
 
+void ComputeNodeServiceImpl::NotifyDropTable(::google::protobuf::RpcController* controller,
+                       const ::compute_node_service::NotifyDropTableRequest* request,
+                       ::compute_node_service::NotifyDropTableResponse* response,
+                       ::google::protobuf::Closure* done){
+    brpc::ClosureGuard done_guard(done);
+    std::string tab_name = request->tab_name();
+    if (server->tryDropTable(tab_name)){
+        response->set_ok(true);
+    }else{
+        response->set_ok(false);
+    }
+
+    return ;
+}
+
+void ComputeNodeServiceImpl::quitDropTable(::google::protobuf::RpcController* controller,
+                       const ::compute_node_service::quitDropTableRequest* request,
+                       ::compute_node_service::quitDropTableResponse* response,
+                       ::google::protobuf::Closure* done){
+    brpc::ClosureGuard done_guard(done);
+    std::string tab_name = request->tab_name();
+    server->NotifyDropTableOver();
+}
+
+void ComputeNodeServiceImpl::ClearTable(::google::protobuf::RpcController* controller,
+                       const ::compute_node_service::ClearTableRequest* request,
+                       ::compute_node_service::ClearTableResponse* response,
+                       ::google::protobuf::Closure* done){
+    brpc::ClosureGuard done_guard(done);
+    table_id_t table_id = request->table_id();
+    server->clearTable(table_id);
+    server->NotifyDropTableOver();
+}
+
 void ComputeNodeServiceImpl::GetPage(::google::protobuf::RpcController* controller,
                     const ::compute_node_service::GetPageRequest* request,
                     ::compute_node_service::GetPageResponse* response,
@@ -621,6 +655,17 @@ void ComputeServer::NotifyCreateTableRPCDone(compute_node_service::NotifyCreateT
     std::unique_ptr<brpc::Controller> cntl_guard(cntl);
     if (cntl->Failed()) {
         LOG(ERROR) << "NotifyCreateTable RPC failed";
+        *has_error = true;
+    }
+}
+
+void ComputeServer::NotifyDropTableRPCDone(compute_node_service::NotifyDropTableResponse* response,
+                                           brpc::Controller* cntl,
+                                           std::atomic<bool>* has_error){
+    std::unique_ptr<compute_node_service::NotifyDropTableResponse> response_guard(response);
+    std::unique_ptr<brpc::Controller> cntl_guard(cntl);
+    if (cntl->Failed()) {
+        LOG(ERROR) << "NotifyDropTable RPC failed";
         *has_error = true;
     }
 }
