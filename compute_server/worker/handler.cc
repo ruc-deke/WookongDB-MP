@@ -53,34 +53,15 @@ double tx_fetch_exe_time=0, tx_fetch_commit_time=0, tx_release_exe_time=0, tx_re
 double tx_fetch_abort_time=0, tx_release_abort_time=0;
 int single_txn =0, distribute_txn=0;
 
-void Handler::ConfigureComputeNodeRunSQL(int argc , char *argv[]){
+void Handler::ConfigureComputeNodeRunSQL(){
   // 配置节点数量
   std::string config_file = "../../config/compute_node_config.json";
   auto json_config = JsonConfig::load_file(config_file);
   auto local_compute_node = json_config.get("local_compute_node");
   ComputeNodeCount = (int)local_compute_node.get("machine_num").get_int64();
 
-  // 配置 SYSTEM_MODE
-  std::string system_name = std::string(argv[1]);
-  int txn_system_value = 0;
-  if (system_name.find("eager") != std::string::npos) {
-    txn_system_value = 0;
-  } else if (system_name.find("lazy") != std::string::npos) {
-    txn_system_value = 1;
-  } else if (system_name.find("2pc") != std::string::npos) {
-    txn_system_value = 2;
-  } else if (system_name.find("single") != std::string::npos) {
-    txn_system_value = 3;
-  } else if (system_name.find("ts_sep_hot") != std::string::npos){
-    txn_system_value = 13;
-  } else if (system_name.find("ts_sep") != std::string::npos) {
-    txn_system_value = 12;
-  } else {
-    std::cerr << "UnSupported System Mode\n";
-    assert(false);
-  }
-
-  SYSTEM_MODE = txn_system_value;
+  // 目前 SQL 模式只支持 lazy_release 策略
+  SYSTEM_MODE = 1;
 }
 
 
@@ -134,7 +115,7 @@ void Handler::ConfigureComputeNodeRunBench(int argc, char* argv[]) {
   return;
 }
 
-void Handler::GenThreadAndCoro(node_id_t node_id , int thread_num, int sys_mode , const std::string db_name){
+void Handler::StartDatabaseSQL(node_id_t node_id , int thread_num, int sys_mode , const std::string db_name){
   WORKLOAD_MODE = 4;
   std::string config_filepath = "../../config/compute_node_config.json";
   auto json_config = JsonConfig::load_file(config_filepath);

@@ -4,6 +4,7 @@
 #include <brpc/server.h>
 #include <gflags/gflags.h>
 #include <mutex>
+#include <map>
 #include <random>
 #include <chrono>
 #include <pthread.h>
@@ -331,10 +332,12 @@ public:
         // 元组大小信息存储在页面 0 中
         Page *page_0 = nullptr;
         if (SYSTEM_MODE == 0){
+            // eager
             page_0 = rpc_fetch_s_page(table_id , 0);
         }else if (SYSTEM_MODE == 1){
             page_0 = rpc_lazy_fetch_s_page(table_id , 0 , false);
         }else if (SYSTEM_MODE == 2){
+            // 2pc
             page_0 = local_fetch_s_page(table_id , 0);
         }else if (SYSTEM_MODE == 3){
             page_0 = single_fetch_s_page(table_id , 0);
@@ -342,6 +345,7 @@ public:
             assert(false);
         }
         auto hdr = reinterpret_cast<RmFileHdr*>(page_0->get_data());
+        auto ret = std::make_shared<RmFileHdr>(*hdr);
 
         if (SYSTEM_MODE == 0){
             rpc_release_s_page(table_id , 0);
@@ -352,7 +356,7 @@ public:
         }else if (SYSTEM_MODE == 3){
             single_release_s_page(table_id , 0);
         }
-        return std::make_shared<RmFileHdr>(*hdr);
+        return ret;
     }
 
     char *FetchSPage(table_id_t table_id , page_id_t page_id){
@@ -1679,8 +1683,8 @@ private:
     // SQL
     std::unordered_map<std::string , int> table_use;
     std::mutex tab_meta_mtx;
-    bool is_dropingTable;
-    bool is_creatingTable;
+    bool is_dropingTable = false;
+    bool is_creatingTable = false;
 };
 
 int socket_start_client(std::string ip, int port);

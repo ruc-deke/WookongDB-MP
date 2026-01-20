@@ -115,9 +115,9 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
 
           // 这里拿的是 s 锁，不会冲突(MVCC)
           assert (data != nullptr);
-          DataItemPtr data_item = std::make_shared<DataItem>(*reinterpret_cast<DataItem*>(data));
-          assert(data_item->table_id == item.item_ptr->table_id);
-          *item.item_ptr = *data_item;
+          RmFileHdr::ptr file_hdr = compute_server->get_file_hdr(item.item_ptr->table_id);
+          *item.item_ptr = *GetDataItemFromPageRO(item.item_ptr->table_id, data, rid , file_hdr , item_key);
+          assert(item.item_ptr->table_id == item.item_ptr->table_id);
           item.is_fetched = true;
         } else{
           assert(false);
@@ -215,7 +215,7 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
           RmFileHdr::ptr file_hdr = compute_server->get_file_hdr(item.item_ptr->table_id);
           orginal_item = GetDataItemFromPageRW(item.item_ptr->table_id, data, rid , file_hdr , item_key);
           *item.item_ptr = *orginal_item;
-
+          
           if(orginal_item->lock == UNLOCKED) {
             orginal_item->lock = EXCLUSIVE_LOCKED;
             if(item.release_imme) {
@@ -247,11 +247,11 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
             tx_status = TXStatus::TX_ABORTING; // Transaction is aborting due to lock conflict
             continue;
           }
+
           DataItemPtr data_item = std::make_shared<DataItem>(*reinterpret_cast<DataItem*>(data));
           assert(data_item->table_id == item.item_ptr->table_id);
           *item.item_ptr = *data_item;
           item.is_fetched = true;
-          // // LOG(INFO) << "Thread id:" << local_t_id << "TxExe: " << tx_id << " get data item " << item.item_ptr->table_id << " " << item.item_ptr->key << " found on page: " << rid.page_no_ << " node_id: " << node_id << "successfully locked";
         }else {
           assert(false);
         }
