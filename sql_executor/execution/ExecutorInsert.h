@@ -219,7 +219,7 @@ private:
     TabMeta m_tab;
     std::vector<Value> m_values;
     std::string m_tableName;
-    Rid m_rid;
+    Rid m_rid{};
 
     RmFileHdr::ptr file_hdr;
 };
