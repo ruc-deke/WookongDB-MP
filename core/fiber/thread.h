@@ -6,6 +6,7 @@
 
 #include <pthread.h>
 #include <semaphore.h>
+#include <string>
 #include <sys/syscall.h>
 #include <unistd.h>
 
