@@ -16,7 +16,9 @@
 
 #define MAX_MEM_BUFFER_SIZE 8192
 
-bool is_exit_command(std::string &cmd) { return cmd == "exit" || cmd == "exit;" || cmd == "bye" || cmd == "bye;"; }
+bool is_exit_command(std::string &cmd) { 
+    return cmd == "exit" || cmd == "exit;" || cmd == "bye" || cmd == "bye;" || cmd == "quit" || cmd == "quit;";
+}
 
 int init_unix_sock(const char *unix_sock_path) {
     int sockfd = socket(PF_UNIX, SOCK_STREAM, 0);

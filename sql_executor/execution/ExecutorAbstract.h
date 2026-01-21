@@ -10,6 +10,7 @@
 class AbstractExecutor{
 public:
     Rid m_abstractRid;
+    int m_affect_rows;
     virtual ~AbstractExecutor() = default;
     virtual size_t tupleLen() const {return 0;}
     virtual const std::vector<ColMeta> &cols() const {
@@ -35,6 +36,8 @@ public:
     virtual itemkey_t getKey(table_id_t table_id) const {
         return getKey();
     }
+
+    virtual int getAffectRows() { return m_affect_rows; }
 
     std::vector<ColMeta>::const_iterator get_col(const std::vector<ColMeta> &rec_cols, const TabCol &target) {
         auto pos = std::find_if(rec_cols.begin(), rec_cols.end(), [&](const ColMeta &col) {

@@ -26,6 +26,7 @@ public:
 
     // 对于 Insert 来说，Next() 就是直接执行插入了
     DataItem* Next() override {
+        m_affect_rows = 0;
         int value_size = file_hdr->record_size_ - static_cast<int>(sizeof(DataItem));
         auto insert_item = std::make_shared<DataItem>(m_tab.table_id , value_size);
         itemkey_t primary_key = -1;
@@ -161,6 +162,12 @@ public:
                         dtx->compute_server->ReleaseXPage(m_tab.table_id , free_page_id);
                         dtx->tx_status = TXStatus::TX_ABORTING;
                         break;
+                    }else {
+                        if (data_item->user_insert != 1){
+                            // 元组被本事务删了，那就跳过这个元组
+                            dtx->compute_server->ReleaseXPage(m_tab.table_id , free_page_id);
+                            continue;
+                        }
                     }
                 }else {
                     assert(false);
@@ -199,6 +206,7 @@ public:
             WriteRecord insert_record(WType::INSERT_TUPLE , m_tab.table_id , m_rid , primary_key);
             dtx->write_set.push_back(insert_record);
             
+            m_affect_rows = 1;
             break;
         }
         

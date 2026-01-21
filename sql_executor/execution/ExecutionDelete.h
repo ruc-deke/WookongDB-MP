@@ -22,6 +22,7 @@ public:
     }
 
     DataItem* Next() override {
+        m_affect_rows = 0;
         int rid_num = m_rids.size();
         int delete_record = 0;
         for (int i = 0 ; i < rid_num ; i++){
@@ -49,6 +50,12 @@ public:
                         m_dtx->compute_server->ReleaseXPage(m_tab.table_id , m_rids[i].page_no_);
                         m_dtx->tx_status = TXStatus::TX_ABORTING;
                         break;
+                    }else {
+                        if (data_item->user_insert == 1){
+                            // 元组被本事务删了，那就跳过这个元组
+                            m_dtx->compute_server->ReleaseXPage(m_tab.table_id , m_rids[i].page_no_);
+                            continue;
+                        }
                     }
                 }else {
                     assert(false);
@@ -77,6 +84,7 @@ public:
         }
 
         std::cout << "Affect Raw : " << delete_record << "\n";
+        m_affect_rows = delete_record;
 
         return nullptr;
     }

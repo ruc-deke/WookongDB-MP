@@ -398,6 +398,9 @@ void RunSQL(int sock){
     ssize_t valread = read(sock, buffer, sizeof(buffer));
     // 客户端退出了
     if (valread <= 0){
+      if (txn_begin){
+        sql_dtx->TxCommitSingleSQL(baga);
+      }
       break;
     }
 

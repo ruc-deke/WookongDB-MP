@@ -145,7 +145,7 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
                 if (item->lock != EXCLUSIVE_LOCKED && dtx->read_keys.find({rid , table_id}) == dtx->read_keys.end()){
                     // 目前元组是读锁，且本事务不持有该元组读锁，那就加上读锁
                     item->lock++;
-                    item->user_insert = dtx->tx_id;
+                    dtx->read_keys.insert({rid , table_id});
                 }else if (item->lock != EXCLUSIVE_LOCKED){
                     // 本事务已经持有这个元组的读锁了，那啥也不用做
                     assert(dtx->read_keys.find({rid , table_id}) != dtx->read_keys.end());
@@ -155,6 +155,13 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
                         dtx->tx_status = TXStatus::TX_ABORTING;
                         dtx->compute_server->ReleaseXPage(table_id , rid.page_no_);
                         break;
+                    }else {
+                        // 走到这里，说明元组被加了排他锁，且这个排他锁是我自己加的，那就需要判断这个元组是否被删除了
+                        if (item->user_insert == 1){
+                            // 元组被本事务删了，那就跳过这个元组
+                            dtx->compute_server->ReleaseXPage(table_id , rid.page_no_);
+                            continue;
+                        }
                     }
                 }
             }else {
@@ -202,5 +209,5 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
 
 void QlManager::run_dml(std::shared_ptr<AbstractExecutor> exec){
     exec->Next();
-    run_res = "success";
+    run_res = "affect raw : " + std::to_string(exec->getAffectRows());
 }

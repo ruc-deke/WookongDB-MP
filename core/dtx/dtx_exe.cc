@@ -370,7 +370,7 @@ bool DTX::TxCommitSingleSQL(coro_yield_t &yield){
     assert(orginal_item->lock != 0);
 
     // orginal_item->version = commit_ts;
-    orginal_item->lock = UNLOCKED;  
+    orginal_item->lock--;  
 
     compute_server->ReleaseXPage(table_id , rid.page_no_);
   }

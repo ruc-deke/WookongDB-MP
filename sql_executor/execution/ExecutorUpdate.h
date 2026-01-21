@@ -31,6 +31,7 @@ public:
     }
 
     DataItem* Next() override {
+        m_affect_rows = 0;
         int rid_num = m_rids.size();
         for (int i = 0 ; i < rid_num ; i++){
             char *data = m_dtx->compute_server->FetchXPage(m_tab.table_id , m_rids[i].page_no_);
@@ -65,6 +66,12 @@ public:
                         m_dtx->compute_server->ReleaseXPage(m_tab.table_id , m_rids[i].page_no_);
                         m_dtx->tx_status = TXStatus::TX_ABORTING;
                         break;
+                    }else {
+                        if (data_item->user_insert == 1){
+                            // 元组被本事务删了，那就跳过这个元组
+                            m_dtx->compute_server->ReleaseXPage(m_tab.table_id , m_rids[i].page_no_);
+                            continue;
+                        }
                     }
                 }else {
                     assert(false);
@@ -106,6 +113,7 @@ public:
             // 加入到写集合里
             WriteRecord write_record = WriteRecord(WType::UPDATE_TUPLE , m_tab.table_id , m_rids[i] , item_ptr , item_key);
             m_dtx->write_set.push_back(write_record);
+            m_affect_rows++;
         }
 
         return nullptr;
