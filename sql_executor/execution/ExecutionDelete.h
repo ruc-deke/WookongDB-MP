@@ -7,7 +7,7 @@ public:
     DeleteExecutor(DTX *dtx , std::string tab_name , std::vector<Condition> conds, std::vector<Rid> rids){
         m_dtx = dtx;
         m_tab = m_dtx->compute_server->get_node()->db_meta.get_table(tab_name);
-        m_fileHdr = m_dtx->compute_server->get_file_hdr(m_tab.table_id);
+        m_fileHdr = m_dtx->compute_server->get_file_hdr_cached(m_tab.table_id);
 
         m_conditions = conds;
         m_rids = rids;

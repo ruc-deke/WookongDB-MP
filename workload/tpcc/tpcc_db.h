@@ -567,6 +567,8 @@ public:
 
     void PopulateStockTable(unsigned long seed);
 
+    void VerifyData();
+
     int LoadRecord(RmFileHandle* file_handle,
                    itemkey_t item_key,
                    void* val_ptr,

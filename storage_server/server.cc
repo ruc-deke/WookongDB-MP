@@ -26,6 +26,7 @@ void LoadData(node_id_t machine_id,
   } else if (workload == "tpcc") {
       TPCC* tpcc_server = new TPCC(rm_manager);
       tpcc_server->LoadTable(machine_id, machine_num);
+      tpcc_server->VerifyData();
   } else if (workload == "ycsb"){
       std::string config_path = "../../config/ycsb_config.json";
       auto config = JsonConfig::load_file(config_path);
@@ -103,9 +104,9 @@ void Server::PrepareStorageMeta(node_id_t machine_id, std::string workload, char
 
   }else if(workload == "tpcc") {
       std::vector<std::string> tpcc_tables = {
-        "TPCC_warehouse", "TPCC_district", "TPCC_customer", "TPCC_customerhistory",
-        "TPCC_ordernew", "TPCC_order", "TPCC_orderline", "TPCC_item",
-        "TPCC_stock", "TPCC_customerindex", "TPCC_orderindex"
+        "tpcc_warehouse", "tpcc_district", "tpcc_customer", "tpcc_customerhistory",
+        "tpcc_ordernew", "tpcc_order", "tpcc_orderline", "tpcc_item",
+        "tpcc_stock", "tpcc_customerindex", "tpcc_orderindex"
       };
 
       for(int i = 0; i < 11; ++i) {

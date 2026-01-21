@@ -15,7 +15,7 @@ public:
 
         m_tab = dtx->compute_server->get_node()->db_meta.get_table(tab_name);
         m_tableID = m_tab.get_table_id();
-        file_hdr = dtx->compute_server->get_file_hdr(m_tableID);
+        file_hdr = dtx->compute_server->get_file_hdr_cached(m_tableID);
 
         m_cols = m_tab.cols;
     }

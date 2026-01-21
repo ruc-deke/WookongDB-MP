@@ -251,6 +251,7 @@ BLinkNodeHandle* BLinkIndexHandle::find_leaf_for_search(const itemkey_t * key){
     return node;
 }
 
+// 打印路径上的一些信息，DEBUG
 void BLinkIndexHandle::find_leaf_for_search_with_print(const itemkey_t *key , std::stringstream &ss){
     BLinkNodeHandle *node = nullptr;
     page_id_t root_page_id = INVALID_PAGE_ID;

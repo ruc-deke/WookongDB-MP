@@ -240,6 +240,7 @@ void Handler::GenThreads(std::string bench_name) {
         WORKLOAD_MODE = 2;
     }else {
         LOG(FATAL) << "Unsupported benchmark name: " << bench_name;
+        assert(false);
     }
   std::cout << "WORKLOAD_MODE = " << WORKLOAD_MODE << "\n";
   std::string config_filepath = "../../config/compute_node_config.json";
@@ -287,7 +288,8 @@ void Handler::GenThreads(std::string bench_name) {
   if (WORKLOAD_MODE == 0){
     std::this_thread::sleep_for(std::chrono::seconds(10)); 
   }else if (WORKLOAD_MODE == 1){
-    std::this_thread::sleep_for(std::chrono::seconds(15)); 
+    // TPCC needs more time to initialize tables (check table_exist for 11 tables)
+    std::this_thread::sleep_for(std::chrono::seconds(30)); 
   }else if (WORKLOAD_MODE == 2){
     std::this_thread::sleep_for(std::chrono::seconds(5)); 
   }else {

@@ -14,7 +14,6 @@
 // 8: smallbank
 // 664: tpcc
 // 1008: yscb
-#define MAX_ITEM_SIZE 8
 
 #define BUFFER_LENGTH 8192
 

@@ -4,7 +4,7 @@
 Scan::Scan(DTX *dtx , table_id_t table_id){
     m_dtx = dtx;
     m_tableID = table_id;
-    m_fileHdr = dtx->compute_server->get_file_hdr(table_id);
+    m_fileHdr = dtx->compute_server->get_file_hdr_cached(table_id);
     bool found_record = false;
     for (int page_no = 1 ; page_no < m_fileHdr->num_pages_ ; page_no++){
         char *data = dtx->compute_server->FetchSPage(table_id , page_no);

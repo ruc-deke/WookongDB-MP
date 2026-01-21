@@ -175,6 +175,7 @@ class ComputeServer {
 public:
     ComputeServer(ComputeNode* node, std::vector<std::string> compute_ips, std::vector<int> compute_ports): node_(node){
         if (WORKLOAD_MODE != 4){
+            // 如果不是 SQL 模式，那表名都是硬编码到系统里的
             InitTableNameMeta();
         }
         if (SYSTEM_MODE == 13){
@@ -331,6 +332,9 @@ public:
     RmFileHdr::ptr get_file_hdr(table_id_t table_id){
         // 元组大小信息存储在页面 0 中
         Page *page_0 = nullptr;
+        std::string remote_data;
+        bool is_remote = false;
+
         if (SYSTEM_MODE == 0){
             // eager
             page_0 = rpc_fetch_s_page(table_id , 0);
@@ -338,25 +342,69 @@ public:
             page_0 = rpc_lazy_fetch_s_page(table_id , 0 , false);
         }else if (SYSTEM_MODE == 2){
             // 2pc
-            page_0 = local_fetch_s_page(table_id , 0);
+            node_id_t node_id = get_node_id_by_page_id(table_id, 0);
+            if (node_id == node_->getNodeID()) {
+                page_0 = local_fetch_s_page(table_id , 0);
+            } else {
+                is_remote = true;
+                twopc_service::GetDataItemRequest request;
+                twopc_service::GetDataItemResponse response;
+                twopc_service::ItemID* item_id = new twopc_service::ItemID();
+                item_id->set_table_id(table_id);
+                item_id->set_page_no(0);
+                item_id->set_slot_id(0);
+                item_id->set_lock_data(false);
+                request.set_allocated_item_id(item_id);
+                
+                twopc_service::TwoPCService_Stub stub(&nodes_channel[node_id]);
+                brpc::Controller cntl;
+                stub.GetDataItem(&cntl, &request, &response, NULL);
+                
+                if(cntl.Failed()){
+                    LOG(ERROR) << "Fail to get page 0 from remote compute node " << node_id;
+                    assert(false);
+                }
+                remote_data = response.data();
+            }
         }else if (SYSTEM_MODE == 3){
             page_0 = single_fetch_s_page(table_id , 0);
         }else{
             assert(false);
         }
-        auto hdr = reinterpret_cast<RmFileHdr*>(page_0->get_data());
+        
+        RmFileHdr* hdr;
+        if (is_remote) {
+            hdr = reinterpret_cast<RmFileHdr*>(const_cast<char*>(remote_data.c_str()));
+        } else {
+            hdr = reinterpret_cast<RmFileHdr*>(page_0->get_data());
+        }
         auto ret = std::make_shared<RmFileHdr>(*hdr);
 
-        if (SYSTEM_MODE == 0){
-            rpc_release_s_page(table_id , 0);
-        }else if (SYSTEM_MODE == 1){
-            rpc_lazy_release_s_page(table_id , 0);
-        }else if (SYSTEM_MODE == 2){
-            local_release_s_page(table_id , 0);
-        }else if (SYSTEM_MODE == 3){
-            single_release_s_page(table_id , 0);
+        if (!is_remote) {
+            if (SYSTEM_MODE == 0){
+                rpc_release_s_page(table_id , 0);
+            }else if (SYSTEM_MODE == 1){
+                rpc_lazy_release_s_page(table_id , 0);
+            }else if (SYSTEM_MODE == 2){
+                // local_release_s_page(table_id , 0);
+                if (!is_remote){
+                    local_release_s_page(table_id , 0);
+                }
+            }else if (SYSTEM_MODE == 3){
+                single_release_s_page(table_id , 0);
+            }
         }
         return ret;
+    }
+
+    RmFileHdr::ptr get_file_hdr_cached(table_id_t table_id){
+        std::lock_guard<std::mutex> lk(file_hdr_cache_mutex_);
+        if (file_hdr_cache_.find(table_id) != file_hdr_cache_.end()){
+            return file_hdr_cache_[table_id];
+        }
+        RmFileHdr::ptr hdr = get_file_hdr(table_id);
+        file_hdr_cache_[table_id] = hdr;
+        return hdr;
     }
 
     char *FetchSPage(table_id_t table_id , page_id_t page_id){
@@ -626,6 +674,10 @@ public:
             assert(tab_name != "");
             get_node()->db_meta.m_tabs.erase(tab_name);
             table_use.erase(tab_name);
+        }
+        {
+            std::lock_guard<std::mutex> lk(file_hdr_cache_mutex_);
+            file_hdr_cache_.erase(table_id);
         }
         assert(table_id < 10000);
 
@@ -1451,7 +1503,7 @@ public:
 
     void Write_2pc_Local_data(node_id_t node_id, table_id_t table_id, Rid rid, char* data);
 
-    void Get_2pc_Local_page(node_id_t node_id, table_id_t table_id, Rid rid, bool lock, char* &data);
+    void Get_2pc_Local_page(node_id_t node_id, table_id_t table_id, Rid rid, bool lock, char* &data , itemkey_t key);
 
     void Get_2pc_Remote_page(node_id_t node_id, table_id_t table_id, Rid rid, bool lock, char* &data);
 
@@ -1685,6 +1737,10 @@ private:
     std::mutex tab_meta_mtx;
     bool is_dropingTable = false;
     bool is_creatingTable = false;
+
+    // Cache for RmFileHdr
+    std::mutex file_hdr_cache_mutex_;
+    std::map<table_id_t, RmFileHdr::ptr> file_hdr_cache_;
 };
 
 int socket_start_client(std::string ip, int port);

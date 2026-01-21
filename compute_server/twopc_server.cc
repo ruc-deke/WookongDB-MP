@@ -1,4 +1,5 @@
 #include "server.h"
+#include "workload/ycsb/ycsb_db.h"
 
 namespace twopc_service{
     void TwoPCServiceImpl::GetDataItem(::google::protobuf::RpcController* controller,
@@ -22,7 +23,7 @@ namespace twopc_service{
             Page* page = server->local_fetch_x_page(table_id, page_id);
             char* data = page->get_data();
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-            RmFileHdr::ptr file_hdr = server->get_file_hdr(table_id);
+            RmFileHdr::ptr file_hdr = server->get_file_hdr_cached(table_id);
             char *slots = bitmap + file_hdr->bitmap_size_;
             char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
 
@@ -53,18 +54,19 @@ namespace twopc_service{
         table_id_t table_id = request->item_id().table_id();
         page_id_t page_id = request->item_id().page_no();
         int slot_id = request->item_id().slot_id();
-        assert(request->data().size() == MAX_ITEM_SIZE);
+        RmFileHdr::ptr file_hdr = server->get_file_hdr_cached(table_id);
+        assert(request->data().size() == file_hdr->record_size_);
         char* write_remote_data = (char*)request->data().c_str();
 
         Page* page = server->local_fetch_x_page(table_id, page_id);
         char* data = page->get_data();
         char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-        RmFileHdr::ptr file_hdr = server->get_file_hdr(table_id);
         char *slots = bitmap + file_hdr->bitmap_size_;
         char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
         DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
         assert(item->lock == EXCLUSIVE_LOCKED);
-        memcpy(item->value, write_remote_data, MAX_ITEM_SIZE);
+        // Fix: Use correct pointer arithmetic and offsets. Skip header.
+        memcpy((char*)item + sizeof(DataItem), write_remote_data + sizeof(DataItem), file_hdr->record_size_ - sizeof(DataItem));
         item->lock = UNLOCKED;
         server->local_release_x_page(table_id, page_id);
 
@@ -124,23 +126,24 @@ namespace twopc_service{
 
         int item_size = request->item_id_size();
         assert(item_size == request->data_size());
-        for(int i=0; i<item_size; i++){
+        for(int i = 0; i < item_size; i++){
             table_id_t table_id = request->item_id(i).table_id();
             page_id_t page_id = request->item_id(i).page_no();
             int slot_id = request->item_id(i).slot_id();
             char* write_remote_data = (char*)request->data(i).c_str();
-
-            // // LOG(INFO) << "Node " << server->get_node()->getNodeID() << " release data item " << table_id << " " << page_id << " " << slot_id;
             
             Page* page = server->local_fetch_x_page(table_id, page_id);
             char* data = page->get_data();
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-            RmFileHdr::ptr file_hdr = server->get_file_hdr(table_id);
+            RmFileHdr::ptr file_hdr = server->get_file_hdr_cached(table_id);
             char *slots = bitmap + file_hdr->bitmap_size_;
             char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
             DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
             assert(item->lock == EXCLUSIVE_LOCKED);
-            memcpy(item->value, write_remote_data, MAX_ITEM_SIZE);
+            // Fix: Use correct pointer arithmetic. request->data() contains ONLY value.
+            memcpy((char*)item + sizeof(DataItem) , write_remote_data , file_hdr->record_size_ - sizeof(DataItem));
+
+            // memcpy(item->value, write_remote_data, file_hdr->record_size_);
             item->lock = UNLOCKED;
             server->local_release_x_page(table_id, page_id);
         }
@@ -194,7 +197,7 @@ namespace twopc_service{
             char* data = page->get_data();
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
             
-            RmFileHdr::ptr file_hdr = server->get_file_hdr(table_id);
+            RmFileHdr::ptr file_hdr = server->get_file_hdr_cached(table_id);
             char *slots = bitmap + file_hdr->bitmap_size_;
             char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
             DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));

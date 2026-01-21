@@ -22,56 +22,23 @@ MetaManager::MetaManager(std::string bench_name, IndexCache* index_cache , PageC
     table_name_map[0] = "smallbank_savings";
     table_name_map[1] = "smallbank_checking";
 
-    // TableMeta meta;
-    // meta.record_size_ = sizeof(DataItem);
-    // std::cout << "Record Size = " << sizeof(DataItem) << "\n";
-    // meta.num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (meta.record_size_ + sizeof(itemkey_t)) * BITMAP_WIDTH);
-    // meta.bitmap_size_ = (meta.num_records_per_page_ + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
-    // std::cout << "Num Records Per Table = " << meta.num_records_per_page_ << "\n";
-    
-    // table_meta_map[0] = meta;
-    // table_meta_map[1] = meta;
   } else if (bench_name == "tpcc") {
-    table_name_map[0] = "TPCC_warehouse";
-    table_name_map[1] = "TPCC_district";
-    table_name_map[2] = "TPCC_customer";
-    table_name_map[3] = "TPCC_customerhistory";
-    table_name_map[4] = "TPCC_ordernew";
-    table_name_map[5] = "TPCC_order";
-    table_name_map[6] = "TPCC_orderline";
-    table_name_map[7] = "TPCC_item";
-    table_name_map[8] = "TPCC_stock";
-    table_name_map[9] = "TPCC_customerindex";
-    table_name_map[10] = "TPCC_orderindex";
-
-    // TableMeta meta;
-    // meta.record_size_ = sizeof(DataItem);
-    // meta.num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (meta.record_size_ + sizeof(itemkey_t)) * BITMAP_WIDTH);
-    // meta.bitmap_size_ = (meta.num_records_per_page_ + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
-    // std::cout << "Record Size = " << sizeof(DataItem) << "\n";
-    // std::cout << "Num Records Per Table = " << meta.num_records_per_page_ << "\n";
-
-    // table_meta_map[0] = meta;
-    // table_meta_map[1] = meta;
-    // table_meta_map[2] = meta;
-    // table_meta_map[3] = meta;
-    // table_meta_map[4] = meta;
-    // table_meta_map[5] = meta;
-    // table_meta_map[6] = meta;
-    // table_meta_map[7] = meta;
-    // table_meta_map[8] = meta;
-    // table_meta_map[9] = meta;
-    // table_meta_map[10] = meta;
+    table_name_map[0] = "tpcc_warehouse";
+    table_name_map[1] = "tpcc_district";
+    table_name_map[2] = "tpcc_customer";
+    table_name_map[3] = "tpcc_customerhistory";
+    table_name_map[4] = "tpcc_ordernew";
+    table_name_map[5] = "tpcc_order";
+    table_name_map[6] = "tpcc_orderline";
+    table_name_map[7] = "tpcc_item";
+    table_name_map[8] = "tpcc_stock";
+    table_name_map[9] = "tpcc_customerindex";
+    table_name_map[10] = "tpcc_orderindex";
   }else if (bench_name == "ycsb"){
     table_name_map[0] = "ycsb_user_table";
-    // TableMeta meta;
-    // meta.record_size_ = sizeof(DataItem);
-    // meta.num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (meta.record_size_ + sizeof(itemkey_t)) * BITMAP_WIDTH);
-    // meta.bitmap_size_ = (meta.num_records_per_page_ + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
-    // table_meta_map[0] = meta;
   }else if (bench_name == ""){
     // SQL
-
+    
   }else {
     assert(false);
   }

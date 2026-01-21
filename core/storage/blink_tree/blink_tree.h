@@ -235,27 +235,27 @@ public:
             }
         }else if (bench_name == "tpcc"){
             if (table_id == 10000){
-                index_path = "TPCC_warehouse_bl";
+                index_path = "tpcc_warehouse_bl";
             }else if (table_id == 10001){
-                index_path = "TPCC_district_bl";
+                index_path = "tpcc_district_bl";
             }else if (table_id == 10002){
-                index_path = "TPCC_customer_bl";
+                index_path = "tpcc_customer_bl";
             }else if (table_id == 10003){
-                index_path = "TPCC_customerhistory_bl";
+                index_path = "tpcc_customerhistory_bl";
             }else if (table_id == 10004){
-                index_path = "TPCC_ordernew_bl";
+                index_path = "tpcc_ordernew_bl";
             }else if (table_id == 10005){
-                index_path = "TPCC_order_bl";
+                index_path = "tpcc_order_bl";
             }else if (table_id == 10006){
-                index_path = "TPCC_orderline_bl";
+                index_path = "tpcc_orderline_bl";
             }else if (table_id == 10007){
-                index_path = "TPCC_item_bl";
+                index_path = "tpcc_item_bl";
             }else if (table_id == 10008){
-                index_path = "TPCC_stock_bl";
+                index_path = "tpcc_stock_bl";
             }else if (table_id == 10009){
-                index_path = "TPCC_customerindex_bl";
+                index_path = "tpcc_customerindex_bl";
             }else if (table_id == 10010){
-                index_path = "TPCC_orderindex_bl";
+                index_path = "tpcc_orderindex_bl";
             }else {
                 assert(false);
             }
