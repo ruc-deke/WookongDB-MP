@@ -35,16 +35,17 @@ public:
             }
 
             if (data_item->lock != 0){
-                if (data_item->lock == 1 && m_dtx->read_keys.find({pri_key , m_tab.table_id}) != m_dtx->read_keys.end()){
+                if (data_item->lock == 1 && m_dtx->read_keys.find({m_rids[i] , m_tab.table_id}) != m_dtx->read_keys.end()){
                     // 升级锁
-                    m_dtx->read_keys.erase({pri_key , m_tab.table_id});
+                    m_dtx->read_keys.erase({m_rids[i]  , m_tab.table_id});
+                    m_dtx->write_keys.insert({m_rids[i] , m_tab.table_id});
                     data_item->lock = EXCLUSIVE_LOCKED;
                 }else if (data_item->lock != EXCLUSIVE_LOCKED){
                     m_dtx->compute_server->ReleaseXPage(m_tab.table_id , m_rids[i].page_no_);
                     m_dtx->tx_status = TXStatus::TX_ABORTING;
                     break;
                 }else if (data_item->lock == EXCLUSIVE_LOCKED){
-                    if (m_dtx->write_keys.find({pri_key , m_tab.table_id}) == m_dtx->write_keys.end()){
+                    if (m_dtx->write_keys.find({m_rids[i]  , m_tab.table_id}) == m_dtx->write_keys.end()){
                         m_dtx->compute_server->ReleaseXPage(m_tab.table_id , m_rids[i].page_no_);
                         m_dtx->tx_status = TXStatus::TX_ABORTING;
                         break;
@@ -53,7 +54,7 @@ public:
                     assert(false);
                 }
             }else {
-                m_dtx->write_keys.insert({pri_key , m_tab.table_id});
+                m_dtx->write_keys.insert({m_rids[i]  , m_tab.table_id});
             }
 
 

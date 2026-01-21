@@ -120,7 +120,7 @@ void DTX::ReleaseXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_
     
 }
 
-DataItem* DTX::GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr::ptr file_hdr , itemkey_t item_key){
+DataItem* DTX::GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr::ptr file_hdr , itemkey_t& item_key){
     // Get data item from page
     char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
     char *slots = bitmap + file_hdr->bitmap_size_;
@@ -153,7 +153,7 @@ DataItem* DTX::GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , 
 }
 
 // 从页面里读取数据，Load 到 itemPtr 里并返回
-DataItem* DTX::GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid , RmFileHdr::ptr file_hdr , itemkey_t item_key){
+DataItem* DTX::GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid , RmFileHdr::ptr file_hdr , itemkey_t& item_key){
     char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
     char *slots = bitmap + file_hdr->bitmap_size_;
     char* tuple = slots + rid.slot_no_ * (file_hdr->record_size_ + sizeof(itemkey_t));
@@ -170,7 +170,8 @@ DataItem* DTX::GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid , 
     // memcpy(itemPtr->value, reinterpret_cast<char*>(disk_item) + sizeof(DataItem), itemPtr->value_size);
 
     itemkey_t *disk_key = reinterpret_cast<itemkey_t*>(tuple);
-    assert(*disk_key == item_key);
+    // assert(*disk_key == item_key);
+    item_key = *disk_key;
 
     return disk_item;
 }

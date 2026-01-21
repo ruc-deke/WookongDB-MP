@@ -54,7 +54,7 @@ public:
         Rid rid = dtx->compute_server->get_rid_from_blink(m_tab.table_id , primary_key);
         
         if (rid.page_no_ != -1){
-            if (dtx->write_keys.find({primary_key , m_tab.table_id}) == dtx->write_keys.end()){
+            if (dtx->write_keys.find({rid , m_tab.table_id}) == dtx->write_keys.end()){
                 // 如果本事务不持有这个元组的写锁，无论什么情况，都要回滚
                 dtx->tx_status = TXStatus::TX_ABORTING;
                 return nullptr;
@@ -147,9 +147,9 @@ public:
             int lock = data_item->lock;
             if (lock != 0){
                 // 升级锁
-                if (lock == 1 && dtx->read_keys.find({primary_key , m_tab.table_id}) != dtx->read_keys.end()){
-                    dtx->write_keys.erase({primary_key , m_tab.table_id});
-
+                if (lock == 1 && dtx->read_keys.find({{free_page_id , slot_no} , m_tab.table_id}) != dtx->read_keys.end()){
+                    dtx->read_keys.erase({{free_page_id , slot_no}  , m_tab.table_id});
+                    dtx->write_keys.insert({{free_page_id , slot_no} , m_tab.table_id});
                     data_item->lock = EXCLUSIVE_LOCKED;
                 }else if (lock != EXCLUSIVE_LOCKED){
                     dtx->compute_server->ReleaseXPage(m_tab.table_id , free_page_id);
@@ -157,7 +157,7 @@ public:
                     break;
                 }else if (lock == EXCLUSIVE_LOCKED){
                     // 如果持有写锁的不是我自己，那就回滚
-                    if (dtx->write_keys.find({primary_key , m_tab.table_id}) == dtx->write_keys.end()){
+                    if (dtx->write_keys.find({{free_page_id , slot_no}  , m_tab.table_id}) == dtx->write_keys.end()){
                         dtx->compute_server->ReleaseXPage(m_tab.table_id , free_page_id);
                         dtx->tx_status = TXStatus::TX_ABORTING;
                         break;
@@ -166,17 +166,18 @@ public:
                     assert(false);
                 }
             }else {
-                dtx->write_keys.insert({primary_key , m_tab.table_id});
+                dtx->write_keys.insert({{free_page_id , slot_no}  , m_tab.table_id});
             }
 
             memcpy(tuple, &primary_key, sizeof(itemkey_t));
             memcpy(tuple + sizeof(itemkey_t) + sizeof(DataItem), insert_item->value, insert_item->value_size);
 
-            // Bitmap::set(bitmap, slot_no);
+            Bitmap::set(bitmap, slot_no);
             data_item->lock = EXCLUSIVE_LOCKED;
-            // data_item->valid = 1;
+            data_item->valid = 1;
             data_item->table_id = m_tab.table_id;
             data_item->value_size = insert_item->value_size;
+            data_item->user_insert = 0;
 
             std::cout << "Insert Pos : " << "Table ID = " << data_item->table_id << " Page ID = " << free_page_id << " Slot No = " << slot_no << "\n";
 

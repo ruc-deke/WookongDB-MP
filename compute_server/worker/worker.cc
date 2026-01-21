@@ -477,6 +477,7 @@ void RunSQL(int sock){
         sql_dtx->TxCommitSingleSQL(baga);
       }else if (res == run_stat::TXN_ABORT || res == run_stat::TXN_ROLLBACK){
         sql_dtx->TxAbortSQL(baga);
+        txn_begin = false;
       }else if (res == run_stat::NORMAL){
         if (!txn_begin){
           sql_dtx->TxCommitSingleSQL(baga);
@@ -494,6 +495,7 @@ void RunSQL(int sock){
       acquired_tables.clear();
     }catch (std::exception &e){
       response = e.what();
+      txn_begin = false;
       sql_dtx->TxAbortSQL(baga);      send(sock, response.c_str(), response.length(), 0);
 
       for(auto &tab_name : acquired_tables){

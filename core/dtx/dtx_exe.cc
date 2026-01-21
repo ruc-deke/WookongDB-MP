@@ -301,15 +301,15 @@ bool DTX::TxCommitSingleSQL(coro_yield_t &yield){
   brpc::Join(*cid); // 等待刷新日志完成
 
   for (auto it = write_keys.begin() ; it != write_keys.end() ; it++){
-    itemkey_t key = it->first;
     table_id_t table_id = it->second;
-    Rid rid = GetRidFromBLink(table_id , key);
+    Rid rid =  it->first;
     assert(rid.page_no_ != INVALID_PAGE_ID);
 
     auto page = compute_server->FetchXPage(table_id , rid.page_no_);
     DataItem* orginal_item = nullptr;
 
     RmFileHdr::ptr file_hdr = compute_server->get_file_hdr(table_id);
+    itemkey_t key;
     orginal_item = GetDataItemFromPageRW(table_id, page, rid , file_hdr , key);
 
     assert(orginal_item->lock == EXCLUSIVE_LOCKED);
@@ -319,6 +319,9 @@ bool DTX::TxCommitSingleSQL(coro_yield_t &yield){
       orginal_item->valid = 0;
       char* bitmap = page + sizeof(RmPageHdr) + OFFSET_PAGE_HDR; 
       Bitmap::reset(bitmap , rid.slot_no_);
+      int count = Bitmap::getfreeposnum(bitmap,file_hdr->num_records_per_page_ );
+      compute_server->update_page_space(table_id , rid.page_no_ , count * (file_hdr->record_size_ + sizeof(itemkey_t)));
+      compute_server->delete_from_blink(table_id , key);
     }else {
       orginal_item->valid = 1;
       char* bitmap = page + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
@@ -329,29 +332,39 @@ bool DTX::TxCommitSingleSQL(coro_yield_t &yield){
     orginal_item->version = commit_ts;
     orginal_item->lock = UNLOCKED;  
 
-    // 除此之外，如果是删除操作，还需要把这个空间给让出来，通知 FSM 释放空间，同时删除掉 BLink 里面的 key
-    if (orginal_item->valid == 0){
-      char *bitmap = page + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-      int count = Bitmap::getfreeposnum(bitmap,file_hdr->num_records_per_page_ );
-      compute_server->update_page_space(table_id , rid.page_no_ , count * (file_hdr->record_size_ + sizeof(itemkey_t)));
+    // 1：插入，2：删除
+    // int write_type = -1;
+    // for (auto it = write_set.begin() ; it != write_set.end() ; ){
+    //   if (it->GetWriteType() == WType::DELETE_TUPLE){
+    //     write_type = 2;
+    //     it = write_set.erase(it);
+    //   }else if (it->GetWriteType() == WType::INSERT_TUPLE){
+    //     write_type = 1;
+    //     it = write_set.erase(it);
+    //   }else {
+    //     it = write_set.erase(it);
+    //   }
+    // }
 
-      compute_server->delete_from_blink(table_id , key);
-    }
+    // if (write_type == 2){
+    //   char *bitmap = page + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+      
+    // }
 
     compute_server->ReleaseXPage(table_id , rid.page_no_);
   }
 
   for (auto it = read_keys.begin() ; it != read_keys.end() ; it++){
-    itemkey_t key = it->first;
     table_id_t table_id = it->second;
-    Rid rid = GetRidFromBLink(table_id , key);
+    Rid rid = it->first;
     assert(rid.page_no_ != INVALID_PAGE_ID);
 
     auto page = compute_server->FetchXPage(table_id , rid.page_no_);
     DataItem* orginal_item = nullptr;
 
     RmFileHdr::ptr file_hdr = compute_server->get_file_hdr(table_id);
-    orginal_item = GetDataItemFromPageRW(table_id, page, rid , file_hdr , key);
+    itemkey_t useless_key;
+    orginal_item = GetDataItemFromPageRW(table_id, page, rid , file_hdr , useless_key);
 
     assert(orginal_item->lock != EXCLUSIVE_LOCKED);
     assert(orginal_item->lock != 0);
@@ -361,8 +374,6 @@ bool DTX::TxCommitSingleSQL(coro_yield_t &yield){
 
     compute_server->ReleaseXPage(table_id , rid.page_no_);
   }
-
-
 }
 
 bool DTX::TxCommitSingle(coro_yield_t& yield) {
@@ -490,16 +501,16 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
 
   // 先把读锁给全放了
   for (auto it = read_keys.begin() ; it != read_keys.end() ; it++){
-    itemkey_t key = it->first;
     table_id_t table_id = it->second;
-    Rid rid = GetRidFromBLink(table_id , key);
+    Rid rid = it->first;
     assert(rid.page_no_ != INVALID_PAGE_ID);
 
     auto page = compute_server->FetchXPage(table_id , rid.page_no_);
     DataItem* orginal_item = nullptr;
 
     RmFileHdr::ptr file_hdr = compute_server->get_file_hdr(table_id);
-    orginal_item = GetDataItemFromPageRW(table_id, page, rid , file_hdr , key);
+    itemkey_t useless_key;
+    orginal_item = GetDataItemFromPageRW(table_id, page, rid , file_hdr , useless_key);
 
     assert(orginal_item->lock != EXCLUSIVE_LOCKED);
     assert(orginal_item->lock != 0);
@@ -515,7 +526,7 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
     table_id_t table_id = write_record.GetTableID();
     Rid rid = write_record.GetRid();
     itemkey_t key = write_record.GetKey();
-    assert(write_keys.find({key , table_id}) != write_keys.end());
+    assert(write_keys.find({rid , table_id}) != write_keys.end());
     switch (write_record.GetWriteType()) {
       case WType::DELETE_TUPLE:{
         // 回滚删除
@@ -524,14 +535,14 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
         itemkey_t item_key;
         DataItem *data_item = GetDataItemFromPage(table_id , rid , data , file_hdr , item_key , true);
         assert(item_key == key);
-        assert(data_item->valid == 0);
 
+        // assert(data_item->valid == 0);
         data_item->valid = 1;
         char* bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR; 
-        assert(!Bitmap::is_set(bitmap , rid.slot_no_));
+        // assert(!Bitmap::is_set(bitmap , rid.slot_no_));
         Bitmap::set(bitmap , rid.slot_no_);
 
-        data_item->lock = UNLOCKED;
+        // data_item->lock = UNLOCKED;
 
         // 不管三七二十一，直接往 B+ 树里面插入
         compute_server->insert_into_blink(table_id , item_key , rid);
@@ -546,15 +557,19 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
         itemkey_t item_key;
         DataItem *data_item = GetDataItemFromPage(table_id , rid , data , file_hdr , item_key , true);
         assert(item_key == key);
-        assert(data_item->valid == 1);
+
+        // assert(data_item->valid == 1);
+        // data_item->valid = 0;
+        // data_item->lock = UNLOCKED;
+        // char* bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR; 
+        // assert(Bitmap::is_set(bitmap , rid.slot_no_));
+        // Bitmap::reset(bitmap , rid.slot_no_);
 
         data_item->valid = 0;
-        data_item->lock = UNLOCKED;
         char* bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR; 
         assert(Bitmap::is_set(bitmap , rid.slot_no_));
-        Bitmap::reset(bitmap , rid.slot_no_);
+        Bitmap::reset(bitmap , rid.slot_no_); 
 
-        data_item->valid = 0;
         compute_server->delete_from_blink(table_id , item_key);
 
         compute_server->ReleaseXPage(table_id , rid.page_no_);
@@ -567,11 +582,7 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
         itemkey_t item_key;
         DataItem *data_item = GetDataItemFromPage(table_id , rid , data , file_hdr , item_key , true);
         assert(item_key == key);
-
         memcpy(data_item->value , write_record.GetDataItem()->value , data_item->value_size);
-        data_item->lock = 0;
-        
-
         compute_server->ReleaseXPage(table_id , rid.page_no_);
 
         break;
@@ -581,7 +592,21 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
     write_set.pop_back();
   }
 
-  assert(write_keys.empty());
+  for (auto it = write_keys.begin() ; it != write_keys.end() ; it++){
+    table_id_t table_id = it->second;
+
+    Rid rid = it->first;
+    char *data = compute_server->FetchXPage(table_id , rid.page_no_);
+    RmFileHdr::ptr file_hdr = compute_server->get_file_hdr(table_id);
+    itemkey_t item_key;
+    DataItem *data_item = GetDataItemFromPage(table_id , rid , data , file_hdr , item_key , true);
+
+    assert(data_item->lock == EXCLUSIVE_LOCKED);
+
+    data_item->lock = UNLOCKED;
+    compute_server->ReleaseXPage(table_id , rid.page_no_);
+  }
+
 }
 
 void DTX::TxAbort(coro_yield_t& yield) {

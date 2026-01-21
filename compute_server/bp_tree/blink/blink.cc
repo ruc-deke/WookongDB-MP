@@ -579,17 +579,17 @@ bool BLinkIndexHandle::checkIfDirectlyGetPage(const itemkey_t *key , Rid &result
 }
 
 bool BLinkIndexHandle::search(const itemkey_t *key , Rid &result){
-    if (checkIfDirectlyGetPage(key , result)){
-        return true;
-    }
+    // if (checkIfDirectlyGetPage(key , result)){
+    //     return true;
+    // }
     
     Rid *rid;
     BLinkNodeHandle *leaf = find_leaf_for_search(key);
     bool exist = leaf->leaf_lookup(key , &rid);
     if (exist){
-        key2leaf_mtx.lock();
-        key2leaf[*key] = leaf->get_page_no();
-        key2leaf_mtx.unlock();
+        // key2leaf_mtx.lock();
+        // key2leaf[*key] = leaf->get_page_no();
+        // key2leaf_mtx.unlock();
         result = *rid;
     }
     release_node(leaf->get_page_no() , BPOperation::SEARCH_OPERA);

@@ -40,6 +40,15 @@ struct ItemTableKeyHash {
   }
 };
 
+struct RidTableKeyHash {
+  size_t operator()(const std::pair<Rid, table_id_t>& p) const noexcept {
+    size_t h1 = std::hash<page_id_t>{}(p.first.page_no_);
+    size_t h2 = std::hash<int>{}(p.first.slot_no_);
+    size_t h3 = std::hash<table_id_t>{}(p.second);
+    return (h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2))) ^ (h3 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
+  }
+};
+
 struct DataSetItem {
   DataSetItem(DataItemPtr item) {
     item_ptr = std::move(item);
@@ -132,8 +141,8 @@ class DTX {
   void AddLogToTxn();
   void SendLogToStoragePool(uint64_t bid, brpc::CallId* cid); // use for rpc
 
-  DataItem* GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr::ptr file_hdr , itemkey_t item_key);
-  DataItem* GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid , RmFileHdr::ptr file_hdr , itemkey_t item_key);
+  DataItem* GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr::ptr file_hdr , itemkey_t& item_key);
+  DataItem* GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid , RmFileHdr::ptr file_hdr , itemkey_t& item_key);
 
   DataItem* GetDataItemFromPage(table_id_t table_id , Rid rid , char *data , RmFileHdr::ptr file_hdr , itemkey_t &pri_key , bool is_w);
 
@@ -286,8 +295,8 @@ class DTX {
 
   // SQL
   // -----------------
-  std::unordered_set<std::pair<itemkey_t , table_id_t>, ItemTableKeyHash> read_keys;    // 记录本事务访问过的读集合
-  std::unordered_set<std::pair<itemkey_t , table_id_t>, ItemTableKeyHash> write_keys;   // 记录本事务访问过的写集合
+  std::unordered_set<std::pair<Rid , table_id_t>, RidTableKeyHash> read_keys;    // 记录本事务访问过的读集合
+  std::unordered_set<std::pair<Rid , table_id_t>, RidTableKeyHash> write_keys;   // 记录本事务访问过的写集合
   std::deque<WriteRecord> write_set;
   std::vector<std::string> tab_names;
 

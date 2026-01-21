@@ -142,23 +142,23 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
             // 读锁，需要考虑的几个情况
 
             if (item->lock > 0){
-                if (item->lock != EXCLUSIVE_LOCKED && dtx->read_keys.find({pri_key , table_id}) == dtx->read_keys.end()){
+                if (item->lock != EXCLUSIVE_LOCKED && dtx->read_keys.find({rid , table_id}) == dtx->read_keys.end()){
                     // 目前元组是读锁，且本事务不持有该元组读锁，那就加上读锁
                     item->lock++;
                     item->user_insert = dtx->tx_id;
                 }else if (item->lock != EXCLUSIVE_LOCKED){
                     // 本事务已经持有这个元组的读锁了，那啥也不用做
-                    assert(dtx->read_keys.find({pri_key , table_id}) != dtx->read_keys.end());
+                    assert(dtx->read_keys.find({rid , table_id}) != dtx->read_keys.end());
                 }else {
                     // 元组是写锁，需要判断这个写锁是否是本事务加上的，如果是，允许读，否则回滚
-                    if (dtx->write_keys.find({pri_key , table_id}) == dtx->write_keys.end()){
+                    if (dtx->write_keys.find({rid , table_id}) == dtx->write_keys.end()){
                         dtx->tx_status = TXStatus::TX_ABORTING;
                         dtx->compute_server->ReleaseXPage(table_id , rid.page_no_);
                         break;
                     }
                 }
             }else {
-                dtx->read_keys.insert({pri_key , table_id});
+                dtx->read_keys.insert({rid , table_id});
                 item->lock++;
             }
 
