@@ -131,46 +131,46 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
     }
   }
   // 插入
-  for (size_t i = 0 ; i < insert_set.size() ; i++){
-    DataSetItem &item = insert_set[i].second;
-    itemkey_t item_key = insert_set[i].first;
+  // for (size_t i = 0 ; i < insert_set.size() ; i++){
+  //   DataSetItem &item = insert_set[i].second;
+  //   itemkey_t item_key = insert_set[i].first;
 
-    if (SYSTEM_MODE == 1){
-      // insert 有可能是覆盖了旧的数据，所以把旧的给记下来
+  //   if (SYSTEM_MODE == 1){
+  //     // insert 有可能是覆盖了旧的数据，所以把旧的给记下来
 
-      Rid insert_rid = insert_entry(insert_set[i].second.item_ptr.get() , item_key);
-      std::cout << "Insert a Key , primary = " << item_key << " page_id = " << insert_rid.page_no_ << " slot = " << insert_rid.slot_no_ << "\n";
-      if (insert_rid.page_no_ == -1){
-        tx_status = TXStatus::TX_ABORTING;
-        break;
-      }
-      item.is_fetched = true;
-    }else {
-      // 目前只支持 lazy 模式插入数据
-      assert(false);
-    }
-  }
+  //     Rid insert_rid = insert_entry(insert_set[i].second.item_ptr.get() , item_key);
+  //     std::cout << "Insert a Key , primary = " << item_key << " page_id = " << insert_rid.page_no_ << " slot = " << insert_rid.slot_no_ << "\n";
+  //     if (insert_rid.page_no_ == -1){
+  //       tx_status = TXStatus::TX_ABORTING;
+  //       break;
+  //     }
+  //     item.is_fetched = true;
+  //   }else {
+  //     // 目前只支持 lazy 模式插入数据
+  //     assert(false);
+  //   }
+  // }
 
-  for (size_t i = 0 ; i < delete_set.size() ; i++){
-    // 如果插入已经和你说了 Abort，那 delete 也没必要执行了
-    if (tx_status == TXStatus::TX_ABORTING){
-      break;
-    }
-    DataSetItem &item = delete_set[i].second;
-    itemkey_t key = delete_set[i].first;
-    if (SYSTEM_MODE == 1){
-      Rid delete_rid = delete_entry(delete_set[i].second.item_ptr->table_id , key);
-      // 如果删除的元组不存在，先按回滚处理
-      if (delete_rid.page_no_ == -1){
-        tx_status = TXStatus::TX_ABORTING;
-        break;
-      }
-      item.is_fetched = true;
-    }else {
-      // 目前只支持 lazy 模式删除数据
-      assert(false);
-    }
-  }
+  // for (size_t i = 0 ; i < delete_set.size() ; i++){
+  //   // 如果插入已经和你说了 Abort，那 delete 也没必要执行了
+  //   if (tx_status == TXStatus::TX_ABORTING){
+  //     break;
+  //   }
+  //   DataSetItem &item = delete_set[i].second;
+  //   itemkey_t key = delete_set[i].first;
+  //   if (SYSTEM_MODE == 1){
+  //     Rid delete_rid = delete_entry(delete_set[i].second.item_ptr->table_id , key);
+  //     // 如果删除的元组不存在，先按回滚处理
+  //     if (delete_rid.page_no_ == -1){
+  //       tx_status = TXStatus::TX_ABORTING;
+  //       break;
+  //     }
+  //     item.is_fetched = true;
+  //   }else {
+  //     // 目前只支持 lazy 模式删除数据
+  //     assert(false);
+  //   }
+  // }
 
   for (auto& task : rw_fetch_tasks) {
     // 如果插入或者删除出问题了，那写操作也没必要执行了
@@ -309,7 +309,7 @@ bool DTX::TxCommitSingleSQL(coro_yield_t &yield){
     auto page = compute_server->FetchXPage(table_id , rid.page_no_);
     DataItem* orginal_item = nullptr;
 
-    RmFileHdr::ptr file_hdr = compute_server->get_file_hdr_cached(table_id);
+    RmFileHdr::ptr file_hdr = compute_server->get_file_hdr(table_id);
     orginal_item = GetDataItemFromPageRW(table_id, page, rid , file_hdr , key);
 
     assert(orginal_item->lock == EXCLUSIVE_LOCKED);
@@ -350,7 +350,7 @@ bool DTX::TxCommitSingleSQL(coro_yield_t &yield){
     auto page = compute_server->FetchXPage(table_id , rid.page_no_);
     DataItem* orginal_item = nullptr;
 
-    RmFileHdr::ptr file_hdr = compute_server->get_file_hdr_cached(table_id);
+    RmFileHdr::ptr file_hdr = compute_server->get_file_hdr(table_id);
     orginal_item = GetDataItemFromPageRW(table_id, page, rid , file_hdr , key);
 
     assert(orginal_item->lock != EXCLUSIVE_LOCKED);
@@ -498,7 +498,7 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
     auto page = compute_server->FetchXPage(table_id , rid.page_no_);
     DataItem* orginal_item = nullptr;
 
-    RmFileHdr::ptr file_hdr = compute_server->get_file_hdr_cached(table_id);
+    RmFileHdr::ptr file_hdr = compute_server->get_file_hdr(table_id);
     orginal_item = GetDataItemFromPageRW(table_id, page, rid , file_hdr , key);
 
     assert(orginal_item->lock != EXCLUSIVE_LOCKED);
@@ -520,7 +520,7 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
       case WType::DELETE_TUPLE:{
         // 回滚删除
         char *data = compute_server->FetchXPage(table_id , rid.page_no_);
-        RmFileHdr::ptr file_hdr = compute_server->get_file_hdr_cached(table_id);
+        RmFileHdr::ptr file_hdr = compute_server->get_file_hdr(table_id);
         itemkey_t item_key;
         DataItem *data_item = GetDataItemFromPage(table_id , rid , data , file_hdr , item_key , true);
         assert(item_key == key);
@@ -542,7 +542,7 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
       }
       case WType::INSERT_TUPLE:{
         char *data = compute_server->FetchXPage(table_id , rid.page_no_);
-        RmFileHdr::ptr file_hdr = compute_server->get_file_hdr_cached(table_id);
+        RmFileHdr::ptr file_hdr = compute_server->get_file_hdr(table_id);
         itemkey_t item_key;
         DataItem *data_item = GetDataItemFromPage(table_id , rid , data , file_hdr , item_key , true);
         assert(item_key == key);
@@ -563,7 +563,7 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
       }
       case WType::UPDATE_TUPLE:{
         char *data = compute_server->FetchXPage(table_id , rid.page_no_);
-        RmFileHdr::ptr file_hdr = compute_server->get_file_hdr_cached(table_id);
+        RmFileHdr::ptr file_hdr = compute_server->get_file_hdr(table_id);
         itemkey_t item_key;
         DataItem *data_item = GetDataItemFromPage(table_id , rid , data , file_hdr , item_key , true);
         assert(item_key == key);
@@ -914,254 +914,246 @@ void DTX::Tx2PCAbortAll(coro_yield_t &yield){
 }
 
 
-Rid DTX::insert_entry(DataItem *item , itemkey_t item_key){
-  // 目前的删除策略里，不会去删除 B+ 树里面的 key，只会把元组的 BitMap 给置为 false，所以如果在 B+ 树里边找到了 key，就去检查下元组是否真的存在
-  Rid rid = compute_server->get_rid_from_blink(item->table_id , item_key);
-  if (rid.page_no_ != -1){
-      Page *page = nullptr;
-      if (SYSTEM_MODE == 1){
-          page = compute_server->rpc_lazy_fetch_x_page(item->table_id , rid.page_no_ , false);
-      }else {
-          assert(false);
-      }
+// Rid DTX::insert_entry(DataItem *item , itemkey_t item_key){
+//   // 目前的删除策略里，不会去删除 B+ 树里面的 key，只会把元组的 BitMap 给置为 false，所以如果在 B+ 树里边找到了 key，就去检查下元组是否真的存在
+//   Rid rid = compute_server->get_rid_from_blink(item->table_id , item_key);
+//   if (rid.page_no_ != -1){
+//       Page *page = nullptr;
+//       if (SYSTEM_MODE == 1){
+//           page = compute_server->rpc_lazy_fetch_x_page(item->table_id , rid.page_no_ , false);
+//       }else {
+//           assert(false);
+//       }
 
-      char *data = page->get_data();
-      RmFileHdr::ptr file_hdr = compute_server->get_file_hdr_cached(item->table_id);
-      RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(data + OFFSET_PAGE_HDR);
-      char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+//       char *data = page->get_data();
+//       RmFileHdr::ptr file_hdr = compute_server->get_file_hdr(item->table_id);
+//       RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(data + OFFSET_PAGE_HDR);
+//       char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
 
-      // 如果这个位置已经被逻辑删除了，那就可以复用这个位置
-      if (!Bitmap::is_set(bitmap , rid.slot_no_)){
-          // 1. 设置 BitMap
-          Bitmap::set(bitmap, rid.slot_no_);
-          page_hdr->num_records_++;
+//       // 如果这个位置已经被逻辑删除了，那就可以复用这个位置
+//       if (!Bitmap::is_set(bitmap , rid.slot_no_)){
+//           // 1. 设置 BitMap
+//           Bitmap::set(bitmap, rid.slot_no_);
+//           page_hdr->num_records_++;
 
-          // 2. 写入数据
-          char *slots = bitmap + file_hdr->bitmap_size_;
-          char* tuple = slots + rid.slot_no_ * (file_hdr->record_size_ + sizeof(itemkey_t));
-          itemkey_t* target_item_key = reinterpret_cast<itemkey_t*>(tuple);
-          DataItem* target_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
-          assert(*target_item_key > 0);
-          assert(*target_item_key == item_key);
+//           // 2. 写入数据
+//           char *slots = bitmap + file_hdr->bitmap_size_;
+//           char* tuple = slots + rid.slot_no_ * (file_hdr->record_size_ + sizeof(itemkey_t));
+//           itemkey_t* target_item_key = reinterpret_cast<itemkey_t*>(tuple);
+//           DataItem* target_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+//           assert(*target_item_key > 0);
+//           assert(*target_item_key == item_key);
 
-          // 3. 这里有可能加锁，例如某个事物删除了本元组，但是还没提交，如果是本事务删除的，那就允许插入，否则回滚
-          if (target_item->lock == EXCLUSIVE_LOCKED && target_item->user_insert != tx_id){
-              if (SYSTEM_MODE == 1){
-                  compute_server->rpc_lazy_release_x_page(item->table_id , rid.page_no_);
-              } else{
-                  assert(false);
-              }
-              return {-1 , -1};
-          }
+//           // 3. 这里有可能加锁，例如某个事物删除了本元组，但是还没提交，如果是本事务删除的，那就允许插入，否则回滚
+//           if (target_item->lock == EXCLUSIVE_LOCKED && target_item->user_insert != tx_id){
+//               if (SYSTEM_MODE == 1){
+//                   compute_server->rpc_lazy_release_x_page(item->table_id , rid.page_no_);
+//               } else{
+//                   assert(false);
+//               }
+//               return {-1 , -1};
+//           }
 
-          memcpy(tuple, &item_key, sizeof(itemkey_t));
-          target_item->lock = EXCLUSIVE_LOCKED;
-          target_item->valid = 1;
-          target_item->user_insert = tx_id;
+//           memcpy(tuple, &item_key, sizeof(itemkey_t));
+//           target_item->lock = EXCLUSIVE_LOCKED;
+//           target_item->valid = 1;
+//           target_item->user_insert = tx_id;
 
-          // 4. 释放页面锁
-          if (SYSTEM_MODE == 1){
-              compute_server->rpc_lazy_release_x_page(item->table_id , rid.page_no_);
-          }else {
-              assert(false);
-          }
+//           // 4. 释放页面锁
+//           if (SYSTEM_MODE == 1){
+//               compute_server->rpc_lazy_release_x_page(item->table_id , rid.page_no_);
+//           }else {
+//               assert(false);
+//           }
           
-          return rid;
-      } else {
-          if (SYSTEM_MODE == 1){
-              compute_server->rpc_lazy_release_x_page(item->table_id , rid.page_no_);
-          }else {
-              assert(false);
-          }
-          return {-1 , -1};
-      }
-  }
+//           return rid;
+//       } else {
+//           if (SYSTEM_MODE == 1){
+//               compute_server->rpc_lazy_release_x_page(item->table_id , rid.page_no_);
+//           }else {
+//               assert(false);
+//           }
+//           return {-1 , -1};
+//       }
+//   }
 
-  int try_times=0;
-  bool create_new_page_tag = false;
-  RmFileHdr::ptr file_hdr = compute_server->get_file_hdr_cached(item->table_id);
-  while(1){
-      page_id_t free_page_id = INVALID_PAGE_ID;
-      /*
-          尝试两次，如果 FSM 返回的页面都满了，那就创建一个新的页面
-      */
-      if(try_times >= 2){
-          // LOG(INFO) << "Insert Key = " << item_key << " Create A New Page";
-          free_page_id = compute_server->rpc_create_page(item->table_id);
-          create_new_page_tag = true;
-          // LOG(INFO) << "Node : " << getNodeID() << " Create A New Page , Table ID = " << item->table_id << " Page ID = " << free_page_id;
-      } else {
-          free_page_id = compute_server->search_free_page(item->table_id , sizeof(DataItem) + sizeof(itemkey_t));
-      }
+//   int try_times=0;
+//   bool create_new_page_tag = false;
+//   RmFileHdr::ptr file_hdr = compute_server->get_file_hdr(item->table_id);
+//   while(1){
+//       page_id_t free_page_id = INVALID_PAGE_ID;
+//       /*
+//           尝试两次，如果 FSM 返回的页面都满了，那就创建一个新的页面
+//       */
+//       if(try_times >= 2){
+//           // LOG(INFO) << "Insert Key = " << item_key << " Create A New Page";
+//           free_page_id = compute_server->rpc_create_page(item->table_id);
+//           create_new_page_tag = true;
+//           // LOG(INFO) << "Node : " << getNodeID() << " Create A New Page , Table ID = " << item->table_id << " Page ID = " << free_page_id;
+//       } else {
+//           free_page_id = compute_server->search_free_page(item->table_id , sizeof(DataItem) + sizeof(itemkey_t));
+//       }
       
-      // FSM 满了，没空间给我用了，可以直接创建新页面了
-      if (free_page_id == INVALID_PAGE_ID){
-          try_times++;
-          continue;
-      }
+//       // FSM 满了，没空间给我用了，可以直接创建新页面了
+//       if (free_page_id == INVALID_PAGE_ID){
+//           try_times++;
+//           continue;
+//       }
 
-      // 2. 插入到页面里
-      Page *page = nullptr;
-      // 目前只支持 lazy 模式下插入数据
-      if (SYSTEM_MODE == 1){
-          // LOG(INFO) << "2 Fetch X , table_id = " << item->table_id << " page_id = " << free_page_id;
-          page = compute_server->rpc_lazy_fetch_x_page(item->table_id , free_page_id , false);
-      }else {
-          assert(false);
-      }
+//       // 2. 插入到页面里
+//       Page *page = nullptr;
+//       // 目前只支持 lazy 模式下插入数据
+//       if (SYSTEM_MODE == 1){
+//           // LOG(INFO) << "2 Fetch X , table_id = " << item->table_id << " page_id = " << free_page_id;
+//           page = compute_server->rpc_lazy_fetch_x_page(item->table_id , free_page_id , false);
+//       }else {
+//           assert(false);
+//       }
 
-      // 插入了一个新页面，把这个新页面给挂到 FSM 上
-      if(create_new_page_tag) {
-          compute_server->update_page_space(item->table_id , free_page_id , PAGE_SIZE);
-      }
+//       // 插入了一个新页面，把这个新页面给挂到 FSM 上
+//       if(create_new_page_tag) {
+//           compute_server->update_page_space(item->table_id , free_page_id , PAGE_SIZE);
+//       }
 
-      /*
-          这里取返回的page_id会有三种情况
-          1. 这个页面确实有空闲空间，即使可能被别人先插入了点儿东西，正常插入
-          2. 这个页面被别的节点抢先插完了，地方不够了，如果还在规定次数内，接着试试去取页面
-          3. 返回了-1，那就是寄了，如果还在规定次数内，再去搜一下看看，可能其他节点已经开了个新页面，否则开一个页面
-      */
-      char *data = page->get_data();
-      // auto &meta = node_->getMetaManager()->GetTableMeta(item->table_id);
-      RmFileHdr::ptr file_hdr = compute_server->get_file_hdr_cached(item->table_id);
-      RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(data + OFFSET_PAGE_HDR);
-      char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-      // 2.1 去 BitMap 里面找到一个空闲的 slot
-      int slot_no = Bitmap::first_bit(false, bitmap, file_hdr->num_records_per_page_);
+//       /*
+//           这里取返回的page_id会有三种情况
+//           1. 这个页面确实有空闲空间，即使可能被别人先插入了点儿东西，正常插入
+//           2. 这个页面被别的节点抢先插完了，地方不够了，如果还在规定次数内，接着试试去取页面
+//           3. 返回了-1，那就是寄了，如果还在规定次数内，再去搜一下看看，可能其他节点已经开了个新页面，否则开一个页面
+//       */
+//       char *data = page->get_data();
+//       // auto &meta = node_->getMetaManager()->GetTableMeta(item->table_id);
+//       RmFileHdr::ptr file_hdr = compute_server->get_file_hdr(item->table_id);
+//       RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(data + OFFSET_PAGE_HDR);
+//       char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+//       // 2.1 去 BitMap 里面找到一个空闲的 slot
+//       int slot_no = Bitmap::first_bit(false, bitmap, file_hdr->num_records_per_page_);
 
-      // 当前 page 内没有空闲空间了
-      if (slot_no >= file_hdr->num_records_per_page_){
-          if (SYSTEM_MODE == 1){
-              compute_server->rpc_lazy_release_x_page(item->table_id , free_page_id);
-          }else {
-              assert(false);
-          }
-          try_times++;
-          compute_server->update_page_space(item->table_id , free_page_id , 0);
-          continue;
-      }
-      assert(slot_no < file_hdr->num_records_per_page_);
+//       // 当前 page 内没有空闲空间了
+//       if (slot_no >= file_hdr->num_records_per_page_){
+//           if (SYSTEM_MODE == 1){
+//               compute_server->rpc_lazy_release_x_page(item->table_id , free_page_id);
+//           }else {
+//               assert(false);
+//           }
+//           try_times++;
+//           compute_server->update_page_space(item->table_id , free_page_id , 0);
+//           continue;
+//       }
+//       assert(slot_no < file_hdr->num_records_per_page_);
 
-      page_hdr->num_records_++;
-      char *slots = bitmap + file_hdr->bitmap_size_;
-      char* tuple = slots + slot_no * (file_hdr->record_size_ + sizeof(itemkey_t));
+//       page_hdr->num_records_++;
+//       char *slots = bitmap + file_hdr->bitmap_size_;
+//       char* tuple = slots + slot_no * (file_hdr->record_size_ + sizeof(itemkey_t));
       
-      // 写入 DataItem
-      DataItem* target_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
-      // 如果元组已经上锁，那就返回
-      if (target_item && target_item->lock == EXCLUSIVE_LOCKED && target_item->user_insert != tx_id){
-          // TODO：更新 FSM 信息
+//       // 写入 DataItem
+//       DataItem* target_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+//       // 如果元组已经上锁，那就返回
+//       if (target_item && target_item->lock == EXCLUSIVE_LOCKED && target_item->user_insert != tx_id){
+//           // TODO：更新 FSM 信息
 
-          // LOG(INFO) << "Try To Insert A Key Which is Locked , Need To RollBack";
-          if (SYSTEM_MODE == 1){
-              compute_server->rpc_lazy_release_x_page(item->table_id , free_page_id);
-          } else{
-              assert(false);
-          }
-          return {-1 , -1};
-      }
+//           // LOG(INFO) << "Try To Insert A Key Which is Locked , Need To RollBack";
+//           if (SYSTEM_MODE == 1){
+//               compute_server->rpc_lazy_release_x_page(item->table_id , free_page_id);
+//           } else{
+//               assert(false);
+//           }
+//           return {-1 , -1};
+//       }
 
-      *target_item = *item;
-      memcpy(tuple + sizeof(itemkey_t) + sizeof(DataItem), item->value, item->value_size);
-      memcpy(tuple, &item_key, sizeof(itemkey_t));
+//       *target_item = *item;
+//       memcpy(tuple + sizeof(itemkey_t) + sizeof(DataItem), item->value, item->value_size);
+//       memcpy(tuple, &item_key, sizeof(itemkey_t));
 
-      // 通过了再设置 BitMap
-      Bitmap::set(bitmap, slot_no);
-      // 2.2 把元组里边的锁设置成 EXCLUSIVE_LOCKED
-      // // LOG(INFO) << "Set EXCLUSIVE LOCKED , key = " << item->key;
-      target_item->lock = EXCLUSIVE_LOCKED;
-      target_item->valid = 1;
-      target_item->user_insert = tx_id;
+//       // 通过了再设置 BitMap
+//       Bitmap::set(bitmap, slot_no);
+//       // 2.2 把元组里边的锁设置成 EXCLUSIVE_LOCKED
+//       // // LOG(INFO) << "Set EXCLUSIVE LOCKED , key = " << item->key;
+//       target_item->lock = EXCLUSIVE_LOCKED;
+//       target_item->valid = 1;
+//       target_item->user_insert = tx_id;
 
-      int count=Bitmap::getfreeposnum(bitmap,file_hdr->num_records_per_page_ );
-      // 3. 插入到 BLink 
-      // LOG(INFO) << "Insert Into BLink , table_id = " << item->table_id << " page_id = " << free_page_id << " slot no = " << slot_no;
-      auto page_id = compute_server->bl_indexes[item->table_id]->insert_entry(&item_key , {free_page_id , slot_no});
-      // 前面排除过了，如果 BLink 里边有数据，那走的是另外一条路
-      assert(page_id != INVALID_PAGE_ID);
+//       int count=Bitmap::getfreeposnum(bitmap,file_hdr->num_records_per_page_ );
+//       // 3. 插入到 BLink 
+//       // LOG(INFO) << "Insert Into BLink , table_id = " << item->table_id << " page_id = " << free_page_id << " slot no = " << slot_no;
+//       auto page_id = compute_server->bl_indexes[item->table_id]->insert_entry(&item_key , {free_page_id , slot_no});
+//       // 前面排除过了，如果 BLink 里边有数据，那走的是另外一条路
+//       assert(page_id != INVALID_PAGE_ID);
 
-      compute_server->update_page_space(item->table_id , free_page_id , count * (file_hdr->record_size_ + sizeof(itemkey_t)));
+//       compute_server->update_page_space(item->table_id , free_page_id , count * (file_hdr->record_size_ + sizeof(itemkey_t)));
 
-      if (SYSTEM_MODE == 1){
-          compute_server->rpc_lazy_release_x_page(item->table_id , free_page_id);
-      }else {
-          assert(false);
-      }
+//       if (SYSTEM_MODE == 1){
+//           compute_server->rpc_lazy_release_x_page(item->table_id , free_page_id);
+//       }else {
+//           assert(false);
+//       }
       
-      return {free_page_id , slot_no};
-  }
-}
+//       return {free_page_id , slot_no};
+//   }
+// }
 
-Rid DTX::delete_entry(table_id_t table_id , itemkey_t item_key){
-  // 其实 BLink 也应该有版本机制，目前还没实现，先实现一个简易版本的 delete 和 insert，验证 FSM 功能的可行性
-  Rid delete_rid = compute_server->get_rid_from_blink(table_id , item_key);
-  // 如果 B+ 树里边都没有，那说明根本没插入过这个 key，直接删了就行
-  if (delete_rid.page_no_ == -1){
-      std::cout << "Not Found On BLink , RollBack , key = " << item_key << "\n";
-      return {-1 , -1};
-  }
+// Rid DTX::delete_entry(table_id_t table_id , itemkey_t item_key){
+//   // 其实 BLink 也应该有版本机制，目前还没实现，先实现一个简易版本的 delete 和 insert，验证 FSM 功能的可行性
+//   Rid delete_rid = compute_server->get_rid_from_blink(table_id , item_key);
+//   // 如果 B+ 树里边都没有，那说明根本没插入过这个 key，直接删了就行
+//   if (delete_rid.page_no_ == -1){
+//       std::cout << "Not Found On BLink , RollBack , key = " << item_key << "\n";
+//       return {-1 , -1};
+//   }
 
-  Page *page = nullptr;
+//   Page *page = nullptr;
 
-  // 目前只支持 lazy 模式删除数据项
-  if (SYSTEM_MODE == 1){
-      page = compute_server->rpc_lazy_fetch_x_page(table_id , delete_rid.page_no_ , true);
-  }else {
-      assert(false);
-  }
+//   // 目前只支持 lazy 模式删除数据项
+//   if (SYSTEM_MODE == 1){
+//       page = compute_server->rpc_lazy_fetch_x_page(table_id , delete_rid.page_no_ , true);
+//   }else {
+//       assert(false);
+//   }
   
-  char *data = page->get_data();
-  RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(data + OFFSET_PAGE_HDR);
-  char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-  // 元组已经被删除了，所以不需要再删除
-  if (!Bitmap::is_set(bitmap , delete_rid.slot_no_)){
-      if (SYSTEM_MODE == 1){
-          compute_server->rpc_lazy_release_x_page(table_id , delete_rid.page_no_);
-      }else{
-          assert(false);
-      }
-      return {-1 , -1};
-  }
+//   char *data = page->get_data();
+//   RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(data + OFFSET_PAGE_HDR);
+//   char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+//   // 元组已经被删除了，所以不需要再删除
+//   if (!Bitmap::is_set(bitmap , delete_rid.slot_no_)){
+//       if (SYSTEM_MODE == 1){
+//           compute_server->rpc_lazy_release_x_page(table_id , delete_rid.page_no_);
+//       }else{
+//           assert(false);
+//       }
+//       return {-1 , -1};
+//   }
 
-  // 检查元组是否已经上锁了，如果上锁了，返回 {-1 , -1}
-  RmFileHdr::ptr file_hdr = compute_server->get_file_hdr_cached(table_id);
-  char *slots = bitmap + file_hdr->bitmap_size_;
-  char* tuple = slots + delete_rid.slot_no_ * (file_hdr->record_size_ + sizeof(itemkey_t));
-  DataItem* target_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
-  if ((target_item->lock == EXCLUSIVE_LOCKED) || target_item->valid == 0){
-      if (SYSTEM_MODE == 1){
-          compute_server->rpc_lazy_release_x_page(table_id , delete_rid.page_no_);
-      }else {
-          assert(false);
-      }
-      return {-1 , -1};
-  }
+//   // 检查元组是否已经上锁了，如果上锁了，返回 {-1 , -1}
+//   RmFileHdr::ptr file_hdr = compute_server->get_file_hdr(table_id);
+//   char *slots = bitmap + file_hdr->bitmap_size_;
+//   char* tuple = slots + delete_rid.slot_no_ * (file_hdr->record_size_ + sizeof(itemkey_t));
+//   DataItem* target_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+//   if ((target_item->lock == EXCLUSIVE_LOCKED) || target_item->valid == 0){
+//       if (SYSTEM_MODE == 1){
+//           compute_server->rpc_lazy_release_x_page(table_id , delete_rid.page_no_);
+//       }else {
+//           assert(false);
+//       }
+//       return {-1 , -1};
+//   }
 
-  // 走到这里，说明一定可以删除这个数据项了
-  // 做 3 个事情：加锁 + 逻辑删除 + FSM 回收空间
-  target_item->lock = EXCLUSIVE_LOCKED;
-  target_item->valid = 0;
-  target_item->user_insert = tx_id;
+//   // 走到这里，说明一定可以删除这个数据项了
+//   // 做 3 个事情：加锁 + 逻辑删除 + FSM 回收空间
+//   target_item->lock = EXCLUSIVE_LOCKED;
+//   target_item->valid = 0;
+//   target_item->user_insert = tx_id;
 
-  Bitmap::reset(bitmap, delete_rid.slot_no_);
-  page_hdr->num_records_--;
+//   Bitmap::reset(bitmap, delete_rid.slot_no_);
+//   page_hdr->num_records_--;
 
-  std::cout << "Delete , key = " << item_key<< "\n";
+//   std::cout << "Delete , key = " << item_key<< "\n";
 
-  // 3. 释放掉页面锁
-  if (SYSTEM_MODE == 1){
-      compute_server->rpc_lazy_release_x_page(table_id , delete_rid.page_no_);
-  }else {
-      assert(false);
-  }
+//   // 3. 释放掉页面锁
+//   if (SYSTEM_MODE == 1){
+//       compute_server->rpc_lazy_release_x_page(table_id , delete_rid.page_no_);
+//   }else {
+//       assert(false);
+//   }
   
-  return delete_rid;
-}
-
-
-void DTX::rollback_delete(DataItem *data_item){
-  // 需要做的几个事：
-  // 1. 改 BitMap 和 valid
-  // 2. 插入回 BLink
-  // 注：删除操作的 FSM 更新在 commit 才做，所以这里不需要更新 FSM 的信息
-}
+//   return delete_rid;
+// }

@@ -14,7 +14,7 @@ public:
         m_rids = rids;
 
         m_tab = m_dtx->compute_server->get_node()->db_meta.get_table(tab_name);
-        file_hdr = m_dtx->compute_server->get_file_hdr_cached(m_tab.table_id);
+        file_hdr = m_dtx->compute_server->get_file_hdr(m_tab.table_id);
 
         assert(m_tab.primary_key != "");
 

@@ -21,7 +21,7 @@ public:
 
         m_rid = {.page_no_ = INVALID_PAGE_ID , .slot_no_ = -1};
 
-        file_hdr = dtx->compute_server->get_file_hdr_cached(m_tab.table_id);
+        file_hdr = dtx->compute_server->get_file_hdr(m_tab.table_id);
     }
 
     // 对于 Insert 来说，Next() 就是直接执行插入了

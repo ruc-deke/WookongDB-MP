@@ -84,9 +84,6 @@ class DTX {
   void TxAbortSQL(coro_yield_t &yield); // SQL 模式的 Abort
   bool TxCommitSingleSQL(coro_yield_t& yield);
   
-  void rollback_insert(DataItem *data_item);
-  void rollback_delete(DataItem *data_item);
-  
 
   /*****************************************************/
 
@@ -140,8 +137,8 @@ class DTX {
 
   DataItem* GetDataItemFromPage(table_id_t table_id , Rid rid , char *data , RmFileHdr::ptr file_hdr , itemkey_t &pri_key , bool is_w);
 
-  Rid insert_entry(DataItem *data_item , itemkey_t rid);
-  Rid delete_entry(table_id_t table_id , itemkey_t key);
+  // Rid insert_entry(DataItem *data_item , itemkey_t rid);
+  // Rid delete_entry(table_id_t table_id , itemkey_t key);
 
  private:
   void Abort();

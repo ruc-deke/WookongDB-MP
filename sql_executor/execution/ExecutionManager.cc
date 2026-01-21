@@ -134,7 +134,7 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
 
             dtx->compute_server->ReleaseSPage(table_id , rid.page_no_);
 
-            RmFileHdr::ptr file_hdr = dtx->compute_server->get_file_hdr_cached(table_id);
+            RmFileHdr::ptr file_hdr = dtx->compute_server->get_file_hdr(table_id);
             itemkey_t pri_key;
             // 升级为写锁
             auto page = dtx->compute_server->FetchXPage(table_id , rid.page_no_);

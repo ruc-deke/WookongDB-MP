@@ -111,61 +111,6 @@ public:
     }
     void VerifyData();
 
-    bool YCSB_Inert_User(uint64_t *seed , tx_id_t tx_id , DTX *dtx , coro_yield_t& yield , bool is_partitioned = false){
-        dtx->TxBegin(tx_id);
-        static std::atomic<int> now_node_account_begin{10000000 * dtx->compute_server->getNodeID() + 10000000};
-
-        // 插入 10 个 key
-        for (int i = 0 ; i < 10 ; i++){
-            int gen_id = now_node_account_begin.fetch_add(1);
-            auto insert_item = std::make_shared<DataItem>(static_cast<table_id_t>(0), static_cast<int>(sizeof(ycsb_user_table_val)));
-            ycsb_user_table_val* val = (ycsb_user_table_val*)insert_item->value;
-            
-            val->magic = ycsb_user_table_magic;
-            memcpy(val->file_0 , ramdom_string(field_len).c_str() , field_len);
-            memcpy(val->file_1 , ramdom_string(field_len).c_str() , field_len);
-            memcpy(val->file_2 , ramdom_string(field_len).c_str() , field_len);
-            memcpy(val->file_3 , ramdom_string(field_len).c_str() , field_len);
-            memcpy(val->file_4 , ramdom_string(field_len).c_str() , field_len);
-            memcpy(val->file_5 , ramdom_string(field_len).c_str() , field_len);
-            memcpy(val->file_6 , ramdom_string(field_len).c_str() , field_len);
-            memcpy(val->file_7 , ramdom_string(field_len).c_str() , field_len);
-            memcpy(val->file_8 , ramdom_string(field_len).c_str() , field_len);
-            memcpy(val->file_9 , ramdom_string(field_len).c_str() , field_len);
-            
-            dtx->AddToInsertSet(insert_item , gen_id);
-        }
-
-        if (!dtx->TxExe(yield)){
-            return false;
-        }
-
-
-        bool commit_stat = dtx->TxCommit(yield);
-        return commit_stat;
-    }
-
-    bool YCSB_Delete_User(uint64_t *seed , tx_id_t tx_id , DTX *dtx , coro_yield_t& yield , bool is_partitioned = false){
-        dtx->TxBegin(tx_id);
-
-        static std::atomic<int> delete_begin{10000000 * dtx->compute_server->getNodeID() + 10000000};
-        // 随机删除 3 个
-        for (int i = 0 ; i < 3 ; i++){
-            int delete_id = delete_begin.fetch_add(1);
-            auto delete_item = std::make_shared<DataItem>(static_cast<table_id_t>(0) , static_cast<int>(sizeof(ycsb_user_table_val)));
-            ycsb_user_table_val *val = (ycsb_user_table_val*)delete_item->value;
-            
-            dtx->AddToDeleteSet(delete_item , delete_id);
-        }
-
-        if (!(dtx->TxExe(yield))){
-            return false;
-        }
-
-        bool commit_stat = dtx->TxCommit(yield);
-        return commit_stat;
-    }
-
     // 事务生成函数，生成多个读集和写集
     bool YCSB_Multi_RW(uint64_t *seed , tx_id_t tx_id , DTX *dtx , coro_yield_t& yield , bool is_partitioned = false){
         dtx->TxBegin(tx_id);
