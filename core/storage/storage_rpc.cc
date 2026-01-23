@@ -106,6 +106,44 @@ namespace storage_service{
         return;
     };
 
+    void StoragePoolImpl::GetPageWithLsn(::google::protobuf::RpcController* controller,
+                       const ::storage_service::GetPageWithLsnRequest* request,
+                       ::storage_service::GetPageWithLsnResponse* response,
+                       ::google::protobuf::Closure* done){
+        brpc::ClosureGuard done_guard(done);
+
+        LLSN lsn = request->require_lsn();
+        std::string return_data;
+        for(int i = 0; i < request->page_id().size(); i++){
+            std::string table_name = request->page_id()[i].table_name();
+            int fd = disk_manager_->open_file(table_name);
+            
+            page_id_t page_no = request->page_id()[i].page_no();
+            PageId page_id(fd, page_no);
+            batch_id_t request_batch_id = request->require_batch_id();
+            LogReplay* log_replay = log_manager_->log_replay_;
+
+            char data[PAGE_SIZE];
+
+            log_replay->latch3_.lock();
+            log_replay->pageid_batch_count_[page_id].first.lock();
+            while (log_replay->pageid_batch_count_[page_id].second > 0) {
+                usleep(10);
+            }
+            log_replay->pageid_batch_count_[page_id].first.unlock();
+            log_replay->latch3_.unlock();
+            page_id_t total_pages = disk_manager_->get_fd2pageno(fd);
+
+           // disk_manager_->read_page(fd, page_no, data, PAGE_SIZE);  
+            disk_manager_->read_page_with_lsn(fd, page_no, data, PAGE_SIZE, lsn);          
+            return_data.append(std::string(data, PAGE_SIZE));
+        }
+
+        response->set_data(return_data);
+
+        return;
+    }
+
     void StoragePoolImpl::GetPage(::google::protobuf::RpcController* controller,
                        const ::storage_service::GetPageRequest* request,
                        ::storage_service::GetPageResponse* response,
@@ -355,6 +393,17 @@ namespace storage_service{
         char zero_page[PAGE_SIZE];
         memset(zero_page, 0, PAGE_SIZE);
         disk_manager_->write_page(fd, new_page_no, zero_page, PAGE_SIZE);
+
+        // 如果不是 fsm 或者 blink，写入 file_hdr
+        bool is_fsm = (table_path.find("_fsm") != std::string::npos);
+        bool is_blink = (table_path.find("_bl") != std::string::npos);
+
+        if (!is_fsm && !is_blink) {
+            RmFileHdr file_hdr{};
+            disk_manager_->read_page(fd, RM_FILE_HDR_PAGE, reinterpret_cast<char*>(&file_hdr), sizeof(file_hdr));
+            file_hdr.num_pages_ = new_page_no + 1;
+            disk_manager_->write_page(fd, RM_FILE_HDR_PAGE, reinterpret_cast<char*>(&file_hdr), sizeof(file_hdr));
+        }
 
         std::cout << "Create a Page , table_id = " << table_id << " page_id = " << new_page_no << "\n";
         

@@ -527,7 +527,7 @@ bool S_SecFSM::load_fsm_page(uint32_t fsm_page_id) {
         return false;
     }
 
-    PageId pid{meta_.table_id, fsm_page_id};
+    PageId pid{meta_.table_id, static_cast<page_id_t>(fsm_page_id)};
     Page* fsm_page = nullptr;
     try {
         fsm_page = buffer_pool_->fetch_page(pid);
@@ -569,7 +569,7 @@ bool S_SecFSM::flush_fsm_page(uint32_t fsm_page_id) {
         return false;
     }
 
-    PageId pid{meta_.table_id, fsm_page_id};
+    PageId pid{meta_.table_id, static_cast<page_id_t>(fsm_page_id)};
     // if (!buffer_pool_->set_page_data(pid, buffer, PAGE_SIZE)) {
     //     return false;
     // }

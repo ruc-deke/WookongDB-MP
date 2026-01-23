@@ -55,14 +55,14 @@ public:
         return m_prev->getTab();
     }
 
-    DataItem* Next() override {
-        auto child_dataItem = m_prev->Next();
+    DataItemPtr Next() override {
+        DataItemPtr child_dataItem = m_prev->Next();
 
         if (!child_dataItem){
             return nullptr;
         }
 
-        DataItem *ret_dataItem = new DataItem(m_len , true);
+        DataItemPtr ret_dataItem = std::make_shared<DataItem>(m_len , true);
         
         int sel_num = m_selIndexes.size();
         auto prev_cols = m_prev->cols();

@@ -36,6 +36,11 @@ class StoragePoolImpl : public StorageService{
                        ::storage_service::GetPageResponse* response,
                        ::google::protobuf::Closure* done);
 
+    virtual void GetPageWithLsn(::google::protobuf::RpcController* controller,
+                       const ::storage_service::GetPageWithLsnRequest* request,
+                       ::storage_service::GetPageWithLsnResponse* response,
+                       ::google::protobuf::Closure* done);
+
     virtual void PrefetchIndex(::google::protobuf::RpcController* controller,
                        const ::storage_service::GetBatchIndexRequest* request,
                        ::storage_service::GetBatchIndexResponse* response,

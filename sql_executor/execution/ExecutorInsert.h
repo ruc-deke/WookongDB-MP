@@ -25,7 +25,7 @@ public:
     }
 
     // 对于 Insert 来说，Next() 就是直接执行插入了
-    DataItem* Next() override {
+    DataItemPtr Next() override {
         m_affect_rows = 0;
         int value_size = file_hdr->record_size_ - static_cast<int>(sizeof(DataItem));
         auto insert_item = std::make_shared<DataItem>(m_tab.table_id , value_size);
@@ -74,6 +74,8 @@ public:
                     memcpy(tuple + sizeof(itemkey_t) + sizeof(DataItem), insert_item->value, insert_item->value_size);
 
                     data_item->user_insert = 0;
+
+                    dtx->GenInsertLog(data_item , primary_key , (char *)data_item + sizeof(DataItem) , rid , (RmPageHdr*)data);
 
                     dtx->compute_server->ReleaseXPage(m_tab.table_id , rid.page_no_);
                     return nullptr;
@@ -185,6 +187,9 @@ public:
             data_item->table_id = m_tab.table_id;
             data_item->value_size = insert_item->value_size;
             data_item->user_insert = 0;
+
+
+            dtx->GenInsertLog(data_item , primary_key , (char *)data_item + sizeof(DataItem) , rid , (RmPageHdr*)data);
 
             std::cout << "Insert Pos : " << "Table ID = " << data_item->table_id << " Page ID = " << free_page_id << " Slot No = " << slot_no << "\n";
 

@@ -5,10 +5,15 @@
 #include <condition_variable>
 #include <assert.h>
 #include <butil/logging.h>
+#include <mutex>
+#include <unordered_map>
+#include <utility>
 
 #include "common.h"
 #include "log_record.h"
 #include "disk_manager.h"
+#include "base/data_item.h"
+#include "util/bitmap.h"
 
 class LogBuffer {
 public:
@@ -23,7 +28,8 @@ public:
 
 class LogReplay{
 public:
-    LogReplay(DiskManager* disk_manager):disk_manager_(disk_manager){
+    LogReplay(DiskManager* disk_manager, std::unordered_map<table_id_t, std::string> table_name_map = {})
+        : disk_manager_(disk_manager), table_name_map_(std::move(table_name_map)) {
         char path[1024];
         getcwd(path, sizeof(path));
         // LOG(INFO) << "LogReplay current path: " << path;
@@ -68,8 +74,11 @@ public:
         // LOG(INFO) << "create log file" << "init max_replay_off_: " << max_replay_off_; 
 
         replay_thread_ = std::thread(&LogReplay::replayFun, this);
+        // checkpoint_thread_ = std::thread(&LogReplay::checkpointFun, this);//启动检查点线程，每隔一段时间将wal应用到磁盘
 
         // LOG(INFO) << "create log file" << "Finish start LogReplay";
+        num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (sizeof(DataItem) + sizeof(itemkey_t)) * BITMAP_WIDTH);
+        bitmap_size_ = (num_records_per_page_ + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
     };
 
     ~LogReplay(){
@@ -77,23 +86,37 @@ public:
         if (replay_thread_.joinable()) {
             replay_thread_.join();
         }
+        // if (checkpoint_thread_.joinable()) {
+        //     checkpoint_thread_.join();
+        // }
         close(log_replay_fd_);
     };
 
     int  read_log(char *log_data, int size, int offset);
     void apply_sigle_log(LogRecord* log_record, int curr_offset);
+    void apply_undo_log(const LogRecord* log_record);
     void add_max_replay_off_(int off) {
         std::lock_guard<std::mutex> latch(latch1_);
         max_replay_off_ += off;
     }
     void replayFun();
+    void checkpointFun();
+    void restore();
     batch_id_t get_persist_batch_id() { 
         // std::lock_guard<std::mutex> latch(latch2_);
         return persist_batch_id_; 
     }
+    void set_table_name_map(std::unordered_map<table_id_t, std::string> table_name_map) {
+        std::lock_guard<std::mutex> guard(table_fd_mutex_);
+        table_name_map_ = std::move(table_name_map);
+        table_fd_cache_.clear();
+    }
     void pushLogintoHashTable(std::string s);
-
+    bool overwriteFixedLine(const std::string& filename, int lineNumber, const std::string& newContent, int lineLength );
 private:
+    int ResolveTableFd(table_id_t table_id, const char* table_name_ptr, size_t table_name_size);
+    std::string ResolveTableName(table_id_t table_id, const char* table_name_ptr, size_t table_name_size) const;
+
     int log_replay_fd_;             // 重放log文件fd，从头开始顺序读
     int log_write_head_fd_;         // 写文件头fd, 从文件末尾开始append写
 
@@ -107,12 +130,23 @@ private:
     DiskManager* disk_manager_;
     LogBuffer buffer_;
 
+    std::unordered_map<table_id_t, std::string> table_name_map_;
+    std::unordered_map<table_id_t, int> table_fd_cache_;
+    std::mutex table_fd_mutex_;
+
     bool replay_stop = false;
     std::thread replay_thread_;
+    std::thread checkpoint_thread_;//检查点进程，负责将wal应用到磁盘，替换replay_thread_
     std::condition_variable cv_; // 条件变量
 
+    int num_records_per_page_;
+    int bitmap_size_;
+
 public:
-    // 记录每个pageid上的log batch的数量
-    std::unordered_map<PageId, std::pair<std::mutex, int>> pageid_batch_count_;
+    //std::unordered_map<int,int>checkpoint;//记录每个页面id对应的持久化的llsn最大值
+    std::unordered_map<PageId, std::pair<std::mutex, int>> pageid_batch_count_;// 记录每个pageid上的log batch的数量
     std::mutex latch3_;             // 用于保护pageid_batch_count_这一共享变量
+    std::unordered_map<int, std::vector<LLSN>> llsnrecord;
+    // Print llsnrecord map (one line per key)
+    void print_llsnrecord();
 };

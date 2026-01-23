@@ -6,6 +6,7 @@
 #include <butil/logging.h> 
 
 #include "common.h"
+#include "core/record/record.h"
 #include "util/errors.h"
 #include "disk_manager.h"
 
@@ -36,6 +37,22 @@ void DiskManager::read_page(int fd, page_id_t page_no, char *offset, int num_byt
         LOG(ERROR) << "Read Page Error , page no = " << page_no
             << " Read Bytes = " << bytes_read;
         throw InternalError("DiskManager::read_page Error");
+    }
+}
+
+bool DiskManager::read_page_with_lsn(int fd, page_id_t page_no, char *offset, int num_bytes, LLSN target_lsn, int retry_sleep_us) {
+    while (true) {
+        read_page(fd, page_no, offset, num_bytes);
+
+        const auto* page_hdr = reinterpret_cast<const RmPageHdr*>(offset + OFFSET_PAGE_HDR);
+        LLSN page_lsn = static_cast<LLSN>(page_hdr->LLSN_);
+        if (page_lsn >= target_lsn) {
+            return true;
+        }
+
+        if (retry_sleep_us > 0) {
+            usleep(retry_sleep_us);
+        }
     }
 }
 

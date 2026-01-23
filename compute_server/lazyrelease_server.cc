@@ -16,7 +16,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
         this->node_->fetch_allpage_cnt++;
         int k1 = cnt.fetch_add(1);
         if (k1 % 10000 == 0){
-            std::cout << k1 << "\n";
+            std::cout << "Lazy Fetch Cnt = " << k1 << "\n";
         }
     }
     
@@ -72,9 +72,15 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
             node_id_t valid_node = response->newest_node();
             // 如果需要去存储里面拿
             if (need_storage){
-                // std::cout << "Fetch Page From Storage\n";
-                std::string data = rpc_fetch_page_from_storage(table_id , page_id , need_to_record);
-                page = put_page_into_buffer(table_id , page_id , data.c_str() , 1);
+                std::string data;
+                if (need_to_record){
+                    LLSN lsn = response->lsn();
+                    assert(lsn != (LLSN)-1);
+                    data = rpc_fetch_page_from_storage_with_lsn(table_id , page_id , lsn , need_to_record);
+                }else {
+                    data = rpc_fetch_page_from_storage(table_id , page_id , need_to_record);
+                }
+                page = put_page_into_buffer(table_id , page_id , data.c_str() , 1 , need_to_record);
             } else if(valid_node != -1){    
                 if (need_to_record){
                     node_->fetch_from_remote_cnt++;
@@ -93,6 +99,7 @@ Page* ComputeServer::rpc_lazy_fetch_s_page(table_id_t table_id, page_id_t page_i
             // 需要检查一下是否需要向同一批次获得锁的节点发送PushPage
             std::list<node_id_t> push_list = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->getPushList();
             while (!push_list.empty()){
+                // 这里不需要刷日志，因为同一轮传输页面
                 PushPageToOther(table_id , page_id , push_list.back());
                 push_list.pop_back();
             }
@@ -195,8 +202,15 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
             }
             // 如果valid是false, 则需要去远程取这个数据页
             if (need_fetch_from_storage){
-                std::string data = rpc_fetch_page_from_storage(table_id , page_id , need_to_record);
-                page = put_page_into_buffer(table_id , page_id , data.c_str() , 1);
+                LLSN lsn = response->lsn();
+                assert(lsn != (LLSN)-1);
+                std::string data;
+                if (need_to_record){
+                    data = rpc_fetch_page_from_storage_with_lsn(table_id , page_id , lsn , need_to_record);
+                }else {
+                    data = rpc_fetch_page_from_storage(table_id , page_id , need_to_record);
+                }
+                page = put_page_into_buffer(table_id , page_id , data.c_str() , 1 , need_to_record);
             } else if(valid_node != -1){
                 // LOG(INFO) << "Immediate Get Ownership , Waiting For Push , table_id = " << table_id << " page_id = " << page_id;
                 // 等待持有锁的节点把数据给推送过来
@@ -230,6 +244,8 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
             // 需要检查一下是否需要向同一批次获得锁的节点发送PushPage
             std::list<node_id_t> push_list = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->getPushList();
             while (!push_list.empty()){
+                // 这里其实不会发生，因为我拿的是写，不会有人和我同意一轮传输
+                assert(false);
                 PushPageToOther(table_id , page_id , push_list.back());
                 push_list.pop_back();
             }
@@ -254,16 +270,6 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
     assert(page->get_page_id().page_no == page_id && page->get_page_id().table_id == table_id);
 
     // LOG(INFO) << "fetch X Page over " << "table_id = " << table_id << " page_id = " << page_id << " node_id = " << node_->getNodeID();
-    // auto ts_end_time = std::chrono::high_resolution_clock::now();
-    // auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(ts_end_time - ts_start_time).count();
-    // if (need_to_record){
-    //     int seconds = duration_us / 1000000;
-    //     int milliseconds = (duration_us % 1000000) / 1000;
-    //     if (seconds != 0){
-    //         // LOG(INFO) << "[TS Monitor] " << seconds << "." 
-    //               << std::setfill('0') << std::setw(3) << milliseconds << "s";
-    //     }
-    // }
 
     return page;
 }
@@ -277,6 +283,7 @@ void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_
     // 比如我现在本地两个 s 锁，放掉一个的时候，判断还不能立刻释放，但是可以推送页面了
     // TODO：页面推送的逻辑似乎可以放在 Pending 里？Pending 只要发现是读锁，就推送，写锁延迟到 release 推送
     if (lr_lock->getDestNodeIDNoBlock() != INVALID_NODE_ID){
+        // 释放 s 锁，不需要刷页面
         PushPageToOther(table_id , page_id , lr_lock->getDestNodeIDNoBlock());
         // 用完记得重新设置为 -1，防止下一轮误判了
         lr_lock->setDestNodeIDNoBlock(INVALID_NODE_ID);
@@ -332,11 +339,6 @@ void ComputeServer::rpc_lazy_release_s_page(table_id_t table_id, page_id_t page_
 }
 
 void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_id) {
-    // SQL 模式下，一个线程同一时间内只能持有一个页面
-    // lock_t debug_lock = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->getLock();
-    // assert(debug_lock == EXCLUSIVE_LOCKED);
-    // assert(node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->getLock() == EXCLUSIVE_LOCKED);
-
     // LOG(INFO) << "Release X Page , table_id = " << table_id << " page_id = " << page_id;
     int unlock_remote = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->tryUnlockExclusive();
     LRLocalPageLock *lr_lock = node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id);
@@ -349,10 +351,12 @@ void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_
         node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
         node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockExclusive();
         node_->lazy_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
-        return ;
+        return ;   
     }
 
     if (lr_lock->getDestNodeIDNoBlock() != INVALID_NODE_ID){
+        // 释放 X 锁，需要把页面给刷下去
+        flush_page_log(table_id , page_id);
         PushPageToOther(table_id , page_id , lr_lock->getDestNodeIDNoBlock());
         lr_lock->setDestNodeIDNoBlock(INVALID_NODE_ID);
     }
@@ -401,96 +405,12 @@ void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_
     return;
 }
 
-// void ComputeServer::rpc_lazy_release_all_page() {
-//     page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
-//     page_table_service::PAnyUnLocksRequest unlock_request;
-//     page_table_service::PAnyUnLockResponse *unlock_response = new page_table_service::PAnyUnLockResponse();
-//     brpc::Controller cntl;
-//     // //// LOG(INFO) << "node id: " << node_->getNodeID() <<"Release all pages";
-//     for(int i = 0; i < node_->lazy_local_page_lock_tables.size(); i++) {
-//         auto max_page_id = node_->meta_manager_->GetMaxPageNumPerTable(i);
-//         for (int page_id = 0; page_id <= max_page_id; page_id++) {
-//             int unlock_remote = node_->lazy_local_page_lock_tables[i]->GetLock(page_id)->UnlockAny();
-//             if (unlock_remote == 0) continue;
-//             // 3. rpc release page
-//             auto p = unlock_request.add_pages_id();
-//             p->set_page_no(page_id);
-//             p->set_table_id(i);
-//         }
-//     }
-//     unlock_request.set_node_id(node_->node_id);
-//     pagetable_stub.LRPAnyUnLocks(&cntl, &unlock_request, unlock_response, NULL);
-//     if (cntl.Failed()) {
-//         LOG(ERROR) << "Fail to unlock pages " << " in remote page table";
-//     }
-//     //! unlock remote ok and unlatch local
-//     for(int i=0; i<unlock_request.pages_id_size(); i++){
-//         table_id_t table_id = unlock_request.pages_id(i).table_id();
-//         int page_no = unlock_request.pages_id(i).page_no();
-//         node_->getBufferPoolByIndex(table_id)->release_page(page_no);
-//         node_->lazy_local_page_lock_tables[table_id]->GetLock(page_no)->UnlockRemoteOK();
-//     }
-//     // delete response;
-//     delete unlock_response;
-//     return;
-// }
-
 // 这里用异步的方法实现释放所有数据页
 void ComputeServer::rpc_lazy_release_all_page_async() {
-    // std::vector<std::pair<brpc::CallId, page_id_t>> unlock_cids;
-    // for(int page_id=0; page_id<ComputeNodeBufferPageSize; page_id++){
-    //     int unlock_remote = node_->lazy_local_page_lock_table->GetLock(page_id)->UnlockAny();
-    //     if(unlock_remote == 0) continue;
-    //     // 这里可以直接释放远程锁
-    //     page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
-    //     page_table_service::PAnyUnLockRequest unlock_request;
-    //     page_table_service::PAnyUnLockResponse* unlock_response = new page_table_service::PAnyUnLockResponse();
-    //     page_table_service::PageID* page_id_pb = new page_table_service::PageID();
-    //     page_id_pb->set_page_no(page_id);
-    //     unlock_request.set_allocated_page_id(page_id_pb);
-    //     unlock_request.set_node_id(node_->node_id);
-    //     brpc::Controller* unlock_cntl = new brpc::Controller();
-    //     unlock_cids.push_back(std::make_pair(unlock_cntl->call_id(), page_id));
-    //     pagetable_stub.LRPAnyUnLock(unlock_cntl, &unlock_request, unlock_response,
-    //                                 brpc::NewCallback(LazyReleaseRPCDone, unlock_response, unlock_cntl));
-    // }
-    // for(auto cids : unlock_cids){
-    //     brpc::Join(cids.first);
-    //     //! unlock remote ok and unlatch local
-    //     node_->lazy_local_page_lock_table->GetLock(cids.second)->UnlockRemoteOK();
-    // }
-    // return;
+    assert(false);
 }
 
 // 这里用异步的方法实现释放所有数据页
 void ComputeServer::rpc_lazy_release_all_page_async_new() {
-    // std::vector<std::vector<std::pair<brpc::CallId, page_id_t>>> unlock_cids(node_->lazy_local_page_lock_tables.size());
-    // for(int i = 0; i < node_->lazy_local_page_lock_tables.size(); i++) {
-    //     auto max_page_id = node_->meta_manager_->GetMaxPageNumPerTable(i);
-    //     for (int page_id = 0; page_id <= max_page_id; page_id++) {
-    //         int unlock_remote = node_->lazy_local_page_lock_tables[i]->GetLock(page_id)->UnlockAny();
-    //         if (unlock_remote == 0) continue;
-    //         // 这里可以直接释放远程锁
-    //         page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
-    //         page_table_service::PAnyUnLockRequest unlock_request;
-    //         page_table_service::PAnyUnLockResponse *unlock_response = new page_table_service::PAnyUnLockResponse();
-    //         page_table_service::PageID *page_id_pb = new page_table_service::PageID();
-    //         page_id_pb->set_page_no(page_id);
-    //         page_id_pb->set_table_id(i);
-    //         unlock_request.set_allocated_page_id(page_id_pb);
-    //         unlock_request.set_node_id(node_->node_id);
-    //         brpc::Controller *unlock_cntl = new brpc::Controller();
-    //         unlock_cids[i].push_back(std::make_pair(unlock_cntl->call_id(), page_id));
-    //         pagetable_stub.LRPAnyUnLock(unlock_cntl, &unlock_request, unlock_response,
-    //                                     brpc::NewCallback(LazyReleaseRPCDone, unlock_response, unlock_cntl));
-    //     }
-    // }
-    // for(size_t i = 0; i < node_->lazy_local_page_lock_tables.size(); i++) {
-    //     for (auto cids: unlock_cids[i]) {
-    //         brpc::Join(cids.first);
-    //         //! unlock remote ok and unlatch local
-    //         node_->lazy_local_page_lock_tables[i]->GetLock(cids.second)->UnlockRemoteOK();
-    //     }
-    // }
-    // return;
+    assert(false);
 }

@@ -78,6 +78,7 @@ bool SmallBankDTX::TxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, cor
   sav_val_0->bal = 0;
   chk_val_0->bal = 0;
 
+
   bool commit_status = dtx->TxCommit(yield);
   
   return commit_status;

@@ -39,6 +39,17 @@ set(FIBER_SRC
         fiber/scheduler.cc
         fiber/thread.cc
 )
+set(FSM_SRC
+        storage/fsm_tree/s_fsm_tree.cc)
+
+set(Recovery_SRC
+        recovery/recovery_manager.cc)
+
+set(TXN_SRC
+        Transaction/Transaction.cc)
+ 
+set(TIT_SRC
+        TIT/TIT.cc)
 
 add_library(core STATIC
         ${BufferPool_SRC}
@@ -48,7 +59,10 @@ add_library(core STATIC
         ${DTX_SRC}
         ${INDEX_SRC}
         ${FIBER_SRC}
-)
+        ${FSM_SRC}
+        ${Recovery_SRC}
+        ${TXN_SRC}
+        ${TIT_SRC})
 
 target_link_libraries(core boost_coroutine boost_context boost_system ${BRPC_LIB})
 
@@ -80,5 +94,3 @@ add_library(load_table STATIC
         ${Record_SRC}
         ${StorageBuffer_SRC}
         ${DTX_SRC})
-
-add_subdirectory(test)

@@ -80,6 +80,7 @@ public:
             }
         } else if(auto x = std::dynamic_pointer_cast<JoinPlan>(plan)) {
             std::unique_ptr<AbstractExecutor> left = convert_plan_executor(x->m_left);
+            
             std::unique_ptr<AbstractExecutor> right = convert_plan_executor(x->m_right);
             std::unique_ptr<AbstractExecutor> join = std::make_unique<JoinExecutor>(
                                 std::move(left),
@@ -117,14 +118,12 @@ public:
                                 break;
                             }
                             rids.push_back(scan->rid());
-                            dtx->compute_server->ReleaseSPage(scan->getTab().table_id , scan->rid().page_no_);
                         }
                     }else if (x->m_subPlan->m_tag == T_BPTreeIndexScan){
                         // 只有一个主键等值，那只需要 beginTuple 即可
                         scan->beginTuple();
                         if (!scan->is_end()){
                             rids.push_back(scan->rid());
-                            dtx->compute_server->ReleaseSPage(scan->getTab().table_id , scan->rid().page_no_);
                         }
                     }else {
                         assert(false);
@@ -142,14 +141,12 @@ public:
                                 break;
                             }
                             rids.push_back(scan->rid());
-                            dtx->compute_server->ReleaseSPage(scan->getTab().table_id , scan->rid().page_no_);
                         }
                     }else if (x->m_subPlan->m_tag == T_BPTreeIndexScan){
                         // 只有一个主键等值，那只需要 beginTuple 即可
                         scan->beginTuple();
                         if (!scan->is_end()){
                             rids.push_back(scan->rid());
-                            dtx->compute_server->ReleaseSPage(scan->getTab().table_id , scan->rid().page_no_);
                         }
                     }else {
                         assert(false);

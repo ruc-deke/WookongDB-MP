@@ -32,6 +32,7 @@ using t_id_t = uint32_t;      // Thread id type
 using coro_id_t = int;        // Coroutine id type
 using offset_t = int64_t;     // Offset type. 
 using timestamp_t = uint64_t; // Timestamp type
+using LLSN = uint64_t;
 
 // Indicating that memory store metas have been transmitted
 const uint64_t MEM_STORE_META_END = 0xE0FF0E0F;

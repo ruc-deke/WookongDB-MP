@@ -24,7 +24,7 @@ public:
         return;
     }
 
-    DataItem* Next() override {
+    DataItemPtr Next() override {
         assert(false);
         return nullptr;
     }
@@ -40,9 +40,6 @@ public:
             end_scan = true;
             return;
         }
-
-        char *page = dtx->compute_server->FetchSPage(m_tableID , m_rid.page_no_);
-        auto data_item = dtx->GetDataItemFromPage(m_tableID , m_rid , page , file_hdr , m_key , false);
     }
 
 
@@ -87,5 +84,4 @@ private:
     Rid m_rid;
     DTX *dtx;
     RmFileHdr::ptr file_hdr;
-
 };

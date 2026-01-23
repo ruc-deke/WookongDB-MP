@@ -96,7 +96,7 @@ public:
             for (int i = 0 ; i < cols.size() ; i++){
                 primary_name_ss << "_" << cols[i];
             }
-            primary_name_ss << ".bl";
+            primary_name_ss << "_bl";
 
             return primary_name_ss.str();
 
@@ -112,7 +112,7 @@ public:
             for (int i = 0 ; i < cols.size() ; i++){
                 primary_name_ss << "_" << cols[i].name;
             }
-            primary_name_ss << ".bl";
+            primary_name_ss << "_bl";
 
             return primary_name_ss.str();
             

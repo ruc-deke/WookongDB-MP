@@ -95,7 +95,7 @@ class MetaManager {
 
  public:
   node_id_t local_machine_id;
-
+  Rid Fetchrid(const int &table_id,itemkey_t key);
  public:
   std::vector<RemoteNode> remote_compute_nodes; // remote compute nodes
   std::vector<RemoteNode> remote_server_nodes; // remote server nodes

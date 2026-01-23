@@ -18,6 +18,7 @@ message PXLockResponse{
     PageID page_id = 2;
     bool wait_lock_release = 3; // 如果返回为true，则加锁不成功
     bool need_storage_fetch = 4;   // 是否需要去存储层获取数据
+    uint64 lsn = 5;
 }
 
 message PXUnlockRequest {
@@ -37,6 +38,7 @@ message PSLockResponse{
     PageID page_id = 2;
     bool wait_lock_release = 3; //  如果返回为true，则加锁不成功
     bool need_storage_fetch = 4; // 返回 true 代表需要向 storage 拉取数据
+    uint64 lsn = 5;
 }
 
 message PSUnlockRequest {
@@ -61,6 +63,7 @@ message PAnyUnLockResponse{}
 message BufferReleaseUnlockRequest {
     PageID page_id = 1;
     sint32 node_id = 2;
+    uint64 lsn = 3;
 };
 message BufferReleaseUnlockResponse {
     bool agree = 1; // 是否允许释放这个页面

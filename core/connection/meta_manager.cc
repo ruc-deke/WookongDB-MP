@@ -200,7 +200,7 @@ void MetaManager::PrefetchIndex(const int &table_id) {
   int storage_port = remote_storage_nodes[0].port;
   std::string storage_node = storage_ips + ":" + std::to_string(storage_port);
   if(index_channel.Init(storage_node.c_str(), &options) != 0) {
-      LOG(FATAL) << "Fail to initialize channel";
+    LOG(FATAL) << "Fail to initialize channel to " << storage_node;
   }
   brpc::Controller cntl;
   storage_service::GetBatchIndexRequest request;
@@ -231,4 +231,8 @@ void MetaManager::PrefetchIndex(const int &table_id) {
     batch_id++;
     cntl.Reset();
   }
+}
+
+Rid MetaManager::Fetchrid(const int &table_id,itemkey_t key){
+  return index_cache_->Search(table_id,key);
 }

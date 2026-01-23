@@ -31,6 +31,7 @@
 #include "scheduler/corotine_scheduler.h"
 #include "remote_page_table/timestamp_rpc.h"
 #include "thread_pool.h"
+#include "TIT/TIT.h"
 
 struct ItemTableKeyHash {
   size_t operator()(const std::pair<itemkey_t, table_id_t>& p) const noexcept {
@@ -62,6 +63,8 @@ struct DataSetItem {
   node_id_t node_id;
   bool release_imme;
 };
+
+class RmPageHdr; // forward declaration for page header
 
 class DTX {
  public:
@@ -121,7 +124,6 @@ class DTX {
   }
 
  public:
-  // 发送日志到存储层
   TxnLog* txn_log;
   // for group commit
   uint32_t two_latency_c;
@@ -139,8 +141,30 @@ class DTX {
   int distribute_txn=0 ;
 
   void AddLogToTxn();
-  void SendLogToStoragePool(uint64_t bid, brpc::CallId* cid); // use for rpc
-
+    UpdateLogRecord* GenUpdateLog(DataItem* item,
+                                  itemkey_t key,
+                                  const void* value,
+                                  RmPageHdr* page = nullptr);
+    InsertLogRecord* GenInsertLog(DataItem* item,
+                     itemkey_t key,
+                     const void* value,
+                     const Rid& rid,
+                     RmPageHdr* pagehdr);
+    DeleteLogRecord* GenDeleteLog(table_id_t table_id,
+            int page_no,
+            int slot_no);
+    NewPageLogRecord* GenNewPageLog(table_id_t table_id,
+            int request_pages);
+    FSMUpdateLogRecord* GenFSMUpdateLog(table_id_t table_id,
+                    uint32_t page_id,
+                    uint32_t free_space,
+                    const std::string& table_name);
+  void SendLogToStoragePool(uint64_t bid, brpc::CallId* cid, int urgent = 0); // use for rpc
+  LLSN generate_next_llsn();// 生成下一个 LLSN（原子操作）
+  void advance_llsn(LLSN new_llsn); // 推进 LLSN 至已知的最大值（用于页面读取后的同步
+  LLSN update_page_llsn(RmPageHdr* page_hdr); // 封装提交时的 LLSN 推进流程
+  LLSN get_current_llsn() const;
+  std::vector<LogRecord*> temp_log;// 临时日志存储区
   DataItem* GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr::ptr file_hdr , itemkey_t& item_key);
   DataItem* GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid , RmFileHdr::ptr file_hdr , itemkey_t& item_key);
 
@@ -151,12 +175,15 @@ class DTX {
 
  private:
   void Abort();
-
+  
   void Clean();  // Clean data sets after commit/abort
 
   
  
  private:  
+  
+  int current_llsn_;     // 本节点当前的最大 LLSN,初始为0
+  std::mutex llsn_mutex_; // 用于 LLSN 递增的互斥锁
 
   timestamp_t global_timestamp = 0;
   timestamp_t local_timestamp = 0;
@@ -174,6 +201,9 @@ class DTX {
   }
   inline void UpdatePageSpaceFromFSM(table_id_t table_id , uint32_t page_id , uint32_t free_space){
     compute_server->update_page_space(table_id , page_id , free_space);
+    const table_id_t fsm_table_id = table_id + 20000;
+    std::string table_name = global_meta_man->GetTableName(fsm_table_id);
+    GenFSMUpdateLog(fsm_table_id, page_id, free_space, table_name);
   }
 
   void test_blink_concurrency(table_id_t table_id){
@@ -251,9 +281,14 @@ class DTX {
 
   void ReleaseSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id);
   void ReleaseXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id); 
+
+  DataItemPtr GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr *file_hdr , itemkey_t item_key);
+  DataItemPtr GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid, DataItem*& orginal_item , RmFileHdr *file_hdr , itemkey_t item_key);
    
   DataItem* UndoDataItem(DataItem* item);
-  
+
+  LLSN GetLLSNFromPageRW(char* data);
+
  public:
   std::unordered_set<node_id_t> wait_ids;
   std::unordered_set<node_id_t> all_ids;
@@ -308,9 +343,12 @@ class DTX {
   std::unordered_set<node_id_t> participants; // Participants in 2PC, only use in 2PC
 
   ThreadPool* thread_pool;
-
+  // B+ 树数据结构
+  public:
+  std::mutex root_latch;  
   
 };
+
 
 enum class CalvinStages {
   INIT = 0,

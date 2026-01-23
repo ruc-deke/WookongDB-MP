@@ -146,7 +146,7 @@ void Handler::StartDatabaseSQL(node_id_t node_id , int thread_num, int sys_mode 
     compute_ports[i] = global_meta_man->remote_compute_nodes[i].port;
   }
 
-  auto* compute_server = new ComputeServer(compute_node, compute_ips, compute_ports);
+  auto* compute_server = new ComputeServer(compute_node, compute_ips, compute_ports);  
 
   sleep(3);
 
@@ -180,6 +180,12 @@ void Handler::StartDatabaseSQL(node_id_t node_id , int thread_num, int sys_mode 
       perror("listen");
       exit(EXIT_FAILURE);
   }
+
+  // 
+  int thread_id = compute_server->get_node()->getScheduler()->addThread();
+  // compute_server->get_node()->getScheduler()->schedule([compute_server](){
+  //     compute_server->LogFlush();
+  // }, thread_id);
 
   std::cout << ">>> Server listening on " << node_port << ". Mode: One Thread Per Connection." << std::endl;
 
@@ -289,7 +295,7 @@ void Handler::GenThreads(std::string bench_name) {
     std::this_thread::sleep_for(std::chrono::seconds(10)); 
   }else if (WORKLOAD_MODE == 1){
     // TPCC needs more time to initialize tables (check table_exist for 11 tables)
-    std::this_thread::sleep_for(std::chrono::seconds(30)); 
+    std::this_thread::sleep_for(std::chrono::seconds(40)); 
   }else if (WORKLOAD_MODE == 2){
     std::this_thread::sleep_for(std::chrono::seconds(5)); 
   }else {

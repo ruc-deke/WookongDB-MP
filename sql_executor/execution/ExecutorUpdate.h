@@ -30,7 +30,7 @@ public:
 
     }
 
-    DataItem* Next() override {
+    DataItemPtr Next() override {
         m_affect_rows = 0;
         int rid_num = m_rids.size();
         for (int i = 0 ; i < rid_num ; i++){
@@ -108,6 +108,7 @@ public:
 
             itemkey_t* target_item_key = reinterpret_cast<itemkey_t*>(tuple);
 
+            m_dtx->GenUpdateLog(data_item , *target_item_key , (char*)data_item + sizeof(DataItem) , (RmPageHdr*)data);
             m_dtx->compute_server->ReleaseXPage(m_tab.table_id , m_rids[i].page_no_);
 
             // 加入到写集合里

@@ -173,10 +173,13 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
         assert(unlock_remote != 3);
         if(unlock_remote != 3){
             // LOG(INFO) << "Pending Release , table_id = " << table_id << " page_id = " << page_id << " dest_node_id = " << dest_node_id;
-            // std::cout << "Got Here3\n";
 
             // 如果锁已经用完了，那就先向下一轮获得锁的某个节点发送一次 Push 数据
             if (dest_node_id != -1){
+                if (unlock_remote == 2){
+                    // 目前持有的是写锁，且释放了，所以可以把日志刷下去了
+                    server->flush_page_log(table_id , page_id);
+                }
                 server->PushPageToOther(table_id , page_id , dest_node_id);
             }
 
@@ -318,7 +321,7 @@ void ComputeNodeServiceImpl::PushPage(::google::protobuf::RpcController* control
         // LOG(INFO) << "Receive Page , src_node_id = " << src_node_id << " table_id = " << table_id << " page_id = " << page_id;
         
         // std::cout << "Receive Pushed Data From : " << src_node_id << " table_id = " << table_id << " page_id = " << page_id << "\n";
-        server->put_page_into_buffer(table_id , page_id , request->page_data().c_str() , 1);
+        server->put_page_into_buffer(table_id , page_id , request->page_data().c_str() , 1 , true);
 
         server->get_node()->NotifyPushPageSuccess(table_id, page_id);
         
@@ -512,6 +515,55 @@ void ComputeServer::InitTableNameMeta(){
     }
 }
 
+std::string ComputeServer::rpc_fetch_page_from_storage_with_lsn(table_id_t table_id , page_id_t page_id , LLSN page_lsn , bool need_to_record){
+    storage_service::StorageService_Stub storage_stub(get_storage_channel());
+    storage_service::GetPageWithLsnRequest request;
+    storage_service::GetPageWithLsnResponse response;
+    auto page_id_pb = request.add_page_id();
+    page_id_pb->set_page_no(page_id);
+
+    // SQL 模式下，通过 db_meta 获取表名字
+    if (WORKLOAD_MODE == 4){
+        // B+ 树存在 10000 - 20000，FSM 存在 20000 到 30000
+        int tab_id = 0;
+        if (table_id < 10000){
+            tab_id = table_id;
+        }else if (table_id < 20000){
+            tab_id = table_id - 10000;
+        }else if (table_id < 30000){
+            tab_id = table_id - 20000;
+        }else {
+            assert(false);
+        }
+
+        std::string tab_name = getTableNameFromTableID(tab_id);
+        assert(tab_name != "");
+
+        if (table_id >= 10000 && table_id < 20000){
+            tab_name += "_bl";
+        }else if (table_id >= 20000 && table_id < 30000){
+            tab_name += "_fsm";
+        }
+
+        page_id_pb->set_table_name(tab_name);
+    }else{
+        page_id_pb->set_table_name(table_name_meta[table_id]);
+    }
+
+    request.set_require_lsn(page_lsn);
+
+    brpc::Controller cntl;
+    storage_stub.GetPageWithLsn(&cntl , &request , &response , NULL);
+    if(cntl.Failed()){
+        LOG(ERROR) << "Fail to fetch page " << page_id << " from remote storage server";
+    }
+    assert(response.data().size() == PAGE_SIZE);
+    if (need_to_record){
+        node_->fetch_from_storage_cnt++;
+    }
+    return response.data(); 
+}
+
 
 std::string ComputeServer::rpc_fetch_page_from_storage(table_id_t table_id, page_id_t page_id , bool need_record){    
     storage_service::StorageService_Stub storage_stub(get_storage_channel());
@@ -538,9 +590,9 @@ std::string ComputeServer::rpc_fetch_page_from_storage(table_id_t table_id, page
         assert(tab_name != "");
 
         if (table_id >= 10000 && table_id < 20000){
-            tab_name += ".bl";
+            tab_name += "_bl";
         }else if (table_id >= 20000 && table_id < 30000){
-            tab_name += ".fsm";
+            tab_name += "_fsm";
         }
 
         page_id_pb->set_table_name(tab_name);

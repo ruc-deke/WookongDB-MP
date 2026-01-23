@@ -38,11 +38,10 @@ DTX::DTX(MetaManager* meta_man,
   local_t_id = l_tid;   // thread_ID(Local)
   coro_id = coroid;
   coro_sched = sched;
-  
+  current_llsn_ = 0;
   global_meta_man = meta_man;
   compute_server = server;
   tx_status = TXStatus::TX_INIT;
-
   // thread_remote_log_offset_alloc = remote_log_offset_allocator;
   index_cache = _index_cache;
   page_cache = _page_cache;
@@ -202,11 +201,19 @@ DataItem* DTX::GetDataItemFromPage(table_id_t table_id , Rid rid , char *data , 
 
 }
 
+LLSN GetLLSNFromPageRW(char* data){
+    RmPageHdr* page_hdr = reinterpret_cast<RmPageHdr*>(data + OFFSET_PAGE_HDR);
+    return page_hdr->LLSN_;
+}
+
 DataItem* DTX::UndoDataItem(DataItem* item) {
-  // TODO
-  // 这里的目标是把 item 通过 undo 回滚到某个历史版本，实现读写隔离
+  // auto prev_lsn = item->prev_lsn;
+  // while(start_ts < item->version) {
+  //   // Undo the data item
+  //   // UndoLog();
+  // }
   return item;
-};
+}
 
 void DTX::Abort() {
   tx_status = TXStatus::TX_ABORT;

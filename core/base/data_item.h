@@ -39,6 +39,11 @@ struct DataItem {
       : table_id(t), lock(0), value(nullptr), value_size(val_size), version(0), prev_lsn(0), valid(1), user_insert(0) {
     value = new uint8_t[value_size];
   }
+  // Accept size_t to avoid overload ambiguity when callers pass sizeof(...)
+  DataItem(table_id_t t , size_t val_size)
+      : table_id(t), lock(0), value(nullptr), value_size(static_cast<int>(val_size)), version(0), prev_lsn(0), valid(1), user_insert(0) {
+    value = new uint8_t[value_size];
+  }
   // For user insert item
   DataItem(table_id_t t, size_t s , uint8_t ins)
       : table_id(t), value_size(s),  lock(0), version(0), valid(1), user_insert(ins) {

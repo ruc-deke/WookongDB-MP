@@ -10,6 +10,7 @@ message LogWriteRequest {
         sint32 page_no = 2;
     }
     repeated PageID page_id = 2;
+    int32 urgent = 3;
 };
 
 message RaftLogWriteRequest{
@@ -73,8 +74,20 @@ message GetPageRequest {
 	repeated PageID page_id = 1;
     uint64 require_batch_id = 2;
 };
-
 message GetPageResponse {
+    bytes data = 1;
+};
+
+message GetPageWithLsnRequest {
+    message PageID{
+    	bytes table_name = 1;
+        sint32 page_no = 2;
+    }
+	repeated PageID page_id = 1;
+    uint64 require_batch_id = 2;
+    sint64 require_lsn = 3;
+};
+message GetPageWithLsnResponse {
     bytes data = 1;
 };
 
@@ -125,6 +138,7 @@ service StorageService {
     rpc LogWrite(LogWriteRequest) returns (LogWriteResponse);
     rpc RaftLogWrite(RaftLogWriteRequest) returns (LogWriteResponse);
     rpc GetPage(GetPageRequest) returns (GetPageResponse);
+    rpc GetPageWithLsn(GetPageWithLsnRequest) returns(GetPageWithLsnResponse);
     rpc PrefetchIndex(GetBatchIndexRequest) returns (GetBatchIndexResponse);
 
     // LJ

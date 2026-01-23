@@ -67,6 +67,78 @@ int SmManager::open_db(const std::string &db_name){
         int fd = rm_manager->get_diskmanager()->open_file(tab_name);
         m_fhs.emplace(table->first, new RmFileHandle(rm_manager->get_diskmanager() , buffer_pool_mgr , fd));
 
+        // 重建 BLink 索引
+        auto disk_manager = rm_manager->get_diskmanager();
+        std::string index_name = tab_name + "_bl";
+        if (disk_manager->is_file(index_name)) {
+            disk_manager->destroy_file(index_name);
+        }
+        disk_manager->create_file(index_name);
+        auto index_handle = std::make_shared<S_BLinkIndexHandle>(disk_manager, buffer_pool_mgr, tab_name);
+
+        // 读取一遍 FileHandle，构造 FSM 和 B+ 树索引
+        auto file_handle = m_fhs[tab_name];
+        RmFileHdr file_hdr = file_handle->get_file_hdr();
+        int num_pages = file_hdr.num_pages_;
+        int num_record_per_page = file_hdr.num_records_per_page_;
+
+        // 初始化 FSM
+        std::string fsm_name = tab_name + "_fsm";
+        if (disk_manager->is_file(fsm_name)) {
+            disk_manager->destroy_file(fsm_name);
+        }
+
+        disk_manager->create_file(fsm_name);
+        int fsm_fd = disk_manager->open_file(fsm_name);
+
+        auto fsm = std::make_shared<S_SecFSM>(disk_manager, buffer_pool_mgr, table->second.table_id + 20000, "sql");
+        fsm->set_custom_filename(fsm_name);
+        fsm->initialize(table->second.table_id + 20000, num_pages);
+
+        // 将 RmFileHdr 写入 FSM 文件的 Page 0
+        disk_manager->write_page(fsm_fd, RM_FILE_HDR_PAGE, (char *)&file_hdr, sizeof(file_hdr));
+
+        int tot_valid_cnt = 0;
+        for (int i = 1; i < num_pages; ++i) {
+            RmPageHandle page_handle = file_handle->fetch_page_handle(i);
+
+            char* data = page_handle.page->get_data();
+            char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+            char *slots = bitmap + file_hdr.bitmap_size_;
+
+            int valid_slot_cnt = 0; // 本页面的有效页面数量
+            for (int j = 0 ; j < num_record_per_page ; j++){
+                char* tuple = slots + j * (file_hdr.record_size_ + sizeof(itemkey_t));
+                DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+
+                if (item->valid == 1){
+                    itemkey_t item_key = *reinterpret_cast<itemkey_t*>(tuple);
+                    valid_slot_cnt++;
+                    Rid rid = {.page_no_ = i , .slot_no_ = j};
+
+                    index_handle->insert_entry(&item_key , rid);
+                }
+            }
+            tot_valid_cnt += valid_slot_cnt;
+
+            int free_slots = num_record_per_page - valid_slot_cnt;
+            uint32_t free_space = free_slots * (file_hdr.record_size_ + sizeof(itemkey_t));
+            std::cout << "Page : " << i << " Free Space = " << free_space << "\n";
+            fsm->update_page_space(i, free_space);
+
+            buffer_pool_mgr->unpin_page(page_handle.page->get_page_id(), false);
+        }
+
+        fsm->flush_all_pages();
+        disk_manager->close_file(fsm_fd);
+
+        std::cout << "TabName = " << tab_name << " Page Num = " << num_pages << " Tuple Num = " << tot_valid_cnt << "\n";
+
+        // 刷写 BLink 索引相关页面到磁盘
+        index_handle->write_file_hdr_to_page();
+        buffer_pool_mgr->flush_all_pages(index_handle->getFD());
+        disk_manager->close_file(index_handle->getFD());
+
         TabMeta tab_meta = table->second;
         for (auto index : tab_meta.indexes) {
             // 先不管索引了
@@ -134,7 +206,7 @@ int SmManager::create_primary(const std::string &table_name){
     // 构建主键名字
     std::stringstream primary_name_ss;
     primary_name_ss << table_name;
-    primary_name_ss << ".bl";
+    primary_name_ss << "_bl";
 
     std::string primary_name = primary_name_ss.str();
     if (rm_manager->get_diskmanager()->is_file(primary_name)){
@@ -150,7 +222,7 @@ int SmManager::create_primary(const std::string &table_name){
 }
 
 int SmManager::create_fsm(const std::string &tab_name , int tuple_size , table_id_t table_id){
-    std::string fsm_name = tab_name + ".fsm";
+    std::string fsm_name = tab_name + "_fsm";
     // 假设初始只分配少量页面用于 SQL 插入
     int initial_pages = 300; 
     
@@ -161,15 +233,13 @@ int SmManager::create_fsm(const std::string &tab_name , int tuple_size , table_i
     
     S_SecFSM *fsm = new S_SecFSM(rm_manager->get_diskmanager(), rm_manager->get_bufferPoolManager(), table_id + 20000, "sql");
     fsm->set_custom_filename(fsm_name);
-    
-    // 3. 初始化 FSM 结构
-    fsm->initialize(table_id + 20000, initial_pages);
 
-    // 4. 将 RmFileHdr 写入 FSM 文件的 Page 0 (参考 YCSB)
-    // 这里需要获取 tab_name 对应的 RmFileHdr
     auto file_handle = m_fhs[tab_name];
     int fd_fsm = rm_manager->get_diskmanager()->open_file(fsm_name);
     rm_manager->get_diskmanager()->write_page(fd_fsm, RM_FILE_HDR_PAGE, (char *)&file_handle->file_hdr_, sizeof(file_handle->file_hdr_));
+    
+    // 3. 初始化 FSM 结构
+    fsm->initialize(table_id + 20000, initial_pages);
     
     // 5. 刷写 FSM 页面到磁盘
     fsm->flush_all_pages();
@@ -250,7 +320,7 @@ int SmManager::create_table(const std::string &table_name , const std::vector<Co
     {
         int error_code = create_fsm(table_name , record_size , candidate);
         if (error_code != LJ::ErrorCode::SUCCESS){
-            rm_manager->destroy_file(table_name + ".bl");
+            rm_manager->destroy_file(table_name + "_bl");
             rm_manager->destroy_file(table_name);
             return error_code;
         }

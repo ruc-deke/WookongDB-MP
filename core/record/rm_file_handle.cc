@@ -74,14 +74,14 @@ Rid RmFileHandle::insert_record(itemkey_t key, char* buf, TxnLog* txn) {
     // // context->txn_->append_write_record(write_record);
     // return rid;
 
-    if(txn != nullptr){
-        RmRecord record(key, file_hdr_.record_size_, buf);
-        InsertLogRecord* log = new InsertLogRecord(txn->batch_id_, 1, txn->batch_id_, record, rid, "table");
-        int bucket_no = Bitmap::get_bucket(slot_no);
-        log->set_meta(OFFSET_BITMAP + bucket_no, page_handle.bitmap[bucket_no], 
-                        page_handle.page_hdr->num_records_, file_hdr_.first_free_page_no_);
-        txn->logs.push_back(log);
-    }
+    // if(txn != nullptr){
+    //     RmRecord record(key, file_hdr_.record_size_, buf);
+    //     InsertLogRecord* log = new InsertLogRecord(txn->batch_id_, 1, txn->batch_id_, record, rid, "table");
+    //     int bucket_no = Bitmap::get_bucket(slot_no);
+    //     log->set_meta(OFFSET_BITMAP + bucket_no, page_handle.bitmap[bucket_no], 
+    //                     page_handle.page_hdr->num_records_, file_hdr_.first_free_page_no_);
+    //     txn->logs.push_back(log);
+    // }
 
     return rid;
 }
@@ -124,14 +124,14 @@ Rid RmFileHandle::insert_nextpage_record(itemkey_t key, char *buf, TxnLog* txn){
     // // context->txn_->append_write_record(write_record);
     // return rid;
 
-    if(txn != nullptr){
-        RmRecord record(key, file_hdr_.record_size_, buf);
-        InsertLogRecord* log = new InsertLogRecord(txn->batch_id_, 1, txn->batch_id_, record, rid, "table");
-        int bucket_no = Bitmap::get_bucket(slot_no);
-        log->set_meta(OFFSET_BITMAP + bucket_no, page_handle.bitmap[bucket_no],
-                      page_handle.page_hdr->num_records_, file_hdr_.first_free_page_no_);
-        txn->logs.push_back(log);
-    }
+    // if(txn != nullptr){
+    //     RmRecord record(key, file_hdr_.record_size_, buf);
+    //     InsertLogRecord* log = new InsertLogRecord(txn->batch_id_, 1, txn->batch_id_, record, rid, "table");
+    //     int bucket_no = Bitmap::get_bucket(slot_no);
+    //     log->set_meta(OFFSET_BITMAP + bucket_no, page_handle.bitmap[bucket_no],
+    //                   page_handle.page_hdr->num_records_, file_hdr_.first_free_page_no_);
+    //     txn->logs.push_back(log);
+    // }
 
     return rid;
 }
@@ -156,6 +156,9 @@ void RmFileHandle::delete_record(const Rid& rid, TxnLog* txn) {
 
     RmPageHandle page_handle = fetch_page_handle(rid.page_no_);  // 调用辅助函数获取指定page handle
     int slot_no = page_handle.get_slot_no(rid.slot_no_);
+    char undo_bucket_value = page_handle.bitmap[Bitmap::get_bucket(slot_no)];
+    RmPageHdr undo_page_hdr = *(page_handle.page_hdr);
+    int undo_first_free_page_no = file_hdr_.first_free_page_no_;
     if (!Bitmap::is_set(page_handle.bitmap, slot_no)) {
         // throw RecordNotFoundError(rid.page_no, rid.slot_no);
     }
@@ -174,10 +177,15 @@ void RmFileHandle::delete_record(const Rid& rid, TxnLog* txn) {
     // WriteRecord * write_record = new WriteRecord(WType::DELETE_TUPLE, this, delete_record);
     // context->txn_->append_write_record(write_record);
 
-    DeleteLogRecord* log = new DeleteLogRecord(txn->batch_id_, 1, txn->batch_id_, "table", rid.page_no_);
+    DeleteLogRecord* log = new DeleteLogRecord(txn->batch_id_, 1, txn->batch_id_, "table", rid.page_no_, rid.slot_no_);
     int bucket_no = Bitmap::get_bucket(slot_no);
-    log->set_meta(OFFSET_BITMAP + bucket_no, page_handle.bitmap[bucket_no],
-                    *(page_handle.page_hdr), file_hdr_.first_free_page_no_);
+    log->set_meta(OFFSET_BITMAP + bucket_no,
+                  page_handle.bitmap[bucket_no],
+                  *(page_handle.page_hdr),
+                  file_hdr_.first_free_page_no_,
+                  undo_bucket_value,
+                  undo_page_hdr,
+                  undo_first_free_page_no);
     txn->logs.push_back(log);
 }
 
@@ -196,8 +204,10 @@ void RmFileHandle::update_record(const Rid& rid, char* buf, TxnLog* txn) {
     // if(context != nullptr)
         // context->lock_mgr_->lock_exclusive_on_record(context->txn_, rid, fd_);
 
-    auto rec = get_record(rid, txn);
-    RmRecord new_record(rec->key_, rec->value_size_, buf);
+    std::unique_ptr<RmRecord> before_image;
+    if (txn != nullptr) {
+        before_image = get_record(rid, txn);
+    }
 
     RmPageHandle page_handle = fetch_page_handle(rid.page_no_);
     if (!Bitmap::is_set(page_handle.bitmap, page_handle.get_slot_no(rid.slot_no_))) {
@@ -213,8 +223,13 @@ void RmFileHandle::update_record(const Rid& rid, char* buf, TxnLog* txn) {
     // WriteRecord * write_record = new WriteRecord(WType::UPDATE_TUPLE, this, rid, update_record);
     // context->txn_->append_write_record(write_record);
 
-    UpdateLogRecord* log = new UpdateLogRecord(txn->batch_id_, 1, txn->batch_id_, new_record, rid, "table");
-    txn->logs.push_back(log);
+    if(txn != nullptr){
+        RmRecord new_record(before_image->key_, before_image->value_size_, buf);
+        RmRecord old_record(before_image->key_, before_image->value_size_, before_image->value_);
+        UpdateLogRecord* log = new UpdateLogRecord(txn->batch_id_, 1, txn->batch_id_, new_record, rid, "table");
+        log->AttachUndoPayload(old_record);
+        txn->logs.push_back(log);
+    }
 }
 
 /**
@@ -264,6 +279,8 @@ RmPageHandle RmFileHandle::create_new_page_handle(TxnLog* txn) {
     page_handle.page_hdr->num_records_ = 0;
     // 这个page handle中的page满了之后，下一个可用的page_no=-1（即没有下一个可用的了）
     page_handle.page_hdr->next_free_page_no_ = RM_NO_PAGE;
+    page_handle.page_hdr->pre_LLSN_ = 0;
+    page_handle.page_hdr->LLSN_ = 0;
     Bitmap::init(page_handle.bitmap, file_hdr_.bitmap_size_);
 
     // Update file header
@@ -272,8 +289,7 @@ RmPageHandle RmFileHandle::create_new_page_handle(TxnLog* txn) {
     file_hdr_.first_free_page_no_ = page->get_page_id().page_no;  // 更新文件中当前第一个可用的page_no
 
     if(txn != nullptr){
-        NewPageLogRecord* log = new NewPageLogRecord(txn->batch_id_, 1, txn->batch_id_, "table", new_page_id.page_no);
-        log->set_meta(file_hdr_.num_pages_, file_hdr_.first_free_page_no_);
+        NewPageLogRecord* log = new NewPageLogRecord(txn->batch_id_, 1, txn->batch_id_, "table", 1);
         txn->logs.push_back(log);
     }
     

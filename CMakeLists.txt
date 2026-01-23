@@ -101,7 +101,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 endif()
 
 set(CMAKE_CPP_FLAGS "${DEFINE_CLOCK_GETTIME} -DGFLAGS_NS=${GFLAGS_NS}")
-set(CMAKE_CXX_FLAGS "${CMAKE_CPP_FLAGS} -DDEBUG -O0 -D__const__=__unused__ -pipe -fPIC -fno-omit-frame-pointer -w")
+set(CMAKE_CXX_FLAGS "${CMAKE_CPP_FLAGS} -DDEBUG -O0 -D__const__=__unused__ -pipe -fPIC -fno-omit-frame-pointer -w -std=gnu++17")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w")
 set(CMAKE_BUILD_TYPE Debug)
 

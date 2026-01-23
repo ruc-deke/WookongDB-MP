@@ -24,7 +24,7 @@ public:
     virtual void nextTuple() {}
     virtual bool is_end() {return true;}
     virtual Rid &rid() = 0;
-    virtual DataItem* Next() = 0;
+    virtual DataItemPtr Next() = 0;
     virtual ColMeta get_col_offset(const TabCol &target) {
         return ColMeta();
     };

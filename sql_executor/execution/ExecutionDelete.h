@@ -21,7 +21,7 @@ public:
         return m_tab;
     }
 
-    DataItem* Next() override {
+    DataItemPtr Next() override {
         m_affect_rows = 0;
         int rid_num = m_rids.size();
         int delete_record = 0;
@@ -71,6 +71,8 @@ public:
             // 把数据复制一份，事务回滚时使用
             DataItemPtr item_ptr = std::make_shared<DataItem>(data_item->value_size , true);
             memcpy(item_ptr->value , data_item->value , data_item->value_size);
+
+            m_dtx->GenUpdateLog(data_item , pri_key , item_ptr->value , (RmPageHdr*)page);
 
             // char *bitmap = page + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
             // assert(Bitmap::is_set(bitmap , m_rids[i].slot_no_));

@@ -454,7 +454,7 @@ void RunSQL(int sock){
       // 执行计划
       auto portalStmt = sql_portal->start(plan , sql_dtx);
       auto res = sql_portal->run(portalStmt, sql_ql.get(), sql_dtx);
-
+      
       // 如果发生错误需要回滚了，那就关闭事务
       if (sql_dtx->tx_status == TXStatus::TX_ABORTING){
         sql_dtx->TxAbortSQL(baga);

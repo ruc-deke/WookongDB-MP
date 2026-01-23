@@ -241,11 +241,13 @@ public:
             for (int i = 0 ; i < table_cnt ; i++){
                 bl_indexes[i] = new BLinkIndexHandle(this , i + 10000);
             }
+            std::cout << "Initlize BLink Over\n";
 
             fsm_trees.resize(10000);
             for (int i = 0 ; i < table_cnt ; i++){
                 fsm_trees[i] = new SecFSM(this , i + 20000);
             }
+            std::cout << "Initlize FSM Over\n";
             
 
             for (int i = 0 ; i < table_cnt ; i++){
@@ -260,6 +262,7 @@ public:
                 (*global_page_lock_table_list_)[i + 20000] = new GlobalLockTable();
                 (*global_valid_table_list_)[i + 20000] = new GlobalValidTable();
             }
+            std::cout << "Initlize Lock Table Over\n";
 
             page_table_service_impl_ = new page_table_service::PageTableServiceImpl(global_page_lock_table_list_, global_valid_table_list_);
             if (server.AddService(page_table_service_impl_, brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
@@ -283,6 +286,8 @@ public:
                 global_valid_table_list_->at(i + 20000)->Reset();
                 global_page_lock_table_list_->at(i + 20000)->BuildRPCConnection(compute_ips , compute_ports);
             }
+
+            std::cout << "Initlize Meta Server Over\n";
 
             butil::EndPoint point;
             point = butil::EndPoint(butil::IP_ANY, compute_ports[node_->getNodeID()]);
@@ -339,7 +344,7 @@ public:
             // eager
             page_0 = rpc_fetch_s_page(table_id , 0);
         }else if (SYSTEM_MODE == 1){
-            page_0 = rpc_lazy_fetch_s_page(table_id , 0 , false);
+            page_0 = rpc_lazy_fetch_s_page(table_id , 0 , true);
         }else if (SYSTEM_MODE == 2){
             // 2pc
             node_id_t node_id = get_node_id_by_page_id(table_id, 0);
@@ -548,6 +553,7 @@ public:
 
         int error_code = response.error_code();
         if (error_code == 0){
+            assert(table_exist(tab_name));
             int table_id = response.table_id();
             std::atomic<bool> has_rpc_error(false);
             std::vector<brpc::CallId> cids;
@@ -1141,13 +1147,13 @@ public:
         return node_->getBufferPoolByIndex(table_id)->checkIfDirectlyUpdate(page_id , data);
     }
 
-    Page *put_page_into_buffer(table_id_t table_id , page_id_t page_id , const void *data , int type){
+    Page *put_page_into_buffer(table_id_t table_id , page_id_t page_id , const void *data , int type , bool need_to_record = false){
         if (type == 0){
             // eager
             return put_page_into_buffer_eager(table_id , page_id , data);
         }else if (type == 1){
             // lazy
-            return put_page_into_buffe_lazy(table_id , page_id , data);
+            return put_page_into_buffe_lazy(table_id , page_id , data , need_to_record);
         }else if (type == 2){
             // 2pc
             return put_page_into_buffer_2pc(table_id , page_id , data);
@@ -1161,7 +1167,7 @@ public:
 
     // 将页面放进缓冲区中，如果缓冲区满，选择一个页面淘汰
     // lazy_release 的淘汰策略
-    Page *put_page_into_buffe_lazy(table_id_t table_id , page_id_t page_id , const void *data) {
+    Page *put_page_into_buffe_lazy(table_id_t table_id , page_id_t page_id , const void *data , bool need_to_record) {
         bool is_from_lru = false;
         frame_id_t frame_id = -1;
 
@@ -1217,7 +1223,13 @@ public:
                     2. 测试了一下，远程不同意的概率是很低的，几万分之一(缓冲区不是很小的时候)，因此就算先刷下去也没关系，即使远程解锁失败了，对性能的影响也不是很大 
                 */
                 // LOG(INFO) << "Flush To Disk Because It Might be replaced , table_id = " << table_id << " page_id = " << replaced_page_id;
-                rpc_flush_page_to_storage(table_id , replaced_page_id);
+                if (!need_to_record){
+                    rpc_flush_page_to_storage(table_id , replaced_page_id);
+                }else {
+                    std::cout << "Table ID = " << table_id << " Replace page = " << replaced_page_id << " Flush Log To Disk\n";
+                    // 这里需要把日志给刷下去
+                    flush_page_log(table_id , replaced_page_id);
+                }
             }
             // 写回到磁盘后，再解锁，防止别人拿到锁之后把页面换了
             lr_local_lock->UnlockMtx();
@@ -1230,6 +1242,11 @@ public:
             pid->set_table_id(table_id);
             request->set_allocated_page_id(pid);
             request->set_node_id(node_->node_id);
+
+            // 这里需要拿到页面的 LLSN，此时页面一定在缓冲区里，并且不会被淘汰，直接去拿就行
+            Page *page = node_->getBufferPoolByIndex(table_id)->fetch_page(page_id);
+            RmPageHdr *page_hdr = (RmPageHdr*)page->get_data();
+            request->set_lsn(page_hdr->LLSN_);
 
             node_id_t page_belong_node = get_node_id_by_page_id(table_id , replaced_page_id);
             if (page_belong_node == node_->node_id){
@@ -1259,7 +1276,7 @@ public:
 
             // LOG(INFO) << "Evicting a page success , table_id = " << table_id << " page_id = " << page_id << " replaced table_id = " << replaced_page_id << " insert page_id = " << page_id;
 
-            Page *page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(
+            page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(
                 table_id,
                 page_id ,
                 frame_id ,
@@ -1428,9 +1445,9 @@ public:
             assert(tab_name != "");
 
             if (table_id >= 10000 && table_id < 20000){
-                tab_name += ".bl";
+                tab_name += "_bl";
             }else if (table_id >= 20000 && table_id < 30000){
-                tab_name += ".fsm";
+                tab_name += "_fsm";
             }
 
             req.set_table_name(tab_name);
@@ -1533,6 +1550,7 @@ public:
     std::vector<std::string> table_name_meta;
     void InitTableNameMeta();
     std::string rpc_fetch_page_from_storage(table_id_t table_id, page_id_t page_id , bool need_to_record);
+    std::string rpc_fetch_page_from_storage_with_lsn(table_id_t table_id , page_id_t page_id , LLSN page_lsn , bool need_to_record);
 
     inline uint64_t get_partitioned_size(table_id_t table_id){
         return node_->meta_manager_->GetPartitionSizePerTable(table_id);
@@ -1609,6 +1627,13 @@ public:
         int node_id = ((page_id - 1) / partition_size) % ComputeNodeCount;
         assert(node_id < ComputeNodeCount);
         return node_id;
+    }
+
+    void flush_page_log(table_id_t table_id , page_id_t page_id){
+        // TODO：把这个页面的日志都给刷下去
+        // 遍历节点dtx->temp_log
+        // 找到对应的日志，刷下去
+        
     }
 
     // 生成一个随机的数据页ID
@@ -1715,6 +1740,22 @@ public:
         is_creatingTable = false;
     }
 
+
+    void LogFlush(){
+        std::lock_guard<std::mutex> lk(log_mtx);
+        LogRecord *record = log_records.front();
+        log_records.pop_front();
+
+        // 更新一下 persist lsn
+        
+    }
+
+    void AddToLog(LogRecord *log){
+        std::lock_guard<std::mutex> lk(log_mtx);
+        log_records.emplace_back(log);
+    }
+
+
 public:
     std::vector<BLinkIndexHandle*> bl_indexes;
     std::vector<SecFSM*> fsm_trees;
@@ -1741,6 +1782,11 @@ private:
     // Cache for RmFileHdr
     std::mutex file_hdr_cache_mutex_;
     std::map<table_id_t, RmFileHdr::ptr> file_hdr_cache_;
+
+    // 日志数组，后台日志刷新线程不断来这个里面取日志，然后节点不断往这里面刷新日志
+    std::list<LogRecord*> log_records;
+    std::mutex log_mtx;
+
 };
 
 int socket_start_client(std::string ip, int port);

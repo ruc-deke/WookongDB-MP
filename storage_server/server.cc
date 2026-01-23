@@ -126,7 +126,7 @@ void Server::PrepareStorageMeta(node_id_t machine_id, std::string workload, char
           //           << " \n";
 
           // 3. FSM
-          std::string fsm_name = tpcc_tables[i] + "fsm";
+          std::string fsm_name = tpcc_tables[i] + "_fsm";
           // int fsm_size = rm_manager_->get_diskmanager()->get_file_size(fsm_name);
           // max_page_num_per_table[i + 22] = (fsm_size == -1) ? 0 : (fsm_size / PAGE_SIZE);
       }

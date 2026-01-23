@@ -1,4 +1,5 @@
 #include "ExecutionManager.h"
+#include "common.h"
 
 void QlManager::run_mutli_query(std::shared_ptr<Plan> plan){
     run_res.clear();
@@ -98,14 +99,17 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
 
     if (root_table_id == INVALID_TABLE_ID) {
         for (executorTreeRoot->beginTuple() ; !executorTreeRoot->is_end() ; executorTreeRoot->nextTuple()) {
-            DataItem *item = executorTreeRoot->Next();
-            if (!item) {
+            DataItemPtr item_tot = executorTreeRoot->Next();
+            if (!item_tot) {
                 continue;
             }
+            table_id_t left_table_id = INVALID_TABLE_ID;
+            table_id_t right_table_id = INVALID_TABLE_ID;
+
             std::vector<std::string> columns;
             for (auto &col : executorTreeRoot->cols()) {
                 std::string col_str;
-                char *rec_buf = (char*)item->value + col.offset;
+                char *rec_buf = (char*)item_tot->value + col.offset;
                 if (col.type == ColType::TYPE_INT) {
                     col_str = std::to_string(*(int*)rec_buf);
                 }else if (col.type == ColType::TYPE_FLOAT) {
@@ -115,11 +119,105 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
                     col_str.resize(strlen(col_str.c_str()));
                 }else if (col.type == ColType::TYPE_ITEMKEY){
                     table_id_t tid = compute_server->get_node()->db_meta.get_table(col.tab_name).table_id;
+                    if (left_table_id == INVALID_TABLE_ID){
+                        left_table_id = tid;
+                    }else if (left_table_id != tid){
+                        right_table_id = tid;
+                    }
                     itemkey_t key = executorTreeRoot->getKey(tid);
                     col_str = std::to_string(key);
                 }
                 columns.push_back(col_str);
             }
+            assert(left_table_id != INVALID_TABLE_ID && right_table_id != INVALID_TABLE_ID);
+            RmFileHdr::ptr file_hdr = dtx->compute_server->get_file_hdr(left_table_id);
+            itemkey_t left_key = executorTreeRoot->getKey(left_table_id);
+            itemkey_t right_key = executorTreeRoot->getKey(right_table_id);
+            Rid left_rid = dtx->compute_server->get_rid_from_blink(left_table_id , left_key);
+            if (left_rid.page_no_ == INVALID_PAGE_ID){
+                continue;
+            }
+            char *data = dtx->compute_server->FetchXPage(left_table_id , left_rid.page_no_);
+            DataItem *left_item = dtx->GetDataItemFromPage(left_table_id , left_rid , data , file_hdr , left_key , true);
+            if (left_item->lock > 0){
+                if (left_item->lock != EXCLUSIVE_LOCKED && dtx->read_keys.find({left_rid , left_table_id}) == dtx->read_keys.end()){
+                    // 目前元组是读锁，且本事务不持有该元组读锁，那就加上读锁
+                    left_item->lock++;
+                    dtx->read_keys.insert({left_rid , left_table_id});
+                    dtx->GenUpdateLog(left_item , left_key , (char*)left_item + sizeof(DataItem) , (RmPageHdr*)(data));
+                }else if (left_item->lock != EXCLUSIVE_LOCKED){
+                    // 本事务已经持有这个元组的读锁了，那啥也不用做
+                    assert(dtx->read_keys.find({left_rid , left_table_id}) != dtx->read_keys.end());
+                }else {
+                    // 元组是写锁，需要判断这个写锁是否是本事务加上的，如果是，允许读，否则回滚
+                    if (dtx->write_keys.find({left_rid , left_table_id}) == dtx->write_keys.end()){
+                        dtx->tx_status = TXStatus::TX_ABORTING;
+                        dtx->compute_server->ReleaseXPage(left_table_id , left_rid.page_no_);
+                        break;
+                    }else {
+                        // 走到这里，说明元组被加了排他锁，且这个排他锁是我自己加的，那就需要判断这个元组是否被删除了
+                        if (left_item->user_insert == 1){
+                            // 元组被本事务删了，那就跳过这个元组
+                            dtx->compute_server->ReleaseXPage(left_table_id , left_rid.page_no_);
+                            continue;
+                        }
+                    }
+                }
+            }else {
+                dtx->read_keys.insert({left_rid , left_table_id});
+                left_item->lock++;
+                dtx->GenUpdateLog(left_item , left_key , (char*)left_item + sizeof(DataItem) , (RmPageHdr*)(data));
+            }
+
+            dtx->compute_server->ReleaseXPage(left_table_id , left_rid.page_no_);
+            if (dtx->tx_status == TXStatus::TX_ABORTING){
+                break;
+            }
+
+            file_hdr = dtx->compute_server->get_file_hdr(right_table_id);
+            Rid right_rid = dtx->compute_server->get_rid_from_blink(right_table_id , right_key);
+            if (right_rid.page_no_ == INVALID_PAGE_ID){
+                dtx->tx_status = TXStatus::TX_ABORTING;
+                break;
+            }
+            data = dtx->compute_server->FetchXPage(right_table_id , right_rid.page_no_);
+            DataItem *right_item = dtx->GetDataItemFromPage(right_table_id , right_rid , data , file_hdr , right_key , true);
+            if (right_item->lock > 0){
+                if (right_item->lock != EXCLUSIVE_LOCKED && dtx->read_keys.find({right_rid , right_table_id}) == dtx->read_keys.end()){
+                    // 目前元组是读锁，且本事务不持有该元组读锁，那就加上读锁
+                    right_item->lock++;
+                    dtx->read_keys.insert({right_rid , right_table_id});
+                    dtx->GenUpdateLog(right_item , right_key , (char*)right_item + sizeof(DataItem) , (RmPageHdr*)(data));
+                }else if (right_item->lock != EXCLUSIVE_LOCKED){
+                    // 本事务已经持有这个元组的读锁了，那啥也不用做
+                    assert(dtx->read_keys.find({right_rid , right_table_id}) != dtx->read_keys.end());
+                }else {
+                    // 元组是写锁，需要判断这个写锁是否是本事务加上的，如果是，允许读，否则回滚
+                    if (dtx->write_keys.find({right_rid , right_table_id}) == dtx->write_keys.end()){
+                        dtx->tx_status = TXStatus::TX_ABORTING;
+                        dtx->compute_server->ReleaseXPage(right_table_id , right_rid.page_no_);
+                        break;
+                    }else {
+                        // 走到这里，说明元组被加了排他锁，且这个排他锁是我自己加的，那就需要判断这个元组是否被删除了
+                        if (right_item->user_insert == 1){
+                            // 元组被本事务删了，那就跳过这个元组
+                            dtx->compute_server->ReleaseXPage(right_table_id , right_rid.page_no_);
+                            continue;
+                        }
+                    }
+                }
+            }else {
+                dtx->read_keys.insert({right_rid , right_table_id});
+                right_item->lock++;
+                dtx->GenUpdateLog(right_item , right_key , (char*)right_item + sizeof(DataItem) , (RmPageHdr*)(data));
+            }
+
+            dtx->compute_server->ReleaseXPage(right_table_id , right_rid.page_no_);
+            if (dtx->tx_status == TXStatus::TX_ABORTING){
+                return;
+            }
+
+
             rec_printer.print_record(columns, &context);
             num_rec++;
         }
@@ -127,25 +225,20 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
         for (executorTreeRoot->beginTuple() ; !executorTreeRoot->is_end() ; executorTreeRoot->nextTuple()) {
             table_id_t table_id = executorTreeRoot->getTab().table_id;
             Rid rid =  executorTreeRoot->rid();
-            if (table_id == INVALID_PAGE_ID){
-                dtx->compute_server->ReleaseSPage(table_id , rid.page_no_);
-                continue;
-            }
-
-            dtx->compute_server->ReleaseSPage(table_id , rid.page_no_);
+            assert(table_id != INVALID_TABLE_ID);
 
             RmFileHdr::ptr file_hdr = dtx->compute_server->get_file_hdr(table_id);
             itemkey_t pri_key;
-            // 升级为写锁
+
             auto page = dtx->compute_server->FetchXPage(table_id , rid.page_no_);
             DataItem *item = dtx->GetDataItemFromPage(table_id , rid , page , file_hdr , pri_key , true);
             // 读锁，需要考虑的几个情况
-
             if (item->lock > 0){
                 if (item->lock != EXCLUSIVE_LOCKED && dtx->read_keys.find({rid , table_id}) == dtx->read_keys.end()){
                     // 目前元组是读锁，且本事务不持有该元组读锁，那就加上读锁
                     item->lock++;
                     dtx->read_keys.insert({rid , table_id});
+                    dtx->GenUpdateLog(item , pri_key , (char*)item + sizeof(DataItem) , (RmPageHdr*)(page));
                 }else if (item->lock != EXCLUSIVE_LOCKED){
                     // 本事务已经持有这个元组的读锁了，那啥也不用做
                     assert(dtx->read_keys.find({rid , table_id}) != dtx->read_keys.end());
@@ -167,6 +260,7 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
             }else {
                 dtx->read_keys.insert({rid , table_id});
                 item->lock++;
+                dtx->GenUpdateLog(item , pri_key , (char*)item + sizeof(DataItem) , (RmPageHdr*)(page));
             }
 
             std::vector<std::string> columns;

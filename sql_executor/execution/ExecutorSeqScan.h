@@ -121,10 +121,10 @@ public:
                 return;
             }
             
-            DataItem *item = m_scan->getDataItem();
+            DataItemPtr item_ptr = m_scan->GetDataItemPtr();
             m_key = m_scan->getKey();
 
-            if (check_conds(item)){
+            if (check_conds(item_ptr.get())){
                 break;
             }else {
                 m_dtx->compute_server->ReleaseSPage(m_tab.table_id , m_rid.page_no_);
@@ -144,9 +144,9 @@ public:
             }
             
 
-            DataItem *item = m_scan->getDataItem();
+            DataItemPtr item_ptr = m_scan->GetDataItemPtr();
             m_key = m_scan->getKey();
-            if (check_conds(item)){
+            if (check_conds(item_ptr.get())){
                 break;
             }else {
                 m_dtx->compute_server->ReleaseSPage(m_tab.table_id , m_rid.page_no_);
@@ -154,11 +154,11 @@ public:
         }
     }
 
-    DataItem* Next() override {
+    DataItemPtr Next() override {
         if (m_rid.page_no_ == INVALID_PAGE_ID || m_rid.slot_no_ == -1){
             return nullptr;
         }
-        return m_scan->getDataItem();
+        return m_scan->GetDataItemPtr();
     }
 
     Rid &rid() override {return m_rid;}

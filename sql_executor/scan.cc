@@ -1,5 +1,4 @@
 #include "scan.h"
-#include "core/util/bitmap.h"
 
 Scan::Scan(DTX *dtx , table_id_t table_id){
     m_dtx = dtx;
@@ -14,17 +13,23 @@ Scan::Scan(DTX *dtx , table_id_t table_id){
         int slot_no = Bitmap::first_bit(1, bitmap,  m_fileHdr->num_records_per_page_);
 
         if (slot_no < m_fileHdr->num_records_per_page_) {
-            m_item = dtx->GetDataItemFromPage(m_tableID , {.page_no_ = page_no , .slot_no_ = slot_no} , data , m_fileHdr , m_key , false);
+            DataItem *data_item = dtx->GetDataItemFromPage(m_tableID , {.page_no_ = page_no , .slot_no_ = slot_no} , data , m_fileHdr , m_key , false);
 
-            if (m_item->valid == true || m_item->lock != 0){
+            if (data_item->valid == true || data_item->lock != 0){
                 m_rid.page_no_ = page_no;
                 m_rid.slot_no_ = slot_no;
+
+                data_item->value = (uint8_t*)data_item + sizeof(DataItem);
+                // 复制一份内容到本地
+                data_item_ptr = std::make_shared<DataItem>(*data_item);
                 found_record = true;
+
+                dtx->compute_server->ReleaseSPage(table_id , page_no);
                 break;
             }
-        }else {
-            dtx->compute_server->ReleaseSPage(table_id , page_no);
         }
+
+        dtx->compute_server->ReleaseSPage(table_id , page_no);
     }
 
     // 整张表都是空的情况
@@ -33,6 +38,7 @@ Scan::Scan(DTX *dtx , table_id_t table_id){
         m_rid.slot_no_ = m_fileHdr->num_records_per_page_;
     }
 }
+
 
 void Scan::next() {
     int max_record = m_fileHdr->num_records_per_page_;
@@ -60,8 +66,13 @@ void Scan::next() {
         m_rid.slot_no_ = Bitmap::first_bit(1 , bitmap , max_record);
     }
 
-    m_item = m_dtx->GetDataItemFromPage(m_tableID , m_rid , data , m_fileHdr , m_key , false);
+    DataItem *item = m_dtx->GetDataItemFromPage(m_tableID , m_rid , data , m_fileHdr , m_key , false);
+    item->value = (uint8_t*)(item) + sizeof(DataItem);
+    data_item_ptr = std::make_shared<DataItem>(*item);
+
+    m_dtx->compute_server->ReleaseSPage(m_tableID , m_rid.page_no_);
 }
+
 
 bool Scan::is_end() const {
     int max_record = m_fileHdr->num_records_per_page_;
@@ -70,13 +81,12 @@ bool Scan::is_end() const {
     return m_rid.page_no_ == max_pages && m_rid.slot_no_ == max_record;
 }
 
-
 Rid Scan::rid() const {
     return m_rid;
 }
 
-DataItem *Scan::getDataItem() const {
-    return m_item;
+DataItemPtr Scan::GetDataItemPtr() const {
+    return data_item_ptr;
 }
 
 itemkey_t Scan::getKey() const {

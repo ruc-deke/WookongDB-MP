@@ -294,12 +294,6 @@ bool DTX::TxCommit(coro_yield_t& yield){
 
 bool DTX::TxCommitSingleSQL(coro_yield_t &yield){
   commit_ts = GetTimestampRemote(); // 先拿到一个全局的时间戳
-  brpc::CallId* cid;
-  AddLogToTxn();    // 构造事务日志
-  cid = new brpc::CallId();
-  SendLogToStoragePool(tx_id, cid); // 异步地把事务日志刷新到存储里
-  brpc::Join(*cid); // 等待刷新日志完成
-
   for (auto it = write_keys.begin() ; it != write_keys.end() ; it++){
     table_id_t table_id = it->second;
     Rid rid =  it->first;
@@ -323,33 +317,15 @@ bool DTX::TxCommitSingleSQL(coro_yield_t &yield){
       compute_server->update_page_space(table_id , rid.page_no_ , count * (file_hdr->record_size_ + sizeof(itemkey_t)));
       compute_server->delete_from_blink(table_id , key);
     }else {
-      orginal_item->valid = 1;
-      char* bitmap = page + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-      Bitmap::set(bitmap , rid.slot_no_);
+      // orginal_item->valid = 1;
+      // char* bitmap = page + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+      // Bitmap::set(bitmap , rid.slot_no_);
     }
     orginal_item->user_insert = 0;
 
     orginal_item->version = commit_ts;
     orginal_item->lock = UNLOCKED;  
 
-    // 1：插入，2：删除
-    // int write_type = -1;
-    // for (auto it = write_set.begin() ; it != write_set.end() ; ){
-    //   if (it->GetWriteType() == WType::DELETE_TUPLE){
-    //     write_type = 2;
-    //     it = write_set.erase(it);
-    //   }else if (it->GetWriteType() == WType::INSERT_TUPLE){
-    //     write_type = 1;
-    //     it = write_set.erase(it);
-    //   }else {
-    //     it = write_set.erase(it);
-    //   }
-    // }
-
-    // if (write_type == 2){
-    //   char *bitmap = page + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-      
-    // }
 
     compute_server->ReleaseXPage(table_id , rid.page_no_);
   }
@@ -374,6 +350,15 @@ bool DTX::TxCommitSingleSQL(coro_yield_t &yield){
 
     compute_server->ReleaseXPage(table_id , rid.page_no_);
   }
+
+  
+  brpc::CallId* cid;
+  AddLogToTxn();    // 构造事务日志
+  cid = new brpc::CallId();
+  SendLogToStoragePool(tx_id, cid); // 异步地把事务日志刷新到存储里
+  brpc::Join(*cid); // 等待刷新日志完成
+
+  
 }
 
 bool DTX::TxCommitSingle(coro_yield_t& yield) {
@@ -509,14 +494,15 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
     DataItem* orginal_item = nullptr;
 
     RmFileHdr::ptr file_hdr = compute_server->get_file_hdr(table_id);
-    itemkey_t useless_key;
-    orginal_item = GetDataItemFromPageRW(table_id, page, rid , file_hdr , useless_key);
+    itemkey_t pri_key;
+    orginal_item = GetDataItemFromPageRW(table_id, page, rid , file_hdr , pri_key);
 
     assert(orginal_item->lock != EXCLUSIVE_LOCKED);
     assert(orginal_item->lock != 0);
 
-    // orginal_item->version = commit_ts;
     orginal_item->lock = UNLOCKED;  
+
+    GenUpdateLog(orginal_item , pri_key , (char*)orginal_item + sizeof(DataItem) , (RmPageHdr*)page);
 
     compute_server->ReleaseXPage(table_id , rid.page_no_);
   }
@@ -536,17 +522,15 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
         DataItem *data_item = GetDataItemFromPage(table_id , rid , data , file_hdr , item_key , true);
         assert(item_key == key);
 
-        // assert(data_item->valid == 0);
-        data_item->valid = 1;
-        char* bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR; 
-        // assert(!Bitmap::is_set(bitmap , rid.slot_no_));
-        Bitmap::set(bitmap , rid.slot_no_);
-
+        // data_item->valid = 1;
+        // char* bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR; 
+        // Bitmap::set(bitmap , rid.slot_no_);
         // data_item->lock = UNLOCKED;
 
         // 不管三七二十一，直接往 B+ 树里面插入
         compute_server->insert_into_blink(table_id , item_key , rid);
-
+        
+        GenUpdateLog(data_item , item_key , (char*)data_item + sizeof(DataItem) , (RmPageHdr*)data);
         compute_server->ReleaseXPage(table_id , rid.page_no_);
 
         break;
@@ -572,6 +556,8 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
 
         compute_server->delete_from_blink(table_id , item_key);
 
+        GenDeleteLog(table_id , rid.page_no_ , rid.slot_no_);
+
         compute_server->ReleaseXPage(table_id , rid.page_no_);
 
         break;
@@ -583,6 +569,9 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
         DataItem *data_item = GetDataItemFromPage(table_id , rid , data , file_hdr , item_key , true);
         assert(item_key == key);
         memcpy(data_item->value , write_record.GetDataItem()->value , data_item->value_size);
+        
+        GenUpdateLog(data_item , item_key , write_record.GetDataItem()->value , (RmPageHdr*)data);
+
         compute_server->ReleaseXPage(table_id , rid.page_no_);
 
         break;
@@ -604,6 +593,8 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
     assert(data_item->lock == EXCLUSIVE_LOCKED);
 
     data_item->lock = UNLOCKED;
+
+    GenUpdateLog(data_item , item_key , (char*)data_item + sizeof(DataItem) , (RmPageHdr*)data);
     compute_server->ReleaseXPage(table_id , rid.page_no_);
   }
 

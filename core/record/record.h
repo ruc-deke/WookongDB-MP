@@ -19,6 +19,8 @@ class RmPageHdr {
 public:
     int next_free_page_no_;
     int num_records_;
+    LLSN LLSN_;// 新增LLSN字段
+    LLSN pre_LLSN_;// 记录更新前的 LLSN
 };
 
 class RmRecord {

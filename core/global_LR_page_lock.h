@@ -28,12 +28,12 @@ private:
     brpc::Channel** compute_channels;       // 用于和计算节点通信的channel
     bool is_pending = false;                // 是否正在pending
     int src_node_id;    // 在 SetComputeNodePending 阶段推送数据的节点 ID
+    LLSN lsn_id = 0;
 
 private:
     std::list<LRRequest> request_queue;
     int s_request_num = 0;
     int x_request_num = 0;
-    // std::mutex mutex;    // 用于保护读写锁的互斥锁
     bthread::Mutex mutex;
     
     // 验证 SetComputeNodePending 阶段和真正 PushPage 选择推送页面的节点一致
@@ -42,6 +42,13 @@ private:
 public:
     bool getIsPendingNoBlock(){
         return is_pending;
+    }
+
+    LLSN getLsnIDNoBlock() const {
+        return lsn_id;
+    }
+    void setLsnIDNoBlock(LLSN newest_lsn_id){
+        lsn_id = newest_lsn_id;
     }
 
     void mutexLock(){
@@ -581,4 +588,5 @@ public:
     void InvalidOK(){
         mutex.unlock();
     }
+
 };

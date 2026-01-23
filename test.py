@@ -1,807 +1,607 @@
-# 运行目录：在项目根目录下运行
-import subprocess
-import time
 import os
-import io
 import sys
-import openpyxl
-import atexit
-import paramiko
-import matplotlib.pyplot as plt
-import numpy as np
+import io
+import time
 import json
 import threading
-import docker
 import logging
-import sys
-
-
+import paramiko
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+logging.getLogger("paramiko").setLevel(logging.WARNING)
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', line_buffering=True)
 
-# sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-max_try = 5
 workspace = os.getcwd()
-output = workspace + "/build/output.txt"
-result = workspace + "/result.txt"
-figure_path = ""
+remote_workspace = '/usr/local/exper/Hybrid_Cloud_MP'
+remote_build_dir = '/usr/local/exper/Hybrid_Cloud_MP/build'
 
-# #定义compute node参数
-# # compute_node_cnt = [1, 2, 4, 8, 16, 32]
-# compute_node_cnt = [1, 2, 4, 8, 16]
-# #定义只读事务比例
-# # read_only_ratio = [1, 0.75, 0.5, 0.25, 0]
-# read_only_ratio = [0]
-# #定义跨机器事务比例
-# cross_ratio = [1.00, 0.80, 0.60, 0.40, 0.20, 0]
-# #定义系统模式
-# total_system_mode = [2, 3, 4, 5, 1, 0]
-# system_mode = [1]  #测试系统模式
-# #定义运行操作数量每节点
-# operation_cnt = [20000, 20000, 20000, 20000, 20000, 20000]
+compute_server_build_dir = '/usr/local/exper/Hybrid_Cloud_MP/build/compute_server'
+compute_server_hostnames = ['10.10.2.31','10.10.2.32','10.10.2.33']
+compute_server_ports = [22,22,22]           # ssh port
+compute_server_usernames = ['root','root','root']            # username
+compute_server_passwords = ['wljwlj123','wljwlj123','wljwlj123']    # userpasswd
 
-def kill_server():
-    with open(output, "w", encoding="utf-8") as outfile:
-        subprocess.run("ps -ef | grep remote_node | grep -v grep | awk '{print $2}' | xargs kill -9",stdout=outfile, stderr=outfile,shell=True)
-        subprocess.run("ps -ef | grep compute_node | grep -v grep | awk '{print $2}' | xargs kill -9",stdout=outfile, stderr=outfile,shell=True)
-        subprocess.run("rm ./output.txt", stdout=outfile, stderr=outfile, shell=True)
-    time.sleep(1)
+# remote_server 和 storage_server 在一个服务器上
+remote_server_host = '10.10.2.34'
+remote_server_port = 22
+remote_server_user = 'root'
+remote_server_passwd = 'wljwlj123'
 
-# def set_system_mode(mode):
-#     # 读取文件内容并查找特定行
-#     with open('config.h', 'r') as file:
-#         lines = file.readlines()
-
-#     # 查找要修改的行
-#     target_line = None
-#     for i, line in enumerate(lines):
-#         if line.startswith('#define SYSTEM_MODE'):
-#             target_line = i
-#             break
-
-#     # 修改目标行
-#     if target_line is not None:
-#         lines[target_line] = '#define SYSTEM_MODE ' + str(mode) + '\n'
-
-#     # 将更新后的内容写回文件
-#     with open('config.h', 'w') as file:
-#         file.writelines(lines)
-    
-    
-# def build():
-#     """ build
-#     """
-#     if os.path.exists("./build"):
-#         with open(output, "w+", encoding="utf-8") as outfile:
-#             subprocess.run("rm -rf build", stdout=outfile,
-#                                  stderr=outfile, shell=True)
-#     os.mkdir("./build")
-#     os.chdir("./build")
-
-#     subprocess.run(['cmake', '..'])
-#     subprocess.run(['make', "-j16"])
-
-#     if not os.path.exists("./remote_server/remote_node"):
-#         # 报错
-#         print("build failed")
-#         return
-#     if not os.path.exists("./compute_server/compute_node"):
-#         # 报错
-#         print("build failed")
-#         return
-    
-# def set_system_mode(mode):
-#     # 读取文件内容并查找特定行
-#     with open('config.h', 'r') as file:
-#         lines = file.readlines()
-
-#     # 查找要修改的行
-#     target_line = None
-#     for i, line in enumerate(lines):
-#         if line.startswith('#define SYSTEM_MODE'):
-#             target_line = i
-#             break
-
-#     # 修改目标行
-#     if target_line is not None:
-#         lines[target_line] = '#define SYSTEM_MODE ' + str(mode) + '\n'
-
-#     # 将更新后的内容写回文件
-#     with open('config.h', 'w') as file:
-#         file.writelines(lines)
-    
-# throughput_np = np.zeros((len(total_system_mode), len(cross_ratio), len(read_only_ratio), len(compute_node_cnt)))
-# fetch_remote_ratio_np = np.zeros((len(total_system_mode), len(cross_ratio), len(read_only_ratio), len(compute_node_cnt)))
-# lock_request_ratio_np = np.zeros((len(total_system_mode), len(cross_ratio), len(read_only_ratio), len(compute_node_cnt)))
-# hit_delayed_lock_ratio_np = np.zeros((len(total_system_mode), len(cross_ratio), len(read_only_ratio), len(compute_node_cnt)))
-# latency_avg_np = np.zeros((len(total_system_mode), len(cross_ratio), len(read_only_ratio), len(compute_node_cnt)))
-# latency_p50_np = np.zeros((len(total_system_mode), len(cross_ratio), len(read_only_ratio), len(compute_node_cnt)))
-# latency_p95_np = np.zeros((len(total_system_mode), len(cross_ratio), len(read_only_ratio), len(compute_node_cnt)))
-
-# def run_mode_performance(mode):
-#     performance_output = "performance_output.txt"
-#     set_system_mode(mode)
-#     build()
-
-#     for i, cross in enumerate(cross_ratio):
-#         with open(result, "a", encoding="utf-8") as f:
-#                 f.write("********************** cross_ratio: " + str(cross) + " **********************\n")
-#         for j, read in enumerate(read_only_ratio):
-#             with open(result, "a", encoding="utf-8") as f:
-#                 f.write("++++++++++++++++++++++ read_only_ratio: " + str(read) + " ++++++++++++++++++++++\n")
-#             for k, compute in enumerate(compute_node_cnt):
-#                 retry = 0
-#                 while retry < max_try:
-#                     try:
-#                         kill_server()
-#                         with open(performance_output, "w+", encoding="utf-8") as outfile:
-#                             subprocess.Popen("./remote_server/remote_node", stdout=outfile, stderr=outfile, shell=True)
-#                         time.sleep(3) # wait for server to start
-
-#                         print("system_mode: " + str(mode) + " read_only_ratio: " + str(read) + " cross_ratio: " + str(cross) + " operation: " + str(operation_cnt[mode] * compute) + " compute_node_cnt: " + str(compute) + "\n")
-#                         sys.stdout.flush()
-#                         ret = subprocess.run(["./compute_server/compute_node", str(read), str(cross), str(operation_cnt[mode]*compute), str(compute)]
-#                                             , timeout = 300)
-                        
-#                         if(ret.returncode != 0):
-#                             kill_server()
-#                             with open(result, "a", encoding="utf-8") as f:
-#                                 f.write("system_mode: " + str(mode) + "read_only_ratio: " + str(read) +
-#                                         "cross_ratio: " + str(cross) + "compute_node_cnt: " + str(compute) + "\n")
-#                                 f.write("Error: " + str(ret.returncode) + "\n")
-#                             retry += 1
-#                             continue
-
-#                     except subprocess.TimeoutExpired:
-#                         kill_server()
-#                         time.sleep(3)
-#                         with open(result, "a", encoding="utf-8") as f:
-#                             f.write("system_mode: " + str(mode) + "read_only_ratio: " + str(read) +
-#                                     "cross_ratio: " + str(cross) + "compute_node_cnt: " + str(compute) + "\n")
-#                             f.write("Error: TimeoutExpired\n")
-#                         retry += 1
-#                         continue
-                    
-#                     program_result = open("result.txt", "r")
-#                     run_time = int(program_result.readline())
-#                     throughput = float(program_result.readline())
-#                     fetch_remote_ratio = float(program_result.readline())
-#                     lock_request_ratio = float(program_result.readline())
-#                     hit_delayed_lock_ratio = float(program_result.readline())
-#                     latency_avg = float(program_result.readline())
-#                     latency_p50 = float(program_result.readline())
-#                     latency_p95 = float(program_result.readline())
-#                     program_result.close()
-
-#                     # 填充
-#                     throughput_np[mode][i][j][k] = throughput
-#                     fetch_remote_ratio_np[mode][i][j][k] = fetch_remote_ratio
-#                     lock_request_ratio_np[mode][i][j][k] = lock_request_ratio
-#                     hit_delayed_lock_ratio_np[mode][i][j][k] = hit_delayed_lock_ratio
-#                     latency_avg_np[mode][i][j][k] = latency_avg
-#                     latency_p50_np[mode][i][j][k] = latency_p50
-#                     latency_p95_np[mode][i][j][k] = latency_p95
-                    
-#                     # 保存np
-#                     np.save(figure_path + "/throughput.npy", throughput_np)
-#                     np.save(figure_path + "/fetch_remote_ratio.npy", fetch_remote_ratio_np)
-#                     np.save(figure_path + "/lock_request_ratio.npy", lock_request_ratio_np)
-#                     np.save(figure_path + "/hit_delayed_lock_ratio.npy", hit_delayed_lock_ratio_np)
-#                     np.save(figure_path + "/latency_avg.npy", latency_avg_np)
-#                     np.save(figure_path + "/latency_p50.npy", latency_p50_np)
-#                     np.save(figure_path + "/latency_p95.npy", latency_p95_np)
-#                     print(throughput_np)
-#                     print(fetch_remote_ratio_np)
-#                     print(lock_request_ratio_np)
-
-#                     with open(result, "a", encoding="utf-8") as f:
-#                         f.write("system_mode: " + str(mode) + "read_only_ratio: " + str(read) + "cross_ratio: " + str(cross) + "compute_node_cnt: " + str(compute) + "\n")
-#                         f.write("run time: " + str(run_time) + " ms\t")
-#                         f.write("throughput: " + str(throughput) + "\t")
-#                         f.write("fetch_remote_ratio: " + str(fetch_remote_ratio) + "\t")
-#                         f.write("lock_request_ratio: " + str(lock_request_ratio) + "\t")
-#                         f.write("hit_delayed_lock_ratio: " + str(hit_delayed_lock_ratio) + "\t")
-#                         f.write("latency_avg: " + str(latency_avg) + "\t")
-#                         f.write("latency_p50: " + str(latency_p50) + "\t")
-#                         f.write("latency_p95: " + str(latency_p95) + "\t\n")
-#                     break
-
-#                 if retry == max_try:
-#                     with open(result, "a", encoding="utf-8") as f:
-#                         f.write("system_mode: " + str(mode) + "read_only_ratio: " + str(read) +
-#                                 "cross_ratio: " + str(cross) + "compute_node_cnt: " + str(compute) + "\n")
-#                         f.write("Error: Retry Exceeded\n")
+modes = ['lazy', '2pc']
+bench_names = ['ycsb', 'smallbank']
+thread_num = 15
+coroutine_num = 25000
+read_only_ratio = 0.0
+attempt_num = 60000
+repeats = 1
+cross_ratios = [0.9 , 0.7 , 0.5, 0.3 , 0.1] #本地访问的比例
+tx_hot_list = [10 ,30, 50 , 70 , 90]  #热点访问比例
+# 为了避免存储端一次性元信息发送的监听被并发连接挤爆，分节点顺序错峰启动
+handshake_stagger_sec = 2
 
 
-def cleanup(container_name):
-    if subprocess.run(['docker', 'ps', '-a', '--filter', 'name='+container_name, '--format', '{{.Names}}'], check=True, capture_output=True, text=True).stdout.strip() == container_name:
-        subprocess.run(['docker', 'stop', container_name], check=True)
-        subprocess.run(['docker', 'rm', container_name], check=True)
+def ssh_client(host, port , user, passwd):
+    c = paramiko.SSHClient()
+    c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c.connect(hostname=host, port=port, username=user, password=passwd)
+    return c
 
-def delete_container_if_exists(container_name):
-    client = docker.from_env()
-    try:
-        container = client.containers.get(container_name)
-        container.remove(force=True)
-        print(f"Container '{container_name}' found and deleted.")
-    except docker.errors.NotFound:
-        print(f"Container '{container_name}' not found.")
-
-def ssh_execute_command(hostname, port, username, password, commands):
-    # 创建SSH客户端
-    client = paramiko.SSHClient()
-    # 自动添加主机密钥
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    try:
-        # 连接到服务器
-        client.connect(hostname, port, username, password)
-        outputs = []
-        errors = []
-        for command in commands:
-            # 执行命令
-            # client.exec_command(command, get_pty=True)
-            stdin, stdout, stderr = client.exec_command(command, get_pty=True, environment={"PYTHONUNBUFFERED": "1"})
-            # 获取命令输出
-            output = stdout.read().decode()
-            # error = stderr.read().decode()
-            outputs.append(output)
-            # errors.append(error)
-
-        # 输出命令执行结果
-        for i, output in enumerate(outputs):
-            print(f"Host {hostname} Port {port}:", output)
-        for i, error in enumerate(errors):
-            print(f"Host {hostname} Port {port}:", error)
-        sys.stdout.flush()
-
-    finally:
-        # 关闭连接
-        client.close()
-
-def ConfigStorageAndRemoteServer():
-    # 修改storage config文件
-    with open('./config/storage_node_config.json', 'r') as f:
-        storage_config = json.load(f)
-    
-    storage_config["remote_compute_nodes"]["compute_node_ips"] = rpc_hostnames[:ComputeNodeNum]
-    storage_config["remote_compute_nodes"]["compute_node_ports"] = rpc_ports[:ComputeNodeNum]
-    storage_config["local_storage_node"]["workload"] = StorageWorkloadType[workload_type]
-
-    with open('./config/storage_node_config.json', 'w') as file:
-        json.dump(storage_config, file, indent=2)
+def ssh_exec(client, cmds, verbose=True):
+    outs = []       #存储每个命令的执行结果(输出)
+    for cmd in cmds:
+        stdin, stdout, stderr = client.exec_command(cmd)
+        # 读取输出和错误的结果
+        out = stdout.read().decode()
+        err = stderr.read().decode()
         
-    # 修改remote node config文件
-    with open('./config/remote_server_config.json', 'r') as f:
-        remote_node_config = json.load(f)
+        # 输出和错误
+        if verbose:
+            logging.info(out.strip())
+            if err.strip():
+                logging.info(err.strip())
+        outs.append((out, err))
+        time.sleep(1)
+    return outs
+
+def sftp_put(client, local_path, remote_path):
+    sftp = client.open_sftp()
+    sftp.put(local_path, remote_path)
+    sftp.close()
+
+def sftp_get(client, remote_path, local_path):
+    sftp = client.open_sftp()
+    sftp.get(remote_path, local_path)
+    sftp.close()
+
+
+def distribute_config_to_node(client):
+    configs = ['smallbank_config.json', 'ycsb_config.json', 'compute_node_config.json' , 'storage_node_config.json' , 'remote_server_config.json']
+    for cfg in configs:
+        remote_cfg = os.path.join(remote_workspace, 'config', cfg)
+        local_cfg = os.path.join(workspace, 'config', cfg)
+        sftp_put(client, local_cfg, remote_cfg)
+
+def rebuild_compute_server(client, build_dir):
+    cmds = [
+        f"cd {build_dir} && cmake ..",
+        f"cd {build_dir} && make -j14"
+    ]
+    ssh_exec(client, cmds , verbose=True)
+
+def kill_remote_services(client, build_dir):
+    cmds = [
+        f"pkill -f remote_node || true",
+        f"pkill -f storage_pool || true"
+    ]
+    ssh_exec(client, cmds, verbose=False)
+
+# 检查服务名为 name 的服务有没有真的跑起来
+def check_service_running(client, name):
+    stdin, stdout, stderr = client.exec_command(f"pgrep {name}")
+    out = stdout.read().decode().strip()
+    return out != ''
+
+# 启动 remote_sver 和 storage_server
+def start_remote_services_checked(client, primary_build_dir, workload_name, fallback_build_dir=None):
+    # 先把之前的 remote_server 和 storage_server 进程给关了
+    ssh_exec(client, ["pkill -f remote_node"], verbose=True)
+    ssh_exec(client, ["pkill -f storage_pool"], verbose=True)
+    logging.info('Close Remote Service Success')
+    time.sleep(2)
     
-    remote_node_config["remote_compute_nodes"]["compute_node_ips"] = rpc_hostnames[:ComputeNodeNum]
-    remote_node_config["remote_compute_nodes"]["compute_node_ports"] = rpc_ports[:ComputeNodeNum]
+    def run_service(cmd):
+        c = ssh_client(remote_server_host, remote_server_port, remote_server_user, remote_server_passwd)
+        ssh_exec(c , [cmd])
+
+    cmd_storage = f"cd {primary_build_dir}/storage_server && ./storage_pool {workload_name}"
+    cmd_remote = f"cd {primary_build_dir}/remote_server && ./remote_node {workload_name}"
     
-    with open('./config/remote_server_config.json', 'w') as file:
-        json.dump(remote_node_config, file, indent=2)
-    return
-
-def ConfigComputeServer(machine_id):
-    # 修改compute server config文件
-    with open('./config/compute_node_config.json', 'r') as f:
-        compute_node_config = json.load(f)
+    t_storage = threading.Thread(target=run_service, args=(cmd_storage,))
+    t_remote = threading.Thread(target=run_service, args=(cmd_remote,))
     
-    compute_node_config["local_compute_node"]["machine_num"] = ComputeNodeNum
-    compute_node_config["local_compute_node"]["machine_id"] = machine_id
-    compute_node_config["remote_storage_nodes"]["remote_storage_node_ips"] = local_rpc_hostname
-    compute_node_config["remote_server_nodes"]["remote_server_node_ips"] = local_rpc_hostname
-    compute_node_config["remote_compute_nodes"]["remote_compute_node_ips"] = rpc_hostnames[:ComputeNodeNum]
-    compute_node_config["remote_compute_nodes"]["remote_compute_node_port"] = rpc_ports[:ComputeNodeNum]
-
-    with open('./config/compute_node_config.json', 'w') as file:
-        json.dump(compute_node_config, file, indent=2)
-    return
-
-def deploy_code_to_node(hostname, port, username, password, code_folder, remote_code_folder):
-    # Delete the remote code folder
-    subprocess.run(['sshpass', '-p', password, 'ssh', '-p', str(port), username + '@' + hostname, 'rm -rf ' + remote_code_folder])
-    print('delete remote code folder ' + hostname)
-
-    # Copy the code to the remote node
-    subprocess.run(['sshpass', '-p', password, 'scp', '-P', str(port), '-r', code_folder, username + '@' + hostname + ':' + remote_code_folder], check=True)
-    print('copy code to remote ' + hostname)
-
-def ConfigeModify(remote_config_file, machine_num, machine_id):
-    output1 = "sed -i '3c \"machine_num\": "+ str(machine_num) + ",' " + remote_config_file
-    output2 = "sed -i '4c \"machine_id\": "+ str(machine_id) + ",' " + remote_config_file
-    outputs = []
-    outputs.append(output1)
-    outputs.append(output2)
-    return outputs
-
-def set_system_MAX_ITEM_SIZE(mode):
-    # 读取文件内容并查找特定行
-    with open('config.h', 'r') as file:
-        lines = file.readlines()
-
-    # 查找要修改的行
-    target_line = None
-    for i, line in enumerate(lines):
-        if line.startswith('#define MAX_ITEM_SIZE'):
-            target_line = i
-            break
-
-    # 修改目标行
-    if target_line is not None:
-        if mode == 0:
-            lines[target_line] = '#define MAX_ITEM_SIZE 8\n'
-        elif mode == 1:
-            lines[target_line] = '#define MAX_ITEM_SIZE 664\n'
-            # lines[target_line] = '#define MAX_ITEM_SIZE 720\n'
-
-    # 将更新后的内容写回文件
-    with open('config.h', 'w') as file:
-        file.writelines(lines)
-
-def set_system_LongTxn(mode):
-    # 读取文件内容并查找特定行
-    with open('config.h', 'r') as file:
-        lines = file.readlines()
-
-    # 查找要修改的行
-    target_line = None
-    for i, line in enumerate(lines):
-        if line.startswith('#define SupportLongRunningTrans'):
-            target_line = i
-            break
-
-    # 修改目标行
-    if target_line is not None:
-        if mode == 0:
-            lines[target_line] = '#define SupportLongRunningTrans false\n'
-        elif mode == 1:
-            lines[target_line] = '#define SupportLongRunningTrans true\n'
-            # lines[target_line] = '#define MAX_ITEM_SIZE 720\n'
-
-    # 将更新后的内容写回文件
-    with open('config.h', 'w') as file:
-        file.writelines(lines)
-
-def set_system_LongTxn(mode):
-    # 读取文件内容并查找特定行
-    with open('config.h', 'r') as file:
-        lines = file.readlines()
-
-    # 查找要修改的行
-    target_line = None
-    for i, line in enumerate(lines):
-        if line.startswith('#define SupportLongRunningTrans'):
-            target_line = i
-            break
-
-    # 修改目标行
-    if target_line is not None:
-        if mode == 0:
-            lines[target_line] = '#define SupportLongRunningTrans false\n'
-        elif mode == 1:
-            lines[target_line] = '#define SupportLongRunningTrans true\n'
-            # lines[target_line] = '#define MAX_ITEM_SIZE 720\n'
-
-    # 将更新后的内容写回文件
-    with open('config.h', 'w') as file:
-        file.writelines(lines)
-
-def set_system_UniformHot(mode):
-    # 读取文件内容并查找特定行
-    with open('config.h', 'r') as file:
-        lines = file.readlines()
-
-    # 查找要修改的行
-    target_line = None
-    for i, line in enumerate(lines):
-        if line.startswith('#define UniformHot'):
-            target_line = i
-            break
-
-    # 修改目标行
-    if target_line is not None:
-        if mode == 0:
-            lines[target_line] = '#define UniformHot false\n'
-        elif mode == 1:
-            lines[target_line] = '#define UniformHot true\n'
-            # lines[target_line] = '#define MAX_ITEM_SIZE 720\n'
-
-    # 将更新后的内容写回文件
-    with open('config.h', 'w') as file:
-        file.writelines(lines)
-
-
-def set_system_LongTxnRate(rate):
-    # 读取文件内容并查找特定行
-    with open('config.h', 'r') as file:
-        lines = file.readlines()
-
-    # 查找要修改的行
-    target_line = None
-    for i, line in enumerate(lines):
-        if line.startswith('#define LongTxnRate'):
-            target_line = i
-            break
-
-    # 修改目标行
-    if target_line is not None:
-        if mode == 0:
-            lines[target_line] = '#define LongTxnRate ' + rate + '\n'
-        elif mode == 1:
-            lines[target_line] = '#define LongTxnRate ' + rate + '\n'
-
-    # 将更新后的内容写回文件
-    with open('config.h', 'w') as file:
-        file.writelines(lines)
-
-def set_system_delay(time):
-    # 读取文件内容并查找特定行
-    with open('config.h', 'r') as file:
-        lines = file.readlines()
-
-    # 查找要修改的行
-    target_line = None
-    for i, line in enumerate(lines):
-        if line.startswith('#define DelayFetchTime'):
-            target_line = i
-            break
-
-    # 修改目标行
-    if target_line is not None:
-        lines[target_line] = '#define DelayFetchTime ' + str(time) + '\n'
-
-    # 将更新后的内容写回文件
-    with open('config.h', 'w') as file:
-        file.writelines(lines)
-
-def set_system_wrong(wrong):
-    # 读取文件内容并查找特定行
-    with open('config.h', 'r') as file:
-        lines = file.readlines()
-
-    # 查找要修改的行
-    target_line = None
-    for i, line in enumerate(lines):
-        if line.startswith('#define WrongPrediction'):
-            target_line = i
-            break
-
-    # 修改目标行
-    if target_line is not None:
-        lines[target_line] = '#define WrongPrediction ' + str(wrong) + '\n'
-
-    # 将更新后的内容写回文件
-    with open('config.h', 'w') as file:
-        file.writelines(lines)
-
-def set_system_hot(num):
-    # 修改compute server config文件
-    with open('./config/smallbank_config.json', 'r') as f:
-        smallbank_config = json.load(f)
+    logging.info('starting remote server and storage server (background threads)')
+    t_storage.daemon = True
+    t_remote.daemon = True
     
-    smallbank_config["smallbank"]["num_hot_accounts"] = num
-
-    with open('./config/smallbank_config.json', 'w') as file:
-        json.dump(smallbank_config, file, indent=2)
-    return
-
-def set_system_epoch(time):
-    # 读取文件内容并查找特定行
-    with open('config.h', 'r') as file:
-        lines = file.readlines()
-
-    # 查找要修改的行
-    target_line = None
-    for i, line in enumerate(lines):
-        if line.startswith('#define EpochTime'):
-            target_line = i
-            break
-
-    # 修改目标行
-    if target_line is not None:
-        lines[target_line] = '#define EpochTime ' + str(time) + '\n'
-
-    # 将更新后的内容写回文件
-    with open('config.h', 'w') as file:
-        file.writelines(lines)
-
-def set_HK(H,K):
-    # 读取文件内容并查找特定行
-    with open('config.h', 'r') as file:
-        lines = file.readlines()
-        # 查找要修改的行
-    target_line = None
-    for i, line in enumerate(lines):
-        if line.startswith('#define HHH'):
-            target_line = i
-            break
-
-    # 修改目标行
-    if target_line is not None:
-        lines[target_line] = '#define HHH ' + str(H) + '\n'
-
-    for i, line in enumerate(lines):
-        if line.startswith('#define KKK '):
-            target_line = i
-            break
-
-    # 修改目标行
-    if target_line is not None:
-        lines[target_line] = '#define KKK ' + str(K) + '\n'
-
-    # 将更新后的内容写回文件
-    with open('config.h', 'w') as file:
-        file.writelines(lines)
-
-
-# network settings
-local_rpc_hostname = ['10.0.0.10'] # 本地rpc的ip, 用作storage节点和remote server
-ssh_hostnames = ['10.0.0.1', '10.0.0.3', '10.0.0.4','10.0.0.5','10.0.0.6','10.0.0.7','10.0.0.9','10.0.0.8'] # 计算节点的ip
-ssh_ports = [22, 22, 22, 22, 22, 22, 22, 22] # 计算节点的端口
-rpc_hostnames = ['10.0.0.1', '10.0.0.3', '10.0.0.4','10.0.0.5','10.0.0.6','10.0.0.7','10.0.0.9','10.0.0.8']
-rpc_ports = [42340, 42341, 42342, 42343, 42344, 42345, 42346, 42347]
-Hs = [6]
-Ks = [5]
-# Hs = [10]
-# Ks = [5]
-
-username = 'root'
-password = '20001010@@HcY'
-# path settings
-Code_Folder = os.getcwd()
-Docker_Workspace = '/tmp/Cloud-MP-Phase-switch'
-Docker_Build_Folder = '/tmp/Cloud-MP-Phase-switch/build'
-Source_BRPC_Folder = '/root/Cloud-MP-Phase-switch/thirdparty/brpc'
-RemoteCodeFolder = '/tmp/Cloud-MP-Phase-switch'
-UpdateGitCode = True
-# run settings
-# const
-RunWorkloadTpye = ['smallbank', 'tpcc']
-StorageWorkloadType = ["SmallBank", "TPCC"]
-# RunModeType = ['chimeraS', 'lazy', 'chimeraB', 'chimeraE', '2pc', 'chimeraA','eager', 'leap', 'star']
-# RunModeType1 = ['lazy', '2pc', 'chimeraS', 'leap', 'chimeraB', 'star', 'eager']
-RunModeType1 = ['leap']
-RunModeType2 = ['chimeraA','eager']
-SmallBank_TX_NAME = ["Amalgamate", "Balance", "DepositChecking", "SendPayment", "TransactSaving", "WriteCheck"]
-TPCC_TX_NAME = ["NewOrder", "Payment", "Delivery", "OrderStatus", "StockLevel"]
-
-# dynamic
-ComputeNodeNum = 1
-ComputeNodeNUmVec = [8]
-workload_type = 0 # 0: smallbank, 1: tpcc
-workload_type_Vec1 = [0]
-workload_type_Vec2 = [1]
-ReadOnlyRatio1 = [0]
-ReadOnlyRatio2 = [0.08]
-localTxnRatio1 = [0.5]
-localTxnRatio2 = [0.1,0.3,0.5,0.7,0.9]
-WrongRatio = [0]
-RunLongTxn = True  # 是否运行长事务实验
-
-if __name__ == "__main__":
-
-    # 删除之前的结果
-    if os.path.exists(result):
-        os.remove(result)
-    # 创建图像文件夹
-    if not os.path.exists("./result"):
-        os.mkdir("./result")
-    os.chdir("./result")
-    # 创建此次测试的结果文件夹，以时间命名
-    time_str = time.strftime("%Y%m%d%H%M%S", time.localtime())
-    os.mkdir(time_str)
-    figure_path = os.path.join(os.getcwd(), time_str)
-
-    # !开始本次的测试
-    os.chdir(workspace)
-    # atexit.register(cleanup, 'node1')
+    # 依次启动
+    t_storage.start()
+    time.sleep(2)
+    t_remote.start()
     
-    # delay_time_list = [300, 500, 800, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000]
-    delay_time_list1 = [5000]
-    delay_time_list2 = [500]
-    coro_num_list = [16]
-    hot_num_list1 = [300000]
-    hot_num_list2 = [5000]
-    long_txn_rate_list = [0, 0.05, 0.10, 0.15, 0.20, 0.25] #长事务比例0, 0.05
-    epoch_time_list1 = [100]
-    epoch_time_list2 = [100]
-    set_system_MAX_ITEM_SIZE(0)    # 0是SmallBank 1是TPC-C
-    set_system_LongTxn(RunLongTxn) # 0是关闭长事务，1是开启长事务
-    set_system_UniformHot(0) # 0关闭均匀热点分布设置, 1开启均匀热点分布设置
+    # Give them a moment to start
+    time.sleep(15)
+    
+    # 检查是否启动成功
+    c = ssh_client(remote_server_host, remote_server_port, remote_server_user, remote_server_passwd)
+    ok_storage = check_service_running(c, "storage_pool")
+    ok_remote = check_service_running(c, "remote_node")
+    c.close()
+    
+    if not ok_storage:
+        logging.error("storage_pool failed to start")
+        exit(-1)
+    if not ok_remote:
+        logging.error("remote_node failed to start")
+        exit(-1)
+        
+    return True
 
-    for wrong_num in WrongRatio:
-        set_system_wrong(wrong_num)
-        for delay_time in delay_time_list1:
-            set_system_delay(delay_time)
-            for H in Hs:
-                for K in Ks:
-                    set_HK(H,K)
-                    for hot_num in hot_num_list1:
-                        set_system_hot(hot_num)
-                        for epoch_time in epoch_time_list1:
-                            set_system_epoch(epoch_time)
-                            # !同步代码
-                            # 向所有计算节点拷贝最新代码, 如果代码有更新, 需要更新到最新
-                            if UpdateGitCode:
-                                # 删除本机目录下的build和brpc文件夹
-                                subprocess.run(['rm -rf build thirdparty/brpc'], shell=True)
-                                threads = []
-                                # 多线程处理
-                                for i in range(len(ssh_hostnames)):
-                                    thread = threading.Thread(target=deploy_code_to_node, args=(ssh_hostnames[i], ssh_ports[i], username, password, Code_Folder, RemoteCodeFolder))
-                                    threads.append(thread)
-                                    thread.start()
-                                # Wait for all threads to complete
-                                for thread in threads:
-                                    thread.join()
+def kill_compute(client):
+    ssh_exec(client, ["pkill -f compute_server"], verbose=False)
 
-                            # !启动容器
-                            # 启动本地容器
-                            delete_container_if_exists('node1')
-                            subprocess.run(['docker', 'run','--net=host', '--name', 'node1', '-v', Code_Folder + ':' + Docker_Workspace, '-dit', 'hcy-multi-write-2:latest', '/bin/bash', '-c', 'tail -f /dev/null'])
-                            # # 删除原有的brpc文件夹，拷贝新的brpc文件夹
-                            subprocess.run(['docker', 'exec', '-it', 'node1', '/bin/bash', '-c', 'cd ' + Docker_Workspace + '/thirdparty' + '&& rm -rf brpc' + '&& cp -r ' + Source_BRPC_Folder + ' ' + Docker_Workspace + '/thirdparty/'])
-                            # # 删除原有的build文件夹，重新cmake
-                            subprocess.run(['docker', 'exec', '-it', 'node1', '/bin/bash', '-c', 'rm -rf ' + Docker_Build_Folder + '&& mkdir ' + Docker_Build_Folder + '&& cd '+ Docker_Build_Folder + '&& cmake .. '])
-                            # # make
-                            subprocess.run(['docker', 'exec', '-it', 'node1', '/bin/bash', '-c', 'cd ' + Docker_Build_Folder + '&& make storage_pool remote_node -j 14'])
+def ensure_compute_killed(client):
+    ssh_exec(client, ["pkill compute_server"], verbose=False)
 
-                            # 启动计算节点容器
-                            threads = []
-                            commands = []
-                            for i in range(len(ssh_hostnames)):
-                                commands.append([
-                                    # 启动计算节点的容器
-                                    # "docker stop node" + str(i+2),
-                                    # "docker rm node" + str(i+2),
-                                    "docker stop $(docker ps -aq)",
-                                    "docker rm $(docker ps -aq)",
-                                    "docker run --net=host --name " + "node" + str(i+2) + " -v " + RemoteCodeFolder + ":" + Docker_Workspace + " -dit " + " hcy-multi-write-2:latest " + "/bin/bash -c 'tail -f /dev/null'",
-                                    "docker exec -i " + "node" + str(i+2) + " /bin/bash -c 'cd " + Docker_Workspace + "/thirdparty && rm -rf brpc && cp -r " + Source_BRPC_Folder + " " + Docker_Workspace + "/thirdparty/'",
-                                    "docker exec -i " + "node" + str(i+2) + " /bin/bash -c 'rm -rf " + Docker_Build_Folder + " && mkdir " + Docker_Build_Folder + " && cd " + Docker_Build_Folder + " && cmake ..'",
-                                    "docker exec -i " + "node" + str(i+2) + " /bin/bash -c 'cd " + Docker_Build_Folder + " && make compute_server -j 14'"
-                                ])
-                                thread = threading.Thread(target=ssh_execute_command, args=(ssh_hostnames[i], ssh_ports[i], username, password, commands[i]))
-                                threads.append(thread)
-                                thread.start()
+def start_compute_blocking(client, build_dir, args, log_path):
+    cmd = f"bash -lc 'cd {compute_server_build_dir} && {compute_server_build_dir}/compute_server {args}'"
+    stdin, stdout, stderr = client.exec_command(cmd)
+    
+    # 必须持续读取输出直到命令结束，否则会直接返回或者因为 buffer 满而阻塞
+    while not stdout.channel.exit_status_ready():
+        if stdout.channel.recv_ready():
+            out = stdout.channel.recv(1024)
+        if stderr.channel.recv_ready():
+            err = stderr.channel.recv(1024)
+        time.sleep(1)
+        
+    # 确保读取完所有剩余输出
+    out = stdout.read().decode().strip()
+    err = stderr.read().decode().strip()
+    
+    logging.info(f'Compute Server {args} exit with {stdout.channel.recv_exit_status()}')
 
-                            for thread in threads:
-                                thread.join()
+    if out:
+        # logging.info(out)
+        pass
+    if err:
+        # logging.info(err)
+        pass
 
-                            # -------------------------------------以上配置只在每次测试之前完成初始化-------------------------------------
+def wait_compute_finish(client, timeout_sec, build_dir):
+    return True
 
+def fetch_node_results(client, node_idx, result_base_dir, build_dir, header=None):
+    node_dir = os.path.join(result_base_dir, f"node{node_idx}")
+    os.makedirs(node_dir, exist_ok=True)
+    rp1 = f"{build_dir}/compute_server/result.txt"
+    rp2 = f"{build_dir}/compute_server/delay_fetch_remote.txt"
+    lp1 = os.path.join(node_dir, "result.txt")
+    lp2 = os.path.join(node_dir, "delay_fetch_remote.txt")
+    try:
+        # 把远程的 result.txt 上传到本地来
+        sftp_get(client, rp1, lp1)
+    except Exception:
+        pass
+    try:
+        sftp_get(client, rp2, lp2)
+    except Exception:
+        pass
+    
+def update_remote_compute_config(client, machine_num, machine_id):
+    remote_cfg = os.path.join(remote_workspace, 'config', 'compute_node_config.json')
+    sftp = client.open_sftp()
+    rf = sftp.open(remote_cfg, 'r')
+    content = rf.read().decode('utf-8')
+    rf.close()
+    data = json.loads(content)
+    if 'local_compute_node' not in data:
+        data['local_compute_node'] = {}
+    data['local_compute_node']['machine_num'] = int(machine_num)
+    data['local_compute_node']['machine_id'] = int(machine_id)
+    tmp_remote = os.path.join(remote_workspace, 'config', '.compute_node_config.json.tmp')
+    wf = sftp.open(tmp_remote, 'w')
+    wf.write(json.dumps(data, indent=2))
+    wf.flush()
+    wf.close()
+    sftp.close()
+    ssh_exec(client, [f"mv {tmp_remote} {remote_cfg}"], verbose=False)
 
-                            for ComputeNodeNum in ComputeNodeNUmVec:
-                                for coro_num in coro_num_list:
-                                    for workload_type in workload_type_Vec1:
-                                        for mode in RunModeType1:
-                                            for read_only_ratio in ReadOnlyRatio1:
-                                                for local_txn_ratio in localTxnRatio1:
-                                                    for long_txn_rate in long_txn_rate_list:
-                                                        # !修改配置文件
-                                                        # 修改storage和remote server的配置文件
-                                                        ConfigStorageAndRemoteServer()
+def read_node_matrix(path):
+    if not os.path.exists(path):
+        return []
+    with open(path, 'r', encoding='utf-8') as f:
+        rows = []
+        for line in f:
+            parts = line.strip().split()
+            try:
+                nums = [float(x) for x in parts]
+                rows.append(nums)
+            except Exception:
+                pass
+        return rows
 
-                                                        # 遍历每个计算节点, 注意只需要配置指定节点数量的计算节点数
-                                                        for i in range(ComputeNodeNum):
-                                                            # 配置计算节点
-                                                            ConfigComputeServer(i)
-                                                            subprocess.run(['sshpass', '-p', password, 'scp', '-P', str(ssh_ports[i]), Code_Folder + '/config/compute_node_config.json', username + '@' + ssh_hostnames[i] + ':' + RemoteCodeFolder +'/config'], check=True)
-                                                            print('Update compute_node_config.json to remote' + ssh_hostnames[i])
-                                                            # config_outputs1 = ConfigeModify(RemoteCodeFolder+'/config/compute_node_config.json', len(ssh_hostnames), ssh_hostnames[i])
+def aggregate_results(result_base_dir, node_count):
+    data = []
+    for i in range(node_count):
+        p = os.path.join(result_base_dir, f"node{i}", "result.txt")
+        rows = read_node_matrix(p)
+        if rows:
+            data.append(rows)
+    if not data:
+        return []
+    max_rows = max(len(r) for r in data)
+    max_cols = max(len(r[0]) if r else 0 for r in data)
+    # smallbank: choose sum vs average by row (0-based index)
+    sum_rows = set([
+        1,              # throughput
+        4,5,6,7,8,9,    # counts
+        15,16,17,18,19,20  # per-type try/commit pairs (6 rows)
+    ])
+    agg = []
+    for r in range(max_rows):
+        cols = []
+        for c in range(max_cols):
+            vals = []
+            for m in data:
+                if r < len(m) and c < len(m[r]):
+                    vals.append(m[r][c])
+            if vals:
+                if r in sum_rows:
+                    cols.append(sum(vals))
+                else:
+                    cols.append(sum(vals) / len(vals))
+            else:
+                cols.append(0.0)
+        agg.append(cols)
+    return agg
 
-                                                        process1 = subprocess.run(["docker", "exec", "node1", "/bin/bash", "-c", "ps -ef | grep remote_node | grep -v grep | awk '{print $2}' | xargs kill -9"])
-                                                        process2 = subprocess.run(["docker", "exec", "node1", "/bin/bash", "-c", "ps -ef | grep storage_pool | grep -v grep | awk '{print $2}' | xargs kill -9"])
-                                                        process3 = subprocess.run(["docker", "exec", "node1", "/bin/bash", "-c", "pkill -f remote_node"])
-                                                        process4 = subprocess.run(["docker", "exec", "node1", "/bin/bash", "-c", "pkill -f storage_pool"])
-                                                        process5 = subprocess.run(["docker", "exec", "node1", "/bin/bash", "-c", "rm " + Docker_Build_Folder + '/storage_server/LOG_FILE ' ])
+def build_legend(bench_name):
+    if bench_name == 'smallbank':
+        return [
+            'line_1=total_time_seconds',
+            'line_2=throughput',
+            'line_3=fetch_remote_ratio',
+            'line_4=lock_ratio',
+            'line_5=fetch_from_remote_count',
+            'line_6=fetch_from_storage_count',
+            'line_7=fetch_from_local_count',
+            'line_8=evicted_pages_count',
+            'line_9=fetch_three_count',
+            'line_10=fetch_four_count',
+            'line_11=from_remote_ratio',
+            'line_12=from_storage_ratio',
+            'line_13=from_local_ratio',
+            'line_14=p50_latency_us',
+            'line_15=p90_latency_us',
+            'line_16_to_21=per_type_try_commit_pairs_smallbank(order:Amalgamate,Balance,DepositChecking,SendPayment,TransactSaving,WriteCheck)',
+            'line_22_to_27=per_type_rollback_rate_smallbank(same_order)',
+            'line_28_to_44=stage_times_seconds(tx_begin,tx_exe,tx_commit,tx_abort,tx_update,tx_fetch_exe,tx_fetch_commit,tx_fetch_abort,tx_release_exe,tx_release_commit,tx_release_abort,tx_get_timestamp1,tx_get_timestamp2,tx_write_commit_log,tx_write_prepare_log,tx_write_backup_log,tx_write_commit_log2)'
+        ]
+    else:
+        return []
 
+def write_summary(result_base_dir, summary, header=None):
+    p = os.path.join(result_base_dir, "result.txt")
+    with open(p, 'w', encoding='utf-8') as f:
+        if header:
+            for k, v in header.items():
+                f.write(f"{k}={v}\n")
+            legend = build_legend(header.get('bench_name', ''))
+            for ln in legend:
+                f.write(f"{ln}\n")
+        for row in summary:
+            f.write(" ".join(str(x) for x in row) + "\n")
 
-                                                        time.sleep(5)
+def write_header_to_path(file_path, header):
+    if not os.path.exists(file_path):
+        return
+    with open(file_path, 'r', encoding='utf-8') as fr:
+        content = fr.read()
+    with open(file_path, 'w', encoding='utf-8') as fw:
+        for k, v in header.items():
+            fw.write(f"{k}={v}\n")
+        fw.write(content)
 
-                                                        process3 = subprocess.run(["docker", "exec", "node1", "/bin/bash", "-c", "pgrep -f remote_node"])
-                                                        process4 = subprocess.run(["docker", "exec", "node1", "/bin/bash", "-c", "pgrep -f storage_pool"])
+def aggregate_round_summaries(base_dir, repeats):
+    data = []
+    for r in range(repeats):
+        p = os.path.join(base_dir, f"round_{r:02d}", "result.txt")
+        rows = read_node_matrix(p)
+        if rows:
+            data.append(rows)
+    if not data:
+        return []
+    max_rows = max(len(r) for r in data)
+    max_cols = max(len(r[0]) if r else 0 for r in data)
+    agg = []
+    for r in range(max_rows):
+        cols = []
+        for c in range(max_cols):
+            vals = []
+            for m in data:
+                if r < len(m) and c < len(m[r]):
+                    vals.append(m[r][c])
+            cols.append(sum(vals) / len(vals) if vals else 0.0)
+        agg.append(cols)
+    return agg
 
-                                                        # !启动存储节点和远程节点
-                                                        storage_process = subprocess.Popen(['docker', 'exec', '-it', 'node1', '/bin/bash', '-c', 'cd ' + Docker_Build_Folder + '/storage_server ' + '&& ./storage_pool'])
-                                                        remote_process = subprocess.Popen(['docker', 'exec', '-it', 'node1', '/bin/bash', '-c', 'cd ' + Docker_Build_Folder + '/remote_server ' + '&& ./remote_node'])
+def aggregate_round_from_combos(round_dir):
+    data = []
+    for name in os.listdir(round_dir):
+        first = os.path.join(round_dir, name)
+        if not os.path.isdir(first):
+            continue
+        p_direct = os.path.join(first, "summary_matrix.txt")
+        rows = read_node_matrix(p_direct)
+        if rows:
+            data.append(rows)
+            continue
+        for subname in os.listdir(first):
+            second = os.path.join(first, subname)
+            if not os.path.isdir(second):
+                continue
+            p = os.path.join(second, "summary_matrix.txt")
+            rows = read_node_matrix(p)
+            if rows:
+                data.append(rows)
+    if not data:
+        return []
+    max_rows = max(len(r) for r in data)
+    max_cols = max(len(r[0]) if r else 0 for r in data)
+    agg = []
+    for r in range(max_rows):
+        cols = []
+        for c in range(max_cols):
+            vals = []
+            for m in data:
+                if r < len(m) and c < len(m[r]):
+                    vals.append(m[r][c])
+            cols.append(sum(vals) / len(vals) if vals else 0.0)
+        agg.append(cols)
+    return agg
 
-                                                        time.sleep(40) # 等待存储节点和远程节点启动完成
+def main():
+    if not compute_server_hostnames or not compute_server_usernames or not compute_server_passwords:
+        logging.info("not configure compute_server_hostnames, compute_server_ports, compute_server_usernames, compute_server_passwords, remote_server_host , break")
+        return
+    ts = time.strftime("%Y%m%d%H%M%S", time.localtime())
+    # workspace 就是当前运行这个脚本的目录，目前就是 workspace/result/时间戳
+    result_dir = os.path.join(workspace, "result", ts)
+    os.makedirs(result_dir, exist_ok=True)
+    build_dir = remote_build_dir
 
-                                                        # !启动计算节点
-                                                        threads.clear()
-                                                        commands.clear()
-                                                        for i in range(ComputeNodeNum):
-                                                            if RunLongTxn:
-                                                                commands.append([
-                                                                    "docker exec -i node" + str(i+2) + " /bin/bash -c 'pkill -f compute_server'",
-                                                                    "docker exec -i node" + str(i+2) + " /bin/bash -c 'cd " + Docker_Build_Folder + "/compute_server && ./compute_server " \
-                                                                        + RunWorkloadTpye[workload_type] + " " + mode +" 12 " + str(coro_num) + " "+ str(read_only_ratio) + " " + str(local_txn_ratio) + " " + str(long_txn_rate) + " > " + Docker_Build_Folder + "/output.txt'",
-                                                                ])
-                                                            else:
-                                                                commands.append([
-                                                                    "docker exec -i node" + str(i+2) + " /bin/bash -c 'pkill -f compute_server'",
-                                                                    "docker exec -i node" + str(i+2) + " /bin/bash -c 'cd " + Docker_Build_Folder + "/compute_server && ./compute_server " \
-                                                                        + RunWorkloadTpye[workload_type] + " " + mode +" 12 " + str(coro_num) + " "+ str(read_only_ratio) + " " + str(local_txn_ratio) + " > " + Docker_Build_Folder + "/output.txt'",
-                                                                ])
-                                                            thread = threading.Thread(target=ssh_execute_command, args=(ssh_hostnames[i], ssh_ports[i], username, password, commands[i]))
-                                                            threads.append(thread)
-                                                            thread.start()
-                                                            time.sleep(3)
+    for r in range(repeats):
+        # 把 round 格式化为 2 位，比如目前 round = 31，那文件名就是 workspace/result/时间戳/rounnd_32，注意这是一个目录
+        round_dir = os.path.join(result_dir, f"round_{r:02d}")
+        os.makedirs(round_dir, exist_ok=True)
 
-                                                        for thread in threads:
-                                                            thread.join()
+        for bench_name in bench_names:
+            for txh in tx_hot_list:
+                for cr in cross_ratios:
+                    for mode in modes:
+                        mode_dir = os.path.join(round_dir, f"{bench_name}_{mode}")
+                        os.makedirs(mode_dir, exist_ok=True)
+                        local_ratio = cr
 
-                                                        print("All compute nodes finish running")
-                                                        # !获取结果
-                                                        result_data = []
-                                                        for i in range(ComputeNodeNum):
-                                                            mkdir_pass = figure_path + '/' + RunWorkloadTpye[workload_type] + "_" + mode + "_12_" + str(coro_num) + "_" + str(hot_num) + "_" + str(epoch_time) + "_" + str(read_only_ratio) + "_" + str(local_txn_ratio) + "_" + str(ComputeNodeNum) + "_" + str(delay_time) + "_" + str(wrong_num) + "_" + str(K) + "_" + str(H) + "_" + str(long_txn_rate) + "/node" + str(i+2)
-                                                            subprocess.Popen(['mkdir', '-p', mkdir_pass])
-                                                            subprocess.run(['sshpass', '-p', password, 'scp', '-P', str(ssh_ports[i]), username + '@' + ssh_hostnames[i] + ':' + RemoteCodeFolder + '/build/compute_server/result.txt', mkdir_pass], check=True)
-                                                            subprocess.run(['sshpass', '-p', password, 'scp', '-P', str(ssh_ports[i]), username + '@' + ssh_hostnames[i] + ':' + RemoteCodeFolder + '/build/compute_server/delay_fetch_remote.txt', mkdir_pass], check=True)
-                                                            with open(mkdir_pass + '/result.txt', 'r', encoding='utf-8') as file:
-                                                                node_data = [list(map(float, line.strip().split())) for line in file]
-                                                                result_data.append(node_data)
-                                                        # 计算平均值
-                                                        average_data = []
-                                                        for row in zip(*result_data):
-                                                            avg_row = [sum(col) / len(col) for col in zip(*row)]
-                                                            average_data.append(avg_row)
-                                                        average_data[1] = [x * ComputeNodeNum for x in average_data[1]]
+                        logging.info(f"Set Account Success for {bench_name}")
+                        cfg_clients = [ssh_client(h, compute_server_ports[i], compute_server_usernames[i], compute_server_passwords[i]) for i, h in enumerate(compute_server_hostnames)]
+                        
+                        rs_client = ssh_client(remote_server_host, remote_server_port , remote_server_user, remote_server_passwd)
+                        cfg_clients.append(rs_client)
 
-                                                        result_pass0 =  figure_path + '/' + RunWorkloadTpye[workload_type] + "_" + mode + "_12_" + str(coro_num) + "_" + str(hot_num) + "_" + str(epoch_time) + "_" + str(read_only_ratio) + "_" + str(local_txn_ratio) + "_" + str(ComputeNodeNum) + "_" + str(delay_time) + "_" + str(wrong_num) + "_" + str(K) + "_" + str(H) + "_" + str(long_txn_rate) + "/"
-                                                        subprocess.run(['cp', './build/remote_server/remote_server.txt', result_pass0])
+                        for c in cfg_clients:
+                            distribute_config_to_node(c)
+                            rebuild_compute_server(c, build_dir)
+                            c.close()
+                        logging.info("Config Transfer And Build Over")
+                        
+                        # 重新连接 rs_client 用于启动服务
+                        rs_client = ssh_client(remote_server_host, remote_server_port , remote_server_user, remote_server_passwd)
+                        # 启动 remote_server 和 storage_server
+                        ok = start_remote_services_checked(rs_client, remote_build_dir, bench_name, fallback_build_dir=os.path.join("/usr/local/exper/Hybrid_Cloud_MP", "build"))
+                        logging.info("Start Remote Over")
+                        rs_client.close()
+                        if not ok:
+                            logging.error("remote services failed to start; check build_dir paths and binaries")
+                            exit(-1)
 
-                                                        result_pass =  figure_path + '/' + RunWorkloadTpye[workload_type] + "_" + mode + "_12_" + str(coro_num) + "_" + str(hot_num) + "_" + str(epoch_time) + "_" + str(read_only_ratio) + "_" + str(local_txn_ratio) + "_" + str(ComputeNodeNum) + "_" + str(delay_time) + "_" + str(wrong_num) + "_" + str(K) + "_" + str(H) + "_" + str(long_txn_rate)
-                                                        with open(result_pass + '/result.txt', 'w', encoding='utf-8') as result_file:
-                                                            result_file.write(f"Time taken by function: {average_data[0][0]}s\n")
-                                                            result_file.write(f"Throughtput: {average_data[1][0]}\n")
-                                                            result_file.write(f"Fetch remote ratio: {average_data[2][0]}\n")
-                                                            result_file.write(f"Lock ratio: {average_data[3][0]}\n")
-                                                            result_file.write(f"P50 Latency: {average_data[4][0]}us\n")
-                                                            result_file.write(f"P99 Latency: {average_data[5][0]}us\n")
-                                                            if RunWorkloadTpye[workload_type] == "smallbank":
-                                                                for i in range(len(SmallBank_TX_NAME)):
-                                                                    result_file.write(f"abort:{SmallBank_TX_NAME[i]} {average_data[6 + i][0]} {average_data[6 + i][1]}\n")
-                                                                result_file.write(f"tx_begin_time: {average_data[6 + len(SmallBank_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_exe_time: {average_data[7 + len(SmallBank_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_commit_time: {average_data[8 + len(SmallBank_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_abort_time: {average_data[9 + len(SmallBank_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_update_time: {average_data[10 + len(SmallBank_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_fetch_exe_time: {average_data[11 + len(SmallBank_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_fetch_commit_time: {average_data[12 + len(SmallBank_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_fetch_abort_time: {average_data[13 + len(SmallBank_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_release_exe_time: {average_data[14 + len(SmallBank_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_release_commit_time: {average_data[15 + len(SmallBank_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_release_abort_time: {average_data[16 + len(SmallBank_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_get_timestamp_time1: {average_data[17 + len(SmallBank_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_get_timestamp_time2: {average_data[18 + len(SmallBank_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_write_commit_log_time: {average_data[19 + len(SmallBank_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_write_prepare_log_time: {average_data[20 + len(SmallBank_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_write_backup_log_time: {average_data[21 + len(SmallBank_TX_NAME)][0]}\n")
-                                                            elif RunWorkloadTpye[workload_type] == "tpcc":
-                                                                for i in range(len(TPCC_TX_NAME)):
-                                                                    result_file.write(f"abort:{TPCC_TX_NAME[i]} {average_data[6 + i][0]} {average_data[6 + i][1]}\n")
-                                                                result_file.write(f"tx_begin_time: {average_data[6 + len(TPCC_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_exe_time: {average_data[7 + len(TPCC_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_commit_time: {average_data[8 + len(TPCC_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_abort_time: {average_data[9 + len(TPCC_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_update_time: {average_data[10 + len(TPCC_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_fetch_exe_time: {average_data[11 + len(TPCC_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_fetch_commit_time: {average_data[12 + len(TPCC_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_fetch_abort_time: {average_data[13 + len(TPCC_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_release_exe_time: {average_data[14 + len(TPCC_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_release_commit_time: {average_data[15 + len(TPCC_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_release_abort_time: {average_data[16 + len(TPCC_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_get_timestamp_time1: {average_data[17 + len(TPCC_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_get_timestamp_time2: {average_data[18 + len(TPCC_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_write_commit_log_time: {average_data[19 + len(TPCC_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_write_prepare_log_time: {average_data[20 + len(TPCC_TX_NAME)][0]}\n")
-                                                                result_file.write(f"tx_write_backup_log_time: {average_data[21 + len(TPCC_TX_NAME)][0]}\n")
-                                                        #获取结果 TODO 在这个读取完结果后删除node1
-                                                        subprocess.run(["docker", "exec", "-it", "node1", "/bin/bash", "-c", "ps -ef | grep remote_node | grep -v grep | awk '{print $2}' | xargs kill -9"])
-                                                        subprocess.run(["docker", "exec", "-it", "node1", "/bin/bash", "-c", "ps -ef | grep storage_pool | grep -v grep | awk '{print $2}' | xargs kill -9"])
-                                                        print ("has write result to " + result_pass)
-                                                        time.sleep(5)
+                        # 构建一个字符串，表示各个参数的名字，例如 cr_0.9_tx_hot_39
+                        combo_dir_name = f"cr_{cr}_txhot_{txh}"
+                        # 在 round_dir 目录下再搞一个文件夹，表示当前参数
+                        combo_dir = os.path.join(mode_dir, combo_dir_name)
+                        os.makedirs(combo_dir, exist_ok=True)
+
+                        logging.info(f"Creating Dir , {combo_dir}")
+                        threads = []
+                        def run_node(i, host, port, out_dir):
+                            remote_client = ssh_client(remote_server_host, remote_server_port, remote_server_user, remote_server_passwd)
+                            ok_storage = check_service_running(remote_client, "storage_pool")
+                            ok_remote = check_service_running(remote_client, "remote_node")
+                            remote_client.close()
+                            if (not ok_remote or not ok_storage):
+                                logging.error("try to starting computeserver , but remote not ok")
+                                exit(-1)
+                            client = ssh_client(host, port, compute_server_usernames[i], compute_server_passwords[i])
+                            ensure_compute_killed(client)
+                            update_remote_compute_config(client, len(compute_server_hostnames), i)
+                            args = f"{bench_name} {mode} {thread_num} {coroutine_num} {read_only_ratio} {local_ratio} {i}"
+                            log_path = f"{build_dir}/compute_server/compute_server_{i}.out"
+                            time.sleep(20)
+                            # 错峰等待：第 i 个节点等待 i*handshake_stagger_sec 秒，避免并发握手导致连接重置
+                            time.sleep(handshake_stagger_sec * (i))
+                            logging.info(f"Starting ComputeServer , hostname = {host} , args = {args}")
+                            start_compute_blocking(client, build_dir, args, log_path)
+                            logging.info("Running ComputeServer Over")
+                            ok = True
+                            header = {
+                                "round": r,
+                                "bench_name": bench_name,
+                                "system_name": mode,
+                                "cross_ratio": cr,
+                                "local_txn_ratio": local_ratio,
+                                "tx_hot": txh,
+                                "thread_num": thread_num,
+                                "coroutine_num": coroutine_num,
+                                "read_only_ratio": read_only_ratio,
+                                "node_count": len(compute_server_hostnames),
+                                "combo_path": out_dir
+                            }
+                            # build_dir = .../build
+                            fetch_node_results(client, i, out_dir, build_dir, header)
+                            client.close()
+                            if not ok:
+                                logging.info(f"node {i} timeout")
+                                exit(1)
+
+                        # 让所有的计算节点，都去跑 computeserver
+                        for idx, host in enumerate(compute_server_hostnames):
+                            t = threading.Thread(target=run_node, args=(idx, host, compute_server_ports[idx], combo_dir))
+                            threads.append(t)
+                            t.start()
+
+                        for t in threads:
+                            t.join()
+
+                        combo_summary = aggregate_results(combo_dir, len(compute_server_hostnames))
+                        combo_header = {
+                            "round": r,
+                            "bench_name": bench_name,
+                            "system_name": mode,
+                            "cross_ratio": cr,
+                            "local_txn_ratio": local_ratio,
+                            "tx_hot": txh,
+                            "thread_num": thread_num,
+                            "coroutine_num": coroutine_num,
+                            "read_only_ratio": read_only_ratio,
+                            "node_count": len(compute_server_hostnames),
+                            "combo_path": combo_dir
+                        }
+                        # write dual outputs: human-friendly and machine-friendly
+                        mat_path = os.path.join(combo_dir, "summary_matrix.txt")
+                        with open(mat_path, 'w', encoding='utf-8') as mf:
+                            for row in combo_summary:
+                                mf.write(" ".join(str(x) for x in row) + "\n")
+                        # human
+                        human_path = os.path.join(combo_dir, "summary_human.txt")
+                        with open(human_path, 'w', encoding='utf-8') as hf:
+                            for k, v in combo_header.items():
+                                hf.write(f"{k}={v}\n")
+                            # metrics
+                            names = [
+                                'total_time_seconds','throughput','fetch_remote_ratio','lock_ratio',
+                                'fetch_from_remote_count','fetch_from_storage_count','fetch_from_local_count',
+                                'evicted_pages_count','fetch_three_count','fetch_four_count',
+                                'from_remote_ratio','from_storage_ratio','from_local_ratio',
+                                'p50_latency_us','p90_latency_us'
+                            ]
+                            for i, key in enumerate(names):
+                                val = combo_summary[i][0] if i < len(combo_summary) and combo_summary[i] else 0
+                                hf.write(f"{key}={val}\n")
+                            types = ['Amalgamate','Balance','DepositChecking','SendPayment','TransactSaving','WriteCheck']
+                            base = 15
+                            for idx, t in enumerate(types):
+                                row = base + idx
+                                if row < len(combo_summary) and len(combo_summary[row]) >= 2:
+                                    hf.write(f"{t}_try={combo_summary[row][0]}\n")
+                                    hf.write(f"{t}_commit={combo_summary[row][1]}\n")
+                            rr_base = base + len(types)
+                            for idx, t in enumerate(types):
+                                row = rr_base + idx
+                                val = combo_summary[row][0] if row < len(combo_summary) and combo_summary[row] else 0
+                                hf.write(f"{t}_rollback_rate={val}\n")
+                            stages = [
+                                'tx_begin_time','tx_exe_time','tx_commit_time','tx_abort_time','tx_update_time',
+                                'tx_fetch_exe_time','tx_fetch_commit_time','tx_fetch_abort_time',
+                                'tx_release_exe_time','tx_release_commit_time','tx_release_abort_time',
+                                'tx_get_timestamp_time1','tx_get_timestamp_time2',
+                                'tx_write_commit_log_time','tx_write_prepare_log_time','tx_write_backup_log_time',
+                                'tx_write_commit_log_time2'
+                            ]
+                            stage_base = rr_base + len(types)
+                            for i, key in enumerate(stages):
+                                row = stage_base + i
+                                val = combo_summary[row][0] if row < len(combo_summary) and combo_summary[row] else 0
+                                hf.write(f"{key}={val}\n")
+                        logging.info(f"round {r} {combo_dir_name} done")
+
+        # after all combos in this round, write round-level matrix for final aggregation
+        round_summary = aggregate_round_from_combos(round_dir)
+        round_result_path = os.path.join(round_dir, "result.txt")
+        with open(round_result_path, 'w', encoding='utf-8') as rf:
+            for row in round_summary:
+                rf.write(" ".join(str(x) for x in row) + "\n")
+
+    final_summary = aggregate_round_summaries(result_dir, repeats)
+    final_header = {
+        "type": "final_summary",
+        "bench_name": bench_name,
+        "system_name": ",".join(modes),
+        "repeats": repeats,
+        "cross_ratios": ",".join(str(x) for x in cross_ratios),
+        "tx_hot_list": ",".join(str(x) for x in tx_hot_list),
+        "hot_accounts_list": ",".join(str(x) for x in hot_accounts_list),
+        "thread_num": thread_num,
+        "coroutine_num": coroutine_num,
+        "read_only_ratio": read_only_ratio,
+        "node_count": len(compute_server_hostnames)
+    }
+    # final matrix
+    final_mat = os.path.join(result_dir, "final_matrix.txt")
+    with open(final_mat, 'w', encoding='utf-8') as mf:
+        for row in final_summary:
+            mf.write(" ".join(str(x) for x in row) + "\n")
+    # final human
+    final_human = os.path.join(result_dir, "final_human.txt")
+    with open(final_human, 'w', encoding='utf-8') as hf:
+        for k, v in final_header.items():
+            hf.write(f"{k}={v}\n")
+        # metrics keys mapping
+        names = [
+            'total_time_seconds','throughput','fetch_remote_ratio','lock_ratio',
+            'fetch_from_remote_count','fetch_from_storage_count','fetch_from_local_count',
+            'evicted_pages_count','fetch_three_count','fetch_four_count',
+            'from_remote_ratio','from_storage_ratio','from_local_ratio',
+            'p50_latency_us','p90_latency_us'
+        ]
+        for i, key in enumerate(names):
+            val = final_summary[i][0] if i < len(final_summary) and final_summary[i] else 0
+            hf.write(f"{key}={val}\n")
+        types = ['Amalgamate','Balance','DepositChecking','SendPayment','TransactSaving','WriteCheck']
+        base = 15
+        for idx, t in enumerate(types):
+            row = base + idx
+            if row < len(final_summary) and len(final_summary[row]) >= 2:
+                hf.write(f"{t}_try={final_summary[row][0]}\n")
+                hf.write(f"{t}_commit={final_summary[row][1]}\n")
+        rr_base = base + len(types)
+        for idx, t in enumerate(types):
+            row = rr_base + idx
+            val = final_summary[row][0] if row < len(final_summary) and final_summary[row] else 0
+            hf.write(f"{t}_rollback_rate={val}\n")
+        stages = [
+            'tx_begin_time','tx_exe_time','tx_commit_time','tx_abort_time','tx_update_time',
+            'tx_fetch_exe_time','tx_fetch_commit_time','tx_fetch_abort_time',
+            'tx_release_exe_time','tx_release_commit_time','tx_release_abort_time',
+            'tx_get_timestamp_time1','tx_get_timestamp_time2',
+            'tx_write_commit_log_time','tx_write_prepare_log_time','tx_write_backup_log_time',
+            'tx_write_commit_log_time2'
+        ]
+        stage_base = rr_base + len(types)
+        for i, key in enumerate(stages):
+            row = stage_base + i
+            val = final_summary[row][0] if row < len(final_summary) and final_summary[row] else 0
+            hf.write(f"{key}={val}\n")
+    logging.info(f"final summary in {result_dir}")
+
+if __name__ == '__main__':
+    main()

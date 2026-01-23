@@ -194,11 +194,15 @@ class PageTableServiceImpl : public PageTableService {
         bool lock_success = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->LockExclusive(node_id,table_id, valid_info);
 
         response->set_wait_lock_release(!lock_success);
+        response->set_lsn((LLSN)-1);
         if(lock_success){
             bool need_from_storage = false;
             node_id_t newest_node_id = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid(node_id , need_from_storage);
             response->set_need_storage_fetch(need_from_storage);
             response->set_newest_node(newest_node_id);
+
+            LLSN now_lsn = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->getLsnIDNoBlock();
+            response->set_lsn(now_lsn);
 
             if (!need_from_storage){
                 if (newest_node_id != INVALID_NODE_ID){
@@ -231,11 +235,15 @@ class PageTableServiceImpl : public PageTableService {
             bool lock_success = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->LockExclusive(node_id,table_id, valid_info);
 
             response->set_wait_lock_release(!lock_success);
+            response->set_lsn((LLSN)-1);
             if(lock_success){
                 bool need_from_storage = false;
                 node_id_t newest_node_id = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid(node_id , need_from_storage);
                 response->set_need_storage_fetch(need_from_storage);
                 response->set_newest_node(newest_node_id);
+
+                LLSN now_lsn = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->getLsnIDNoBlock();
+                response->set_lsn(now_lsn);
 
                 if (!need_from_storage){
                     if (newest_node_id != INVALID_NODE_ID){
@@ -264,13 +272,16 @@ class PageTableServiceImpl : public PageTableService {
             bool lock_success = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->LockShared(node_id,table_id, valid_info);
   
             response->set_wait_lock_release(!lock_success);
-            
+            response->set_lsn((LLSN)-1);
             if(lock_success){
                 bool need_from_storage = false;
                 node_id_t newest_node = valid_info->GetValid(node_id , need_from_storage);
 
                 response->set_need_storage_fetch(need_from_storage);
                 response->set_newest_node(newest_node);
+
+                LLSN now_lsn = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->getLsnIDNoBlock();
+                response->set_lsn(now_lsn);
 
                 if (!need_from_storage){
                     // 对于读锁来说，newest_node_id 一定等于-1
@@ -307,11 +318,14 @@ class PageTableServiceImpl : public PageTableService {
             bool lock_success = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->LockShared(node_id,table_id, valid_info);
   
             response->set_wait_lock_release(!lock_success);
-            
+            response->set_lsn((LLSN)-1);
             if(lock_success){
                 bool need_from_storage = false;
                 node_id_t newest_node = valid_info->GetValid(node_id , need_from_storage);
                 response->set_need_storage_fetch(need_from_storage);
+
+                LLSN now_lsn = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->getLsnIDNoBlock();
+                response->set_lsn(now_lsn);
 
                 if (!need_from_storage){
                     // LOG(INFO) << "Remote Immediate Get Lock , Waiting For Push , table_id = " << table_id << " page_id = " << page_id << " node_id = " << node_id << " src_node_id = " << newest_node;
@@ -380,6 +394,8 @@ class PageTableServiceImpl : public PageTableService {
             return;
         }
         agree_cnt++;
+        LLSN lsn = request->lsn();
+        gl->setLsnIDNoBlock(lsn);
 
         // LOG(INFO) << "Agree Release , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
 
@@ -428,7 +444,8 @@ class PageTableServiceImpl : public PageTableService {
             response->set_agree(false);
             return;
         }
-
+        LLSN lsn = request->lsn();
+        gl->setLsnIDNoBlock(lsn);
         // LOG(INFO) << "Agree Release , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
 
         // 把本节点的有效信息设置为false
