@@ -181,11 +181,30 @@ void Handler::StartDatabaseSQL(node_id_t node_id , int thread_num, int sys_mode 
       exit(EXIT_FAILURE);
   }
 
-  // 
-  int thread_id = compute_server->get_node()->getScheduler()->addThread();
-  // compute_server->get_node()->getScheduler()->schedule([compute_server](){
-  //     compute_server->LogFlush();
-  // }, thread_id);
+  // 启动后台线程：自适应刷新策略（1000条日志或100ms触发）
+  std::thread log_flush_thread([compute_server]() {
+      auto last_flush_time = std::chrono::steady_clock::now();
+      
+      while (compute_server->log_flush_running.load()) {
+          // 每10ms检查一次是否需要刷新
+          std::this_thread::sleep_for(std::chrono::milliseconds(10));
+          
+          auto now = std::chrono::steady_clock::now();
+          auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_flush_time).count();
+          
+          // 触发条件1：日志数量达到1000条
+          // 触发条件2：距离上次刷新超过100ms
+          if (compute_server->ShouldFlushLog() || elapsed >= LOG_FLUSH_INTERVAL_MS) {
+              compute_server->LogFlush();
+              last_flush_time = now;
+          }
+      }
+      
+      // 线程退出前最后一次刷新
+      compute_server->LogFlush();
+      LOG(INFO) << "Log flush thread terminated";
+  });
+  log_flush_thread.detach();
 
   std::cout << ">>> Server listening on " << node_port << ". Mode: One Thread Per Connection." << std::endl;
 

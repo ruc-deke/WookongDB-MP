@@ -31,7 +31,10 @@ void DTX::AddLogToTxn(){
     BatchEndLogRecord* batch_end_log = new BatchEndLogRecord(txn_log->batch_id_, global_meta_man->local_machine_id, tx_id);
     // std::unique_lock<std::mutex> l(txn_log->log_mutex);
     // txn_log->log_mutex.lock();
-    txn_log->logs.push_back(batch_end_log);
+    
+    // 同时写入节点共享的log_records和事务的txn_log
+    compute_server->AddToLog(batch_end_log);  // 写入节点共享的log_records
+    txn_log->logs.push_back(batch_end_log);   // 也写入txn_log，用于事务提交时发送
     // txn_log->log_mutex.unlock();
 }
 
@@ -117,7 +120,9 @@ UpdateLogRecord* DTX::GenUpdateLog(DataItem* item,
     //               << " new_bal=" << new_bal << " (no old payload)";
     // }
     // //检验完毕
-    txn_log->logs.push_back(log);
+    // 同时写入节点共享的log_records和事务的txn_log
+    compute_server->AddToLog(log);  // 写入节点共享的log_records
+    txn_log->logs.push_back(log);   // 也写入txn_log，用于事务提交时发送
     return log;
 }
 
@@ -176,9 +181,10 @@ InsertLogRecord* DTX::GenInsertLog(DataItem* item,
                                                rid.page_no_,
                                                rid.slot_no_,
                                                table_name);
-    log->prev_lsn_ = pagehdr->LLSN_;
-    log->lsn_ = update_page_llsn(pagehdr);
-    txn_log->logs.push_back(log);
+    update_page_llsn(pagehdr);
+    // 同时写入节点共享的log_records和事务的txn_log
+    compute_server->AddToLog(log);  // 写入节点共享的log_records
+    txn_log->logs.push_back(log);   // 也写入txn_log，用于事务提交时发送
     return log;
 }
 
@@ -226,9 +232,9 @@ DeleteLogRecord* DTX::GenDeleteLog(table_id_t table_id,
                                                table_name,
                                                page_no,
                                                slot_no);
-    log->prev_lsn_ = pagehdr->LLSN_;
-    log->lsn_ = update_page_llsn(pagehdr);
-    txn_log->logs.push_back(log);
+    // 同时写入节点共享的log_records和事务的txn_log
+    compute_server->AddToLog(log);  // 写入节点共享的log_records
+    txn_log->logs.push_back(log);   // 也写入txn_log，用于事务提交时发送
     return log;
 }
 
@@ -274,7 +280,9 @@ NewPageLogRecord* DTX::GenNewPageLog(table_id_t table_id,
                                                  table_id,
                                                  table_name,
                                                  request_pages);
-    txn_log->logs.push_back(log);
+    // 同时写入节点共享的log_records和事务的txn_log
+    compute_server->AddToLog(log);  // 写入节点共享的log_records
+    txn_log->logs.push_back(log);   // 也写入txn_log，用于事务提交时发送
     return log;
 }
 

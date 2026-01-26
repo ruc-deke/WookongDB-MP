@@ -9,7 +9,7 @@
 class LogManager {
 public:
     LogManager(DiskManager* disk_manager, LogReplay* log_replay, std::string log_file_name = LOG_FILE_NAME);
-    ~LogManager(){}
+    ~LogManager()= default;
 
     // lsn_t add_log_to_buffer(std::string log_record);
     void write_batch_log_to_disk(std::string batch_log);
