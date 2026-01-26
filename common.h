@@ -59,7 +59,7 @@ static const std::string DB_META_NAME = "db.meta";
 #define INVALID_FRAME_ID -1
 #define INVALID_PAGE_ID -1
 #define INVALID_TABLE_ID -1
-#define INVALID_LSN -1
+#define INVALID_LSN 0
 #define INVALID_TXN_ID -1
 #define INVALID_NODE_ID -1
 #define INVALID_BATCH_ID 0

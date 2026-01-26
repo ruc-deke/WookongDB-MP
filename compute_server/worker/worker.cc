@@ -498,14 +498,19 @@ void RunSQL(int sock){
       acquired_tables.clear();
     }catch (std::exception &e){
       response = e.what();
-      txn_begin = false;
-      sql_dtx->TxAbortSQL(baga);      send(sock, response.c_str(), response.length(), 0);
+      if (sql_dtx->tx_status == TXStatus::TX_ABORTING){
+        txn_begin = false;
+        sql_dtx->TxAbortSQL(baga);      send(sock, response.c_str(), response.length(), 0);
+      }
 
       for(auto &tab_name : acquired_tables){
         compute_server->decreaseTableUse(tab_name);
       }
       sql_dtx->tab_names.clear();
       acquired_tables.clear();
+
+      response = "fail";
+      send(sock , response.c_str() , response.length() , 0);
       continue;
     } 
   }

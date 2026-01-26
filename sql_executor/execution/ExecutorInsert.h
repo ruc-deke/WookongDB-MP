@@ -29,7 +29,8 @@ public:
         m_affect_rows = 0;
         int value_size = file_hdr->record_size_ - static_cast<int>(sizeof(DataItem));
         auto insert_item = std::make_shared<DataItem>(m_tab.table_id , value_size);
-        itemkey_t primary_key = -1;
+        itemkey_t primary_key;
+        bool has_pri = false;
 
         // 把每一列的数据顺序组织起来，构成一个完成的要插入的数据
         for (size_t i = 0 ; i < m_values.size() ; i++) {
@@ -40,6 +41,7 @@ public:
             if (col.type == ColType::TYPE_ITEMKEY){
                 primary_key = m_values[i].int_val;
                 col.len = sizeof(itemkey_t);
+                has_pri = true;
                 continue;           // 主键不放在 DataItem 里，单独存的
             }
             assert(col.type == val.type);
@@ -50,7 +52,7 @@ public:
 
         // 构造主键
         assert(m_tab.primary_key != "");
-        assert(primary_key != -1);
+        assert(has_pri);
 
         Rid rid = dtx->compute_server->get_rid_from_blink(m_tab.table_id , primary_key);
         
@@ -106,21 +108,13 @@ public:
             }
 
             // 2. 插入到页面里
-            Page *page = nullptr;
-            // 目前只支持 lazy 模式下插入数据
-            if (SYSTEM_MODE == 1){
-                // LOG(INFO) << "2 Fetch X , table_id = " << item->table_id << " page_id = " << free_page_id;
-                page = dtx->compute_server->rpc_lazy_fetch_x_page(m_tab.table_id , free_page_id , false);
-            }else {
-                assert(false);
-            }
+            char *data = dtx->compute_server->FetchXPage(m_tab.table_id , free_page_id);
 
             // 插入了一个新页面，把这个新页面给挂到 FSM 上
             if(create_new_page_tag) {
                 dtx->compute_server->update_page_space(m_tab.table_id , free_page_id , PAGE_SIZE);
             }
 
-            char *data = page->get_data();
             // auto &meta = node_->getMetaManager()->GetTableMeta(item->table_id);
             RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(data + OFFSET_PAGE_HDR);
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
@@ -191,7 +185,7 @@ public:
 
             dtx->GenInsertLog(data_item , primary_key , (char *)data_item + sizeof(DataItem) , rid , (RmPageHdr*)data);
 
-            std::cout << "Insert Pos : " << "Table ID = " << data_item->table_id << " Page ID = " << free_page_id << " Slot No = " << slot_no << "\n";
+            // std::cout << "Insert Pos : " << "Table ID = " << data_item->table_id << " Page ID = " << free_page_id << " Slot No = " << slot_no << "\n";
 
             int count=Bitmap::getfreeposnum(bitmap,file_hdr->num_records_per_page_ );
             auto page_id = dtx->compute_server->bl_indexes[m_tab.table_id]->insert_entry(&primary_key , {free_page_id , slot_no});

@@ -349,6 +349,7 @@ bool LogReplay::overwriteFixedLine(const std::string& filename, int lineNumber, 
     return true;
 }
 void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
+    // std::cout << "开始重做"<<std::endl;
     //log->format_print2();
     switch(log->log_type_) {
         case LogType::INSERT: {
@@ -444,11 +445,12 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
                                         &bitmap[bucket_no], sizeof(char));
         } break;
         case LogType::UPDATE: {
+            std::cout << "进入UPDATE重做"<<std::endl;
             UpdateLogRecord* update_log = dynamic_cast<UpdateLogRecord*>(log);
             std::string table_name(update_log->table_name_, update_log->table_name_ + update_log->table_name_size_);
             int fd = disk_manager_->get_file_fd(table_name);
             if (fd < 0) {
-                break;
+                std::cout << "因fd跳出UPDATE重做"<<std::endl;break;
             }
 
             RmFileHdr file_hdr{};
@@ -463,7 +465,7 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
             auto* page_hdr = reinterpret_cast<RmPageHdr*>(page_buf.data() + OFFSET_PAGE_HDR);
             const LLSN log_llsn = static_cast<LLSN>(update_log->lsn_);
             if (page_hdr->LLSN_ >= log_llsn) {
-                break;
+                std::cout << "因页面LLSN"<<page_hdr->LLSN_<<"大于等于日志LLSN"<<log_llsn<<"跳出UPDATE重做"<<std::endl;break;
             }
             const char* old_val_ptr = page_buf.data() + value_offset;
             const size_t copy_len = std::min(static_cast<size_t>(update_log->new_value_.value_size_),
@@ -477,11 +479,11 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
                 std::memcpy(&old_bal, old_payload + sizeof(uint32_t), sizeof(float));
                 std::memcpy(&new_bal, new_payload + sizeof(uint32_t), sizeof(float));
             }
-
-            LOG(INFO) << "[UpdateLog Redo] table=" << table_name
-                      << " key=" << update_log->new_value_.key_
-                      << " old_bal=" << old_bal << " -> new_bal=" << new_bal;
-
+            std::cout << "old_bal=" << old_bal << " -> new_bal=" << new_bal <<std::endl;
+            // LOG(INFO) << "[UpdateLog Redo] table=" << table_name
+            //           << " key=" << update_log->new_value_.key_
+            //           << " old_bal=" << old_bal << " -> new_bal=" << new_bal;
+            
             disk_manager_->update_value(fd,
                                         update_log->rid_.page_no_,
                                         value_offset,
@@ -565,24 +567,28 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
 
             std::unique_lock<std::mutex> latch(latch2_);
             persist_batch_id_ = batch_end_log->log_batch_id_;
-            persist_off_ = curr_offset + batch_end_log->log_tot_len_;
             latch.unlock();
             //print_llsnrecord();
             //LOG(INFO) << "Update persist_batch_id, new persist_batch_id: " << persist_batch_id_;
-            //LOG(INFO) << "Update persist_off, new persist_off: " << persist_off_;
-
-            lseek(log_write_head_fd_, 0, SEEK_SET);
-            ssize_t result = write(log_write_head_fd_, &persist_batch_id_, sizeof(batch_id_t));
-            if (result == -1) {
-                LOG(FATAL) << "Fail to write persist_batch_id into log_file";
-            }
-            result = write(log_write_head_fd_, &persist_off_, sizeof(uint64_t));
-            if (result == -1) {
-                LOG(FATAL) << "Fail to write persist_off into log_file";
-            }
         } break;
         default:
         break;
+    }
+
+    {
+        std::unique_lock<std::mutex> latch(latch2_);
+        persist_off_ = static_cast<size_t>(curr_offset) + log->log_tot_len_;
+        latch.unlock();
+    }
+
+    lseek(log_write_head_fd_, 0, SEEK_SET);
+    ssize_t result = write(log_write_head_fd_, &persist_batch_id_, sizeof(batch_id_t));
+    if (result == -1) {
+        LOG(FATAL) << "Fail to write persist_batch_id into log_file";
+    }
+    result = write(log_write_head_fd_, &persist_off_, sizeof(uint64_t));
+    if (result == -1) {
+        LOG(FATAL) << "Fail to write persist_off into log_file";
     }
 }
 
@@ -660,6 +666,7 @@ void LogReplay::replayFun(){
     int offset = persist_off_ + 1;
     int read_bytes;
     while (!replay_stop) {
+        // std::cout << "11111"<<std::endl;
         // 用size_t 如果出现负数就会有问题
         int read_size = std::min((int)max_replay_off_ - (int)offset + 1, (int)LOG_REPLAY_BUFFER_SIZE);
         //  LOG(INFO) << "Replay log size: " << read_size;

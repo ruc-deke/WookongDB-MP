@@ -3,7 +3,7 @@ import time
 import sys
 
 # test : basic_query
-NUM_TESTS = 5
+NUM_TESTS = 6
 SCORES = [2, 2, 2, 2, 4]
 
 # Configuration
@@ -118,6 +118,10 @@ def run():
             score += SCORES[i]
         else:
             print(f"  Test {i+1} Failed")
+        
+        if i < NUM_TESTS - 1:
+            print("Waiting 2 seconds before next test...")
+            time.sleep(2)
             
     print("-" * 20)
     print("Final score: " + str(score))

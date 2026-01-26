@@ -123,7 +123,7 @@ int SmManager::open_db(const std::string &db_name){
 
             int free_slots = num_record_per_page - valid_slot_cnt;
             uint32_t free_space = free_slots * (file_hdr.record_size_ + sizeof(itemkey_t));
-            std::cout << "Page : " << i << " Free Space = " << free_space << "\n";
+            // std::cout << "Page : " << i << " Free Space = " << free_space << "\n";
             fsm->update_page_space(i, free_space);
 
             buffer_pool_mgr->unpin_page(page_handle.page->get_page_id(), false);
@@ -132,7 +132,7 @@ int SmManager::open_db(const std::string &db_name){
         fsm->flush_all_pages();
         disk_manager->close_file(fsm_fd);
 
-        std::cout << "TabName = " << tab_name << " Page Num = " << num_pages << " Tuple Num = " << tot_valid_cnt << "\n";
+        // std::cout << "TabName = " << tab_name << " Page Num = " << num_pages << " Tuple Num = " << tot_valid_cnt << "\n";
 
         // 刷写 BLink 索引相关页面到磁盘
         index_handle->write_file_hdr_to_page();
@@ -224,7 +224,7 @@ int SmManager::create_primary(const std::string &table_name){
 int SmManager::create_fsm(const std::string &tab_name , int tuple_size , table_id_t table_id){
     std::string fsm_name = tab_name + "_fsm";
     // 假设初始只分配少量页面用于 SQL 插入
-    int initial_pages = 300; 
+    int initial_pages = 10000; 
     
     // 1. 创建 FSM 文件
     // 这里的大小其实不太重要，因为后续 S_SecFSM 会管理页面分配，但还是给一个初始大小
@@ -364,10 +364,10 @@ int SmManager::drop_table(const std::string &table_name){
 
     TabMeta& table = db.get_table(table_name);
     // 1. 删除所有的索引
-    for (const auto &index : table.indexes){
-        std::string index_name = getIndexName(table_name , index.cols , IndexType::BTREE_INDEX);
-        rm_manager->get_diskmanager()->destroy_file(index_name);
-    }
+    // for (const auto &index : table.indexes){
+    //     std::string index_name = getIndexName(table_name , index.cols , IndexType::BTREE_INDEX);
+    //     rm_manager->get_diskmanager()->destroy_file(index_name);
+    // }
 
     // 2. 关闭并删除表文件
     auto file_it = m_fhs.find(table_name);
@@ -379,6 +379,15 @@ int SmManager::drop_table(const std::string &table_name){
 
     m_fhs.erase(file_it);
     rm_manager->get_diskmanager()->destroy_file(table_name);
+
+    // 删除掉 FSM 和 B+ 树文件
+    int fsm_fd = rm_manager->get_diskmanager()->open_file(table_name + "_fsm");
+    rm_manager->get_diskmanager()->close_file(fsm_fd);
+    rm_manager->get_diskmanager()->destroy_file(table_name + "_fsm");
+
+    int blink_fd = rm_manager->get_diskmanager()->open_file(table_name + "_bl");
+    rm_manager->get_diskmanager()->close_file(blink_fd);
+    rm_manager->get_diskmanager()->destroy_file(table_name + "_bl");
 
     // 3. 从 db 元信息中移除
     db.m_tabs.erase(table_name);

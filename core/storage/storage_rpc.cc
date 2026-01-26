@@ -405,7 +405,7 @@ namespace storage_service{
             disk_manager_->write_page(fd, RM_FILE_HDR_PAGE, reinterpret_cast<char*>(&file_hdr), sizeof(file_hdr));
         }
 
-        std::cout << "Create a Page , table_id = " << table_id << " page_id = " << new_page_no << "\n";
+        // std::cout << "Create a Page , table_id = " << table_id << " page_id = " << new_page_no << "\n";
         
         response->set_page_no(new_page_no);
         response->set_success(true);

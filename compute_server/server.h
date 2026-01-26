@@ -507,85 +507,98 @@ public:
     }
     // 创建一张新表
     void create_table(const std::string &tab_name , std::vector<ColDef> cols , const std::string pri_key){
-        if (get_node()->db_meta.is_table(tab_name)){
-            throw LJ::TableAlreadyExistsError(tab_name);
+        if (!tryCreateTable()){
+            throw std::logic_error("Create Table Failed (Maybe Droping table now?), Please Try Later");
         }
 
         assert(pri_key != "");
 
-        // 验证主键名字确实在表里
-        bool found = false;
-        for (auto &col_def : cols){
-            if (col_def.name == pri_key){
-                if (col_def.type != ColType::TYPE_INT){
-                    throw std::logic_error("指定主键只能是单个列，且类型需为 TYPE_INT");
+        try {
+            if (get_node()->db_meta.is_table(tab_name)){
+                throw LJ::TableAlreadyExistsError(tab_name);
+            }
+
+            // 验证主键名字确实在表里
+            bool found = false;
+            for (auto &col_def : cols){
+                if (col_def.name == pri_key){
+                    if (col_def.type != ColType::TYPE_INT){
+                        throw std::logic_error("指定主键只能是单个列，且类型需为 TYPE_INT");
+                    }
+                    // 将这列的类型转化为 ITEMKEY
+                    col_def.type = ColType::TYPE_ITEMKEY;
+                    found = true;
+                    break;
                 }
-                // 将这列的类型转化为 ITEMKEY
-                col_def.type = ColType::TYPE_ITEMKEY;
-                found = true;
-                break;
             }
-        }
-        if (!found){
-            throw std::logic_error("主键不是本表的列!");
-        }
-
-        storage_service::StorageService_Stub storage_stub(get_storage_channel());
-        storage_service::CreateTableRequest request;
-        storage_service::CreateTableResponse response;
-        brpc::Controller cntl;
-
-        request.set_tab_name(tab_name);
-        for (int i = 0 ; i < cols.size() ; i++){
-            request.add_cols_name(cols[i].name);
-            request.add_cols_len(cols[i].len);
-            request.add_cols_type(cols[i].type);
-        }
-        // 证明只有一个主键列，先不允许这样吧
-        if (cols.size() == 1){
-            throw std::logic_error("不允许只有一个主键列");
-        }
-
-        storage_stub.CreateTable(&cntl , &request , &response , NULL);
-        if (cntl.Failed()){
-            assert(false);
-        }
-
-        int error_code = response.error_code();
-        if (error_code == 0){
-            assert(table_exist(tab_name));
-            int table_id = response.table_id();
-            std::atomic<bool> has_rpc_error(false);
-            std::vector<brpc::CallId> cids;
-            for (int i = 0 ; i < ComputeNodeCount ; i++){
-                if (i == getNodeID()){
-                    continue;
-                }
-                brpc::Controller* cntl = new brpc::Controller();
-                compute_node_service::ComputeNodeService_Stub compute_node_stub(&nodes_channel[i]);
-                compute_node_service::NotifyCreateTableRequest notify_request;
-                compute_node_service::NotifyCreateTableResponse* notify_response = new compute_node_service::NotifyCreateTableResponse();
-                notify_request.set_table_id(table_id);
-                notify_request.set_tab_name(tab_name);
-                cids.push_back(cntl->call_id());
-                compute_node_stub.NotifyCreateTable(cntl , &notify_request , notify_response ,
-                    brpc::NewCallback(ComputeServer::NotifyCreateTableRPCDone, notify_response, cntl, &has_rpc_error));
+            if (!found){
+                throw std::logic_error("主键不是本表的列!");
             }
-            for (auto cid : cids){
-                brpc::Join(cid);
+
+            storage_service::StorageService_Stub storage_stub(get_storage_channel());
+            storage_service::CreateTableRequest request;
+            storage_service::CreateTableResponse response;
+            brpc::Controller cntl;
+
+            request.set_tab_name(tab_name);
+            for (int i = 0 ; i < cols.size() ; i++){
+                request.add_cols_name(cols[i].name);
+                request.add_cols_len(cols[i].len);
+                request.add_cols_type(cols[i].type);
             }
-            if (has_rpc_error.load()){
+            // 证明只有一个主键列，先不允许这样吧
+            if (cols.size() == 1){
+                throw std::logic_error("不允许只有一个主键列");
+            }
+
+            storage_stub.CreateTable(&cntl , &request , &response , NULL);
+            if (cntl.Failed()){
                 assert(false);
             }
-        }else {
-            std::cout << "Error Code = " << error_code << "\n";
-            LJ::throw_error_by_code(error_code);
+
+            int error_code = response.error_code();
+            if (error_code == 0){
+                assert(table_exist(tab_name));
+                int table_id = response.table_id();
+                std::atomic<bool> has_rpc_error(false);
+                std::vector<brpc::CallId> cids;
+                for (int i = 0 ; i < ComputeNodeCount ; i++){
+                    if (i == getNodeID()){
+                        continue;
+                    }
+                    brpc::Controller* cntl = new brpc::Controller();
+                    compute_node_service::ComputeNodeService_Stub compute_node_stub(&nodes_channel[i]);
+                    compute_node_service::NotifyCreateTableRequest notify_request;
+                    compute_node_service::NotifyCreateTableResponse* notify_response = new compute_node_service::NotifyCreateTableResponse();
+                    notify_request.set_table_id(table_id);
+                    notify_request.set_tab_name(tab_name);
+                    cids.push_back(cntl->call_id());
+                    compute_node_stub.NotifyCreateTable(cntl , &notify_request , notify_response ,
+                        brpc::NewCallback(ComputeServer::NotifyCreateTableRPCDone, notify_response, cntl, &has_rpc_error));
+                }
+                for (auto cid : cids){
+                    brpc::Join(cid);
+                }
+                if (has_rpc_error.load()){
+                    assert(false);
+                }
+            }else {
+                std::cout << "Error Code = " << error_code << "\n";
+                LJ::throw_error_by_code(error_code);
+            }
+        }catch (...) {
+            NotifyCreateTableSuccess();
+            throw;
         }
+
+        NotifyCreateTableSuccess();
     }
 
     void dropTable(const std::string &tab_name){
         // 先给表加上锁，等待访问这个表的事务做完，同时不让后续事务再访问这个表
-        tryDropTable(tab_name);
+        if (!tryDropTable(tab_name)){
+            throw std::logic_error("Try Drop Table Failed , Please Try Later");
+        }
 
         bool exist = table_exist(tab_name);
         if (!exist){
@@ -1178,9 +1191,11 @@ public:
         }
 
         // 作为一个参数传入淘汰窗口中，目标是锁定一个页面，确保页面淘汰过程中别的线程无法访问本页面
-        static auto try_begin_evict = ([this , table_id](page_id_t victim_page_id) {
+        auto try_begin_evict = ([this , table_id](page_id_t victim_page_id) {
             return this->node_->lazy_local_page_lock_tables[table_id]->GetLock(victim_page_id)->TryBeginEvict();
         });
+
+        // LOG(INFO) << "Put Page Into Buffer , table_id = " << table_id << " page_id = " << page_id; 
         
         int try_cnt = -1;
         // 循环直到找到一个可淘汰的页面
@@ -1226,7 +1241,7 @@ public:
                 if (!need_to_record){
                     rpc_flush_page_to_storage(table_id , replaced_page_id);
                 }else {
-                    std::cout << "Table ID = " << table_id << " Replace page = " << replaced_page_id << " Flush Log To Disk\n";
+                    // std::cout << "Table ID = " << table_id << " Replace page = " << replaced_page_id << " Flush Log To Disk\n";
                     // 这里需要把日志给刷下去
                     flush_page_log(table_id , replaced_page_id);
                 }
@@ -1244,7 +1259,7 @@ public:
             request->set_node_id(node_->node_id);
 
             // 这里需要拿到页面的 LLSN，此时页面一定在缓冲区里，并且不会被淘汰，直接去拿就行
-            Page *page = node_->getBufferPoolByIndex(table_id)->fetch_page(page_id);
+            Page *page = node_->getBufferPoolByIndex(table_id)->fetch_page(replaced_page_id);
             RmPageHdr *page_hdr = (RmPageHdr*)page->get_data();
             request->set_lsn(page_hdr->LLSN_);
 
@@ -1266,6 +1281,8 @@ public:
                 // 远程不允许释放，那我就换一个页面淘汰
                 lr_local_lock->EndEvict();
 
+                // LOG(INFO) << "Try To Evict A Page , But Remote Refuse , table_id = " << table_id << " page_id = " << replaced_page_id; 
+
                 delete response;
                 delete request;
                 continue;
@@ -1274,7 +1291,7 @@ public:
             delete response;
             delete request;
 
-            // LOG(INFO) << "Evicting a page success , table_id = " << table_id << " page_id = " << page_id << " replaced table_id = " << replaced_page_id << " insert page_id = " << page_id;
+            // LOG(INFO) << "Evicting a page success , table_id = " << table_id << " page_id = " << page_id << " replaced table_id = " << replaced_page_id;
 
             page = node_->getBufferPoolByIndex(table_id)->insert_or_replace(
                 table_id,
@@ -1688,7 +1705,9 @@ public:
         table_use[tab_name]--;
     }
     bool tryDropTable(const std::string &tab_name){
-        assert(node_->db_meta.is_table(tab_name));
+        if (!node_->db_meta.is_table(tab_name)){
+            throw std::logic_error("Table Not Found");
+        }
 
         {
             std::lock_guard<std::mutex> lk(tab_meta_mtx);

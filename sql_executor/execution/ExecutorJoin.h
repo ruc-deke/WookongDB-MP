@@ -170,6 +170,13 @@ public:
         return m_right->getKey(table_id);
     }
 
+    std::vector<table_id_t> get_table_ids() override {
+        auto ids = m_left->get_table_ids();
+        auto right_ids = m_right->get_table_ids();
+        ids.insert(ids.end(), right_ids.begin(), right_ids.end());
+        return ids;
+    }
+
 private:
     DTX *m_dtx;
 

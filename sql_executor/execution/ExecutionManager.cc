@@ -11,7 +11,6 @@ void QlManager::run_mutli_query(std::shared_ptr<Plan> plan){
                 }
                 run_res = "Create Table Success";
                 compute_server->create_table(x->m_tabName , x->m_cols , x->m_pkey);
-                compute_server->NotifyCreateTableSuccess();
                 break;
             }
             case T_CreateIndex: {
@@ -98,6 +97,7 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
     table_id_t root_table_id = executorTreeRoot->getTab().table_id;
 
     if (root_table_id == INVALID_TABLE_ID) {
+        // JoinPlan：
         for (executorTreeRoot->beginTuple() ; !executorTreeRoot->is_end() ; executorTreeRoot->nextTuple()) {
             DataItemPtr item_tot = executorTreeRoot->Next();
             if (!item_tot) {
@@ -105,9 +105,14 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
             }
             table_id_t left_table_id = INVALID_TABLE_ID;
             table_id_t right_table_id = INVALID_TABLE_ID;
+            std::vector<table_id_t> aids = executorTreeRoot->get_table_ids();
+            assert(aids.size() > 1);
+            left_table_id = aids[0];
+            right_table_id = aids[1];
 
             std::vector<std::string> columns;
             for (auto &col : executorTreeRoot->cols()) {
+                table_id_t tid = compute_server->get_node()->db_meta.get_table(col.tab_name).table_id;
                 std::string col_str;
                 char *rec_buf = (char*)item_tot->value + col.offset;
                 if (col.type == ColType::TYPE_INT) {
@@ -118,21 +123,17 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
                     col_str = std::string((char *)rec_buf , col.len);
                     col_str.resize(strlen(col_str.c_str()));
                 }else if (col.type == ColType::TYPE_ITEMKEY){
-                    table_id_t tid = compute_server->get_node()->db_meta.get_table(col.tab_name).table_id;
-                    if (left_table_id == INVALID_TABLE_ID){
-                        left_table_id = tid;
-                    }else if (left_table_id != tid){
-                        right_table_id = tid;
-                    }
                     itemkey_t key = executorTreeRoot->getKey(tid);
                     col_str = std::to_string(key);
                 }
                 columns.push_back(col_str);
             }
             assert(left_table_id != INVALID_TABLE_ID && right_table_id != INVALID_TABLE_ID);
+
             RmFileHdr::ptr file_hdr = dtx->compute_server->get_file_hdr(left_table_id);
             itemkey_t left_key = executorTreeRoot->getKey(left_table_id);
             itemkey_t right_key = executorTreeRoot->getKey(right_table_id);
+
             Rid left_rid = dtx->compute_server->get_rid_from_blink(left_table_id , left_key);
             if (left_rid.page_no_ == INVALID_PAGE_ID){
                 continue;

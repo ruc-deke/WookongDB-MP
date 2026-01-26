@@ -369,14 +369,6 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
   // 把这次获取全局时间戳的耗时给记录下来，加入到 tx...
   tx_get_timestamp_time2 += (end_ts_time.tv_sec - start_time.tv_sec) + (double)(end_ts_time.tv_nsec - start_time.tv_nsec) / 1000000000;
   
-  // 把事务提交的日志给刷到磁盘下去
-  brpc::CallId* cid;
-  AddLogToTxn();    // 构造事务日志
-  // Send log to storage pool
-  
-  cid = new brpc::CallId();
-  SendLogToStoragePool(tx_id, cid); // 异步地把事务日志刷新到存储里
-  brpc::Join(*cid); // 等待刷新日志完成
   
   struct timespec end_send_log_time;
   clock_gettime(CLOCK_REALTIME, &end_send_log_time);
@@ -406,7 +398,7 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
     orginal_item->lock = UNLOCKED;  
     // 把改过的信息给写回去
     memcpy(reinterpret_cast<char*>(orginal_item) + sizeof(DataItem), data_item.item_ptr->value, data_item.item_ptr->value_size);
-    
+    GenUpdateLog(orginal_item, item_key, data_item.item_ptr->value,(RmPageHdr*)page);
     struct timespec start_time2, end_time2;
     clock_gettime(CLOCK_REALTIME, &start_time2);
     ReleaseXPage(yield, data_item.item_ptr->table_id, rid.page_no_);
@@ -477,6 +469,14 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
     tx_release_commit_time += (end_time2.tv_sec - start_time2.tv_sec) + (double)(end_time2.tv_nsec - start_time2.tv_nsec) / 1000000000;
   }
 
+   // 把事务提交的日志给刷到磁盘下去
+  brpc::CallId* cid;
+  AddLogToTxn();    // 构造事务日志
+  // Send log to storage pool
+  
+  cid = new brpc::CallId();
+  SendLogToStoragePool(tx_id, cid); // 异步地把事务日志刷新到存储里
+  brpc::Join(*cid); // 等待刷新日志完成
   tx_status = TXStatus::TX_COMMIT;
   return true;
 }
@@ -556,7 +556,7 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
 
         compute_server->delete_from_blink(table_id , item_key);
 
-        GenDeleteLog(table_id , rid.page_no_ , rid.slot_no_);
+        GenDeleteLog(table_id , rid.page_no_ , rid.slot_no_,(RmPageHdr*)data);
 
         compute_server->ReleaseXPage(table_id , rid.page_no_);
 

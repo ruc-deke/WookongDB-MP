@@ -152,7 +152,7 @@ class DTX {
                      RmPageHdr* pagehdr);
     DeleteLogRecord* GenDeleteLog(table_id_t table_id,
             int page_no,
-            int slot_no);
+            int slot_no,RmPageHdr* pagehdr);
     NewPageLogRecord* GenNewPageLog(table_id_t table_id,
             int request_pages);
     FSMUpdateLogRecord* GenFSMUpdateLog(table_id_t table_id,
@@ -332,7 +332,7 @@ class DTX {
   // -----------------
   std::unordered_set<std::pair<Rid , table_id_t>, RidTableKeyHash> read_keys;    // 记录本事务访问过的读集合
   std::unordered_set<std::pair<Rid , table_id_t>, RidTableKeyHash> write_keys;   // 记录本事务访问过的写集合
-  std::deque<WriteRecord> write_set;
+  std::deque<WriteRecord> write_set;    // 用于事务回滚，记录下本事务执行过的写操作 
   std::vector<std::string> tab_names;
 
   //-------------------

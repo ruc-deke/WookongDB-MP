@@ -39,6 +39,10 @@ public:
 
     virtual int getAffectRows() { return m_affect_rows; }
 
+    virtual std::vector<table_id_t> get_table_ids() {
+        return {}; // 默认空
+    }
+
     std::vector<ColMeta>::const_iterator get_col(const std::vector<ColMeta> &rec_cols, const TabCol &target) {
         auto pos = std::find_if(rec_cols.begin(), rec_cols.end(), [&](const ColMeta &col) {
             return col.tab_name == target.tab_name && col.name == target.col_name;

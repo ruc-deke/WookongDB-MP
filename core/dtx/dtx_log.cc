@@ -90,7 +90,8 @@ UpdateLogRecord* DTX::GenUpdateLog(DataItem* item,
                                                rid,
                                                table_name,
                                                nullptr);
-    LLSN new_llsn = update_page_llsn(pagehdr);
+    log->prev_lsn_ = pagehdr->LLSN_;
+    log->lsn_ = update_page_llsn(pagehdr);
     // // 检验正确性用
     // const DataItem* di_hdr = reinterpret_cast<const DataItem*>(new_record.value_);
     // const size_t payload_size = (di_hdr != nullptr) ? static_cast<size_t>(di_hdr->value_size) : 0;
@@ -116,7 +117,7 @@ UpdateLogRecord* DTX::GenUpdateLog(DataItem* item,
     //               << " new_bal=" << new_bal << " (no old payload)";
     // }
     // //检验完毕
-    temp_log.push_back(log);
+    txn_log->logs.push_back(log);
     return log;
 }
 
@@ -125,6 +126,7 @@ InsertLogRecord* DTX::GenInsertLog(DataItem* item,
                                   const void* value,
                                   const Rid& rid,
                                   RmPageHdr* pagehdr) {
+    // std::cout << "生成insert日志"<< std::endl;
     if (txn_log == nullptr) {
         txn_log = new TxnLog();
     }
@@ -174,14 +176,16 @@ InsertLogRecord* DTX::GenInsertLog(DataItem* item,
                                                rid.page_no_,
                                                rid.slot_no_,
                                                table_name);
-    update_page_llsn(pagehdr);
-    temp_log.push_back(log);
+    log->prev_lsn_ = pagehdr->LLSN_;
+    log->lsn_ = update_page_llsn(pagehdr);
+    txn_log->logs.push_back(log);
     return log;
 }
 
 DeleteLogRecord* DTX::GenDeleteLog(table_id_t table_id,
                                    int page_no,
-                                   int slot_no) {
+                                   int slot_no,
+                                   RmPageHdr* pagehdr) {
     std::string table_name;
     // SQL 模式下，通过 db_meta 获取表名字
     if (WORKLOAD_MODE == 4){
@@ -222,7 +226,9 @@ DeleteLogRecord* DTX::GenDeleteLog(table_id_t table_id,
                                                table_name,
                                                page_no,
                                                slot_no);
-    temp_log.push_back(log);
+    log->prev_lsn_ = pagehdr->LLSN_;
+    log->lsn_ = update_page_llsn(pagehdr);
+    txn_log->logs.push_back(log);
     return log;
 }
 
@@ -268,7 +274,7 @@ NewPageLogRecord* DTX::GenNewPageLog(table_id_t table_id,
                                                  table_id,
                                                  table_name,
                                                  request_pages);
-    temp_log.push_back(log);
+    txn_log->logs.push_back(log);
     return log;
 }
 
@@ -301,7 +307,7 @@ void DTX::SendLogToStoragePool(uint64_t bid, brpc::CallId* cid, int urgent){
     storage_service::LogWriteResponse* response = new storage_service::LogWriteResponse();
 
     txn_log->batch_id_ = bid;
-
+    // std::cout << "发送日志，batch_id: " << bid << std::endl;
     request.set_log(txn_log->get_log_string());
     request.set_urgent(urgent);
 

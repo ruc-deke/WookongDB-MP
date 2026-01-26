@@ -143,6 +143,9 @@ std::shared_ptr<Plan> Planner::pop_scan(int *scantbl, std::string table, std::ve
 std::shared_ptr<Plan> Planner::make_one_rel(std::shared_ptr<Query> query) {
     auto x = std::dynamic_pointer_cast<ScanPlan>(query->m_parse);
     std::vector<std::string> tables = query->m_tables;
+    if (tables.size() > 2){
+        throw std::logic_error("Not Support 3 or more Table Execute");
+    }
     std::vector<std::shared_ptr<Plan>> table_scan_executors;
     table_scan_executors.reserve(tables.size());
     for (size_t i = 0 ; i < tables.size(); i++) {

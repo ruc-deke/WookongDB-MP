@@ -4,8 +4,5 @@ create table grade (course char(32), student_id int, score float , primary key(s
 show tables;
 drop table student;
 show tables;
-create table grade (id int);
 drop table t;
 show tables;
-
-drop table grade;

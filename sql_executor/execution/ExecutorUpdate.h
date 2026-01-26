@@ -53,10 +53,14 @@ public:
             */
             if (data_item->lock != 0){
                 if (data_item->lock == 1 && m_dtx->read_keys.find({m_rids[i] , m_tab.table_id}) != m_dtx->read_keys.end()){
+                    if (!check_conds(data_item , item_key)){
+                        m_dtx->compute_server->ReleaseXPage(m_tab.table_id , m_rids[i].page_no_);
+                        continue;
+                    }
+                    
                     // 升级锁
                     m_dtx->read_keys.erase({m_rids[i] , m_tab.table_id});
                     m_dtx->write_keys.insert({m_rids[i] , m_tab.table_id});
-                    data_item->lock = EXCLUSIVE_LOCKED;
                 }else if (data_item->lock != EXCLUSIVE_LOCKED){
                     m_dtx->compute_server->ReleaseXPage(m_tab.table_id , m_rids[i].page_no_);
                     m_dtx->tx_status = TXStatus::TX_ABORTING;
@@ -77,6 +81,10 @@ public:
                     assert(false);
                 }
             }else {
+                if (!check_conds(data_item , item_key)){
+                    m_dtx->compute_server->ReleaseXPage(m_tab.table_id , m_rids[i].page_no_);
+                    continue;
+                }
                 m_dtx->write_keys.insert({m_rids[i] , m_tab.table_id});
             }
 
@@ -84,7 +92,7 @@ public:
             memcpy(item_ptr->value , data_item->value , data_item->value_size);
 
             data_item->lock = EXCLUSIVE_LOCKED;
-            data_item->user_insert = m_dtx->compute_server->getNodeID();
+            data_item->user_insert = 0;
 
             int set_num = m_setClauses.size();
 
@@ -127,6 +135,94 @@ public:
 
     TabMeta getTab() const override {
         return m_tab;
+    }
+
+    std::vector<table_id_t> get_table_ids() override {
+        return { m_tab.table_id };
+    }
+
+
+    bool check_conds(DataItem *record , itemkey_t key) {
+        if (m_conditions.empty()) return true;
+        for (auto &cond : m_conditions) {
+            if (!check_cond(cond, record , key)){
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool check_cond(Condition condition , DataItem *cur_item , itemkey_t item_key) {
+        auto left_col_it = get_col(m_tab.cols , condition.lhs_col);
+        char *left_val;
+        int len;
+        if (left_col_it->type == ColType::TYPE_ITEMKEY){
+            left_val = (char*)&item_key;
+            len = sizeof(itemkey_t);
+        }else {
+            left_val = (char*)cur_item->value + left_col_it->offset;
+            len = left_col_it->len;
+        }
+
+        char *right_val;
+        ColType col_type;
+        if (condition.is_rhs_val) { //常量
+            right_val = (char*)condition.rhs_val.data_item->value;
+            col_type = condition.rhs_val.type;
+        }else {
+            auto right_col_it = get_col(m_tab.cols , condition.rhs_col);
+            if (right_col_it->type == ColType::TYPE_ITEMKEY){
+                right_val = (char*)&item_key;
+            }else {
+                right_val = (char*)cur_item->value + right_col_it->offset;
+            }
+            col_type = right_col_it->type;
+        }
+
+        int cmp = compare_val(left_val , right_val , col_type , len);
+        bool found = false;
+
+        switch (condition.op) {
+            case OP_EQ: {
+                found = (cmp == 0);
+                break;
+            }
+            case OP_NE: {
+                found = (cmp != 0);
+                break;
+            }
+            case OP_LT: {
+                found = (cmp < 0);
+                break;
+            }
+            case OP_LE: {
+                found = (cmp <= 0);
+                break;
+            }
+            case OP_GE: {
+                found = (cmp >= 0);
+                break;
+            }
+            case OP_GT: {
+                found = (cmp > 0);
+                break;
+            }
+            default: {
+                assert(false);
+                break;
+            }
+        }
+        return found;
+    }
+
+    std::vector<ColMeta>::const_iterator get_col(const std::vector<ColMeta> &cols, const TabCol &target) {
+        auto it = cols.begin();
+        for (; it != cols.end(); it++) {
+            if (it->name == target.col_name) {
+                return it;
+            }
+        }
+        return it;
     }
 
 

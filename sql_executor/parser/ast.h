@@ -152,7 +152,7 @@ namespace ast {
 
     struct FloatLit : public Value{
         float m_val;
-        FloatLit(int val) : m_val(val) {}
+        FloatLit(float val) : m_val(val) {}
     };
 
     struct StringLit : public Value{

@@ -78,7 +78,10 @@ struct Value{
             assert(len == sizeof(float));
             *(float*)(data_item->value) = float_val;
         }else if (type == ColType::TYPE_STRING){
-            memcpy(data_item->value , str_val.c_str() , len);
+            memset(data_item->value , 0 , len);
+            size_t copy_len = str_val.length();
+            if(copy_len > len) copy_len = len; 
+            memcpy(data_item->value , str_val.c_str() , copy_len);
         }else if (type == ColType::TYPE_ITEMKEY){
             // 这里的 DataItem 只是一个辅助的数据结构，用来存储数据的
             assert(len == sizeof(itemkey_t));
@@ -99,7 +102,10 @@ struct Value{
             assert(len == sizeof(float));
             *(float*)(data_item->value) = float_val;
         }else if (type == ColType::TYPE_STRING){
-            memcpy(data_item->value , str_val.c_str() , len);
+            memset(data_item->value, 0, len);
+            size_t copy_len = str_val.length();
+            if(copy_len > len) copy_len = len; 
+            memcpy(data_item->value , str_val.c_str() , copy_len);
         }else if (type == ColType::TYPE_ITEMKEY){
             assert(len == sizeof(itemkey_t));
             *(itemkey_t*)(data_item->value) = item_val;
@@ -310,7 +316,7 @@ inline int compare_val(const char* a, const char* b, ColType type, int col_len) 
             return (fa < fb) ? -1 : ((fa > fb) ? 1 : 0);
         }
         case ColType::TYPE_STRING: {
-            return memcmp(a, b, col_len);
+            return strncmp(a , b , col_len);
         }
         default:{
             assert(false);

@@ -126,8 +126,6 @@ public:
 
             if (check_conds(item_ptr.get())){
                 break;
-            }else {
-                m_dtx->compute_server->ReleaseSPage(m_tab.table_id , m_rid.page_no_);
             }
         }
     }
@@ -148,8 +146,6 @@ public:
             m_key = m_scan->getKey();
             if (check_conds(item_ptr.get())){
                 break;
-            }else {
-                m_dtx->compute_server->ReleaseSPage(m_tab.table_id , m_rid.page_no_);
             }
         }
     }
@@ -176,6 +172,10 @@ public:
             return m_key;
         }
         return (itemkey_t)-1;
+    }
+
+    std::vector<table_id_t> get_table_ids() override {
+        return { m_tab.table_id };
     }
 
 private:
