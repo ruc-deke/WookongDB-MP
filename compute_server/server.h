@@ -168,6 +168,10 @@ struct dtx_entry {
   bool is_partitioned;
 };
 
+// 日志刷新配置常量
+const size_t LOG_FLUSH_THRESHOLD = 1000;        // 日志数量阈值：达到1000条触发刷新
+const int LOG_FLUSH_INTERVAL_MS = 100;          // 时间间隔：100ms触发刷新
+
 // Class ComputeNode 可以建立与pagetable的连接，但不能直接与其他计算节点通信
 // 因为compute_node_rpc.h引用了compute_node.h，compute_node.h引用了compute_node_rpc.h，会导致循环引用
 // 所以建立一个ComputeServer类，ComputeServer类可以与其他计算节点通信
@@ -1741,24 +1745,140 @@ public:
     }
 
 
+    /**
+     * @brief 批量刷新日志到存储层
+     * 
+     * 此方法实现了后台日志刷新机制，将共享日志队列中的所有日志批量持久化到存储层。
+     * 
+     * 工作流程：
+     * 1. 从共享队列中批量取出所有待持久化的日志
+     * 2. 序列化日志并通过 RPC 发送到存储层
+     * 3. 更新 persist_lsn（已持久化的最大 LSN）
+     * 4. 释放已持久化日志占用的内存
+     * 
+     * 线程安全：使用互斥锁保护共享日志队列的访问
+     * 性能优化：使用 swap 减少锁持有时间
+     */
     void LogFlush(){
-        std::lock_guard<std::mutex> lk(log_mtx);
-        LogRecord *record = log_records.front();
-        log_records.pop_front();
-
-        // 更新一下 persist lsn
+        // 批量取出所有日志（在锁作用域内）
+        std::list<LogRecord*> batch_logs;
+        {
+            std::lock_guard<std::mutex> lk(log_mtx);
+            
+            // 快速检查：如果没有日志，直接返回
+            if (log_records.empty()) {
+                return;
+            }
+            
+            // 使用 swap 快速转移所有权，减少锁持有时间
+            batch_logs.swap(log_records);
+        }  // 锁在这里自动释放
         
+        // 释放锁后进行耗时的序列化和 RPC 操作
+        
+        // 1. 将 batch_logs 序列化成字符串
+        std::string serialized_logs;
+        LLSN max_lsn = 0;  // 记录本批次中最大的 LSN
+        
+        for (auto* log : batch_logs) {
+            // 序列化单条日志
+            char* log_buf = new char[log->log_tot_len_];
+            log->serialize(log_buf);
+            serialized_logs.append(log_buf, log->log_tot_len_);
+            delete[] log_buf;
+            
+            // 更新最大 LSN
+            if (log->lsn_ > max_lsn) {
+                max_lsn = log->lsn_;
+            }
+        }
+        
+        // 2. 调用存储层接口批量写入日志
+        if (!serialized_logs.empty()) {
+            storage_service::StorageService_Stub storage_stub(get_storage_channel());
+            brpc::Controller cntl;
+            storage_service::LogWriteRequest request;
+            storage_service::LogWriteResponse response;
+            
+            request.set_log(serialized_logs);
+            request.set_urgent(0);  // 后台刷新，非紧急
+            
+            storage_stub.LogWrite(&cntl, &request, &response, NULL);
+            
+            if (cntl.Failed()) {
+                LOG(ERROR) << "Batch LogFlush failed: " << cntl.ErrorText();
+                // TODO: 实现重试机制或错误恢复策略
+            }
+        }
+        
+        // 3. 更新 persist_lsn（已持久化的最大 LSN）
+        if (max_lsn > 0) {
+            std::lock_guard<std::mutex> lk_lsn(persist_lsn_mtx);
+            if (max_lsn > persist_lsn) {
+                persist_lsn = max_lsn;
+            }
+        }
+        
+        // 4. 释放已持久化的日志内存
+        for (auto* log : batch_logs) {
+            delete log;
+        }
     }
 
+    /**
+     * @brief 添加日志到共享队列
+     * 
+     * 将生成的日志记录添加到节点级别的共享日志队列中，等待后台线程批量刷新。
+     * 
+     * @param log 日志记录指针（所有权转移给 log_records）
+     * 
+     * 线程安全：使用互斥锁保护
+     */
     void AddToLog(LogRecord *log){
         std::lock_guard<std::mutex> lk(log_mtx);
         log_records.emplace_back(log);
+    }
+    
+    /**
+     * @brief 获取当前已持久化的最大 LSN
+     * 
+     * @return LLSN 已持久化的最大日志序列号
+     */
+    LLSN GetPersistedLSN() const {
+        std::lock_guard<std::mutex> lk(persist_lsn_mtx);
+        return persist_lsn;
+    }
+    
+    /**
+     * @brief 检查是否需要刷新日志（基于数量阈值）
+     * 
+     * @return bool 如果日志数量达到阈值返回 true
+     */
+    bool ShouldFlushLog() const {
+        std::lock_guard<std::mutex> lk(log_mtx);
+        return log_records.size() >= LOG_FLUSH_THRESHOLD;
+    }
+    
+    /**
+     * @brief 服务关闭：确保所有日志已刷新到存储层
+     * 
+     * 在服务器关闭前调用此方法，确保所有待持久化的日志都已写入存储层。
+     */
+    void Shutdown() {
+        LOG(INFO) << "ComputeServer shutting down, flushing remaining logs...";
+        log_flush_running.store(false);  // 通知后台线程停止
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));  // 等待线程结束
+        LogFlush();  // 最后一次刷新
+        LOG(INFO) << "All logs flushed, persist_lsn=" << GetPersistedLSN();
     }
 
 
 public:
     std::vector<BLinkIndexHandle*> bl_indexes;
     std::vector<SecFSM*> fsm_trees;
+    
+    // 后台日志刷新线程控制（需要外部访问，故放在 public）
+    std::atomic<bool> log_flush_running{true};  // 控制后台线程是否继续运行
 
 private:
     ComputeNode* node_;
@@ -1783,9 +1903,14 @@ private:
     std::mutex file_hdr_cache_mutex_;
     std::map<table_id_t, RmFileHdr::ptr> file_hdr_cache_;
 
-    // 日志数组，后台日志刷新线程不断来这个里面取日志，然后节点不断往这里面刷新日志
-    std::list<LogRecord*> log_records;
-    std::mutex log_mtx;
+    // 日志管理：节点级别的共享日志系统
+    // 所有事务的日志都写入此共享队列，由后台线程统一刷新到存储层
+    std::list<LogRecord*> log_records;          // 共享日志队列
+    mutable std::mutex log_mtx;                 // 保护 log_records 的互斥锁
+    
+    // 持久化 LSN 管理
+    LLSN persist_lsn = 0;                       // 已持久化到存储层的最大 LSN
+    mutable std::mutex persist_lsn_mtx;         // 保护 persist_lsn 的互斥锁
 
 };
 

@@ -19,10 +19,10 @@ class Handler {
  public:
   Handler() {}
   // For macro-benchmark
-  void ConfigureComputeNodeRunBench(int argc, char* argv[]);
-  void ConfigureComputeNodeRunSQL();
+  static void ConfigureComputeNodeRunBench(int argc, char* argv[]);
+  static void ConfigureComputeNodeRunSQL();
   void GenThreads(std::string bench_name);
-  void StartDatabaseSQL(node_id_t node_id , int thread_num , int sys_mode , const std::string db_name);
+  static void StartDatabaseSQL(node_id_t node_id , int thread_num , int sys_mode , const std::string db_name);
   void OutputResult(std::string bench_name, std::string system_name);
 
 

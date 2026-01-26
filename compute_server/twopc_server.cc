@@ -148,8 +148,12 @@ namespace twopc_service{
             server->local_release_x_page(table_id, page_id);
         }
 
-        TxnLog txn_log;
+        // 将日志写入共享log_records
         BatchEndLogRecord* commit_log = new BatchEndLogRecord(tx_id, server->get_node()->getNodeID(), tx_id);
+        server->AddToLog(commit_log);  // 写入节点共享的log_records
+        
+        // 为了立即发送日志，仍然使用局部TxnLog来序列化
+        TxnLog txn_log;
         txn_log.logs.push_back(commit_log);
         txn_log.batch_id_ = tx_id;
         log_request.set_log(txn_log.get_log_string());
@@ -173,9 +177,14 @@ namespace twopc_service{
         storage_service::LogWriteRequest log_request;
         storage_service::LogWriteResponse log_response;
         uint64_t tx_id = request->transaction_id();
+        
+        // 将日志写入共享log_records
+        BatchEndLogRecord* abort_log = new BatchEndLogRecord(tx_id, server->get_node()->getNodeID(), tx_id);
+        server->AddToLog(abort_log);  // 写入节点共享的log_records
+        
+        // 为了立即发送日志，仍然使用局部TxnLog来序列化
         TxnLog txn_log;
-        BatchEndLogRecord* prepare_log = new BatchEndLogRecord(tx_id, server->get_node()->getNodeID(), tx_id);
-        txn_log.logs.push_back(prepare_log);
+        txn_log.logs.push_back(abort_log);
         txn_log.batch_id_ = tx_id;
         log_request.set_log(txn_log.get_log_string());
 
