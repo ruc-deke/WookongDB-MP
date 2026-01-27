@@ -16,7 +16,7 @@ public:
         m_tab = m_dtx->compute_server->get_node()->db_meta.get_table(tab_name);
         file_hdr = m_dtx->compute_server->get_file_hdr(m_tab.table_id);
 
-        assert(m_tab.primary_key != "");
+        // assert(m_tab.primary_key != "");
 
 
         for (int i = 0 ; i < m_setClauses.size() ; i++){
@@ -116,7 +116,12 @@ public:
 
             itemkey_t* target_item_key = reinterpret_cast<itemkey_t*>(tuple);
 
-            m_dtx->GenUpdateLog(data_item , *target_item_key , (char*)data_item + sizeof(DataItem) , (RmPageHdr*)data);
+            if (m_tab.primary_key == ""){
+                m_dtx->GenUpdateLog(data_item , nullptr , m_rids[i], (char*)data_item + sizeof(DataItem) , (RmPageHdr*)data);
+            }else {
+                m_dtx->GenUpdateLog(data_item , target_item_key , m_rids[i], (char*)data_item + sizeof(DataItem) , (RmPageHdr*)data);
+            }
+            
             m_dtx->compute_server->ReleaseXPage(m_tab.table_id , m_rids[i].page_no_);
 
             // 加入到写集合里

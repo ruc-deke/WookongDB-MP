@@ -51,10 +51,15 @@ public:
         }
 
         // 构造主键
-        assert(m_tab.primary_key != "");
-        assert(has_pri);
+        // assert(m_tab.primary_key != "");
+        // assert(has_pri);
 
-        Rid rid = dtx->compute_server->get_rid_from_blink(m_tab.table_id , primary_key);
+        Rid rid = {.page_no_ = -1 , .slot_no_ = -1};
+        if(m_tab.primary_key != "") {
+             rid = dtx->compute_server->get_rid_from_blink(m_tab.table_id , primary_key);
+        } else {
+            primary_key = 0;
+        }
         
         if (rid.page_no_ != -1){
             if (dtx->write_keys.find({rid , m_tab.table_id}) == dtx->write_keys.end()){
@@ -77,7 +82,8 @@ public:
 
                     data_item->user_insert = 0;
 
-                    dtx->GenInsertLog(data_item , primary_key , (char *)data_item + sizeof(DataItem) , rid , (RmPageHdr*)data);
+                    itemkey_t* pk_ptr = (m_tab.primary_key != "") ? &primary_key : nullptr;
+                    dtx->GenInsertLog(data_item , pk_ptr , (char *)data_item + sizeof(DataItem) , rid , (RmPageHdr*)data);
 
                     dtx->compute_server->ReleaseXPage(m_tab.table_id , rid.page_no_);
                     return nullptr;
@@ -86,6 +92,7 @@ public:
                     dtx->tx_status = TXStatus::TX_ABORTING;
                     return nullptr;
                 }
+                assert(false);
             }
         }
 
@@ -123,11 +130,7 @@ public:
 
             // 当前 page 内没有空闲空间了
             if (slot_no >= file_hdr->num_records_per_page_){
-                if (SYSTEM_MODE == 1){
-                    dtx->compute_server->rpc_lazy_release_x_page(m_tab.table_id , free_page_id);
-                }else {
-                    assert(false);
-                }
+                dtx->compute_server->ReleaseXPage(m_tab.table_id , free_page_id);
                 try_times++;
                 dtx->compute_server->update_page_space(m_tab.table_id , free_page_id , 0);
                 continue;
@@ -183,13 +186,17 @@ public:
             data_item->user_insert = 0;
 
 
-            dtx->GenInsertLog(data_item , primary_key , (char *)data_item + sizeof(DataItem) , rid , (RmPageHdr*)data);
+            itemkey_t* pk_ptr = (m_tab.primary_key != "") ? &primary_key : nullptr;
+            Rid insert_rid = {.page_no_ = free_page_id, .slot_no_ = slot_no};
+            dtx->GenInsertLog(data_item , pk_ptr , (char *)data_item + sizeof(DataItem) , insert_rid , (RmPageHdr*)data);
 
             // std::cout << "Insert Pos : " << "Table ID = " << data_item->table_id << " Page ID = " << free_page_id << " Slot No = " << slot_no << "\n";
 
             int count=Bitmap::getfreeposnum(bitmap,file_hdr->num_records_per_page_ );
-            auto page_id = dtx->compute_server->bl_indexes[m_tab.table_id]->insert_entry(&primary_key , {free_page_id , slot_no});
-            assert(page_id != INVALID_PAGE_ID);
+            if (m_tab.primary_key != "") {
+                auto page_id = dtx->compute_server->bl_indexes[m_tab.table_id]->insert_entry(&primary_key , {free_page_id , slot_no});
+                assert(page_id != INVALID_PAGE_ID);
+            }
 
             dtx->compute_server->update_page_space(m_tab.table_id , free_page_id , count * (file_hdr->record_size_ + sizeof(itemkey_t)));
 

@@ -98,6 +98,10 @@ public:
         return m_prev->get_table_ids();
     }
 
+    Rid getRid(table_id_t table_id) const override {
+        return m_prev->getRid(table_id);
+    }
+
 private:
     std::unique_ptr<AbstractExecutor> m_prev; // 投影节点的孩子节点
     std::vector<ColMeta> m_cols;    //投影到的列

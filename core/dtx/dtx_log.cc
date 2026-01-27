@@ -40,23 +40,29 @@ void DTX::AddLogToTxn(){
 
 // Build a unified update log and stash it into temp_log
 UpdateLogRecord* DTX::GenUpdateLog(DataItem* item,
-                                   itemkey_t key,
+                                   itemkey_t *key,
+                                   Rid rid,
                                    const void* value,
                                    RmPageHdr* pagehdr) {
     if (txn_log == nullptr) {
         txn_log = new TxnLog();
     }
     
-
     const size_t item_size = item->GetSerializeSize();
     char* item_buf = (char*)malloc(item_size);
     memcpy(item_buf, (char*)item, sizeof(DataItem));
     memcpy(item_buf + sizeof(DataItem), value, item->value_size);
 
-    RmRecord new_record(key, item_size, item_buf);
+    itemkey_t pri_key;
+    if (key == nullptr){
+        // 负无穷
+        pri_key = (itemkey_t)(-1);
+    }else{
+        pri_key = *key;
+    }
+    RmRecord new_record(pri_key, item_size, item_buf);
     free(item_buf);
 
-    Rid rid = compute_server->get_rid_from_blink(item->table_id , key);
     std::string table_name;
     table_id_t table_id = item->table_id;
     // SQL 模式下，通过 db_meta 获取表名字
@@ -127,7 +133,7 @@ UpdateLogRecord* DTX::GenUpdateLog(DataItem* item,
 }
 
 InsertLogRecord* DTX::GenInsertLog(DataItem* item,
-                                  itemkey_t key,
+                                  itemkey_t* key,
                                   const void* value,
                                   const Rid& rid,
                                   RmPageHdr* pagehdr) {
@@ -141,7 +147,14 @@ InsertLogRecord* DTX::GenInsertLog(DataItem* item,
     memcpy(item_buf, (char*)item, sizeof(DataItem));
     memcpy(item_buf + sizeof(DataItem), value, item->value_size);
 
-    RmRecord new_record(key, item_size, item_buf);
+    itemkey_t pri_key;
+    if (key == nullptr){
+        pri_key = (itemkey_t)(-1);
+    }else{
+        pri_key = *key;
+    }
+
+    RmRecord new_record(pri_key, item_size, item_buf);
     free(item_buf);
 
     table_id_t table_id = item->table_id;
@@ -189,6 +202,7 @@ InsertLogRecord* DTX::GenInsertLog(DataItem* item,
 }
 
 DeleteLogRecord* DTX::GenDeleteLog(table_id_t table_id,
+                                   itemkey_t* key,
                                    int page_no,
                                    int slot_no,
                                    RmPageHdr* pagehdr) {

@@ -356,7 +356,9 @@ void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_
 
     if (lr_lock->getDestNodeIDNoBlock() != INVALID_NODE_ID){
         // 释放 X 锁，需要把页面给刷下去
-        flush_page_log(table_id , page_id);
+        Page *trans_page = get_node()->getBufferPoolByIndex(table_id)->fetch_page(page_id);
+        RmPageHdr *page_hdr = (RmPageHdr*)trans_page->get_data();
+        wait_page_log_flush(table_id , page_id , page_hdr->LLSN_);
         PushPageToOther(table_id , page_id , lr_lock->getDestNodeIDNoBlock());
         lr_lock->setDestNodeIDNoBlock(INVALID_NODE_ID);
     }

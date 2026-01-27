@@ -309,7 +309,7 @@ namespace storage_service{
         }
 
         // 必须带上主键，否则不给过
-        assert(pri_key != "");
+        // assert(pri_key != "");
 
         int error_code = sm_manager->create_table(tab_name , col_defs , pri_key);
         response->set_error_code(error_code);
@@ -357,9 +357,11 @@ namespace storage_service{
             }
 
             response->set_table_id(tab.table_id);
-            assert(tab.primary_key != "");
+            // assert(tab.primary_key != "");
             // std::cout << "Read Table Pkey = " << tab.primary_key << "\n";
-            response->add_primary(tab.primary_key);
+            if (tab.primary_key != "") {
+                response->add_primary(tab.primary_key);
+            }
         }
         return;
     }

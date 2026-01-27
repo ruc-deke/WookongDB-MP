@@ -170,6 +170,14 @@ public:
         return m_right->getKey(table_id);
     }
 
+    Rid getRid(table_id_t table_id) const override {
+        Rid rid = m_left->getRid(table_id);
+        if (rid.page_no_ != -1) {
+            return rid;
+        }
+        return m_right->getRid(table_id);
+    }
+
     std::vector<table_id_t> get_table_ids() override {
         auto ids = m_left->get_table_ids();
         auto right_ids = m_right->get_table_ids();

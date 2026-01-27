@@ -1,5 +1,5 @@
 -- 题目五：查询执行  测试点2: 单表插入与条件查询
-create table student (id int, name char(9), major char(32) , primary key(id));
+create table student (id int, name char(9), major char(32));
 insert into student values (0, 'KangKanga', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 insert into student values (1, 'TomTomTom', 'Computer ScienceComputer Science');
 insert into student values (2, 'JerryJerr', 'Computer ScienceComputer Science');

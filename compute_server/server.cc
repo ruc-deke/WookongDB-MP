@@ -178,7 +178,9 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
             if (dest_node_id != -1){
                 if (unlock_remote == 2){
                     // 目前持有的是写锁，且释放了，所以可以把日志刷下去了
-                    server->flush_page_log(table_id , page_id);
+                    Page *pend_page = server->get_node()->getBufferPoolByIndex(table_id)->fetch_page(page_id);
+                    RmPageHdr *page_hdr = (RmPageHdr*)pend_page->get_data();
+                    server->wait_page_log_flush(table_id , page_id , page_hdr->LLSN_);
                 }
                 server->PushPageToOther(table_id , page_id , dest_node_id);
             }

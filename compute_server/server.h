@@ -515,7 +515,7 @@ public:
             throw std::logic_error("Create Table Failed (Maybe Droping table now?), Please Try Later");
         }
 
-        assert(pri_key != "");
+        // assert(pri_key != "");
 
         try {
             if (get_node()->db_meta.is_table(tab_name)){
@@ -523,20 +523,22 @@ public:
             }
 
             // 验证主键名字确实在表里
-            bool found = false;
-            for (auto &col_def : cols){
-                if (col_def.name == pri_key){
-                    if (col_def.type != ColType::TYPE_INT){
-                        throw std::logic_error("指定主键只能是单个列，且类型需为 TYPE_INT");
+            if (pri_key != "") {
+                bool found = false;
+                for (auto &col_def : cols){
+                    if (col_def.name == pri_key){
+                        if (col_def.type != ColType::TYPE_INT){
+                            throw std::logic_error("指定主键只能是单个列，且类型需为 TYPE_INT");
+                        }
+                        // 将这列的类型转化为 ITEMKEY
+                        col_def.type = ColType::TYPE_ITEMKEY;
+                        found = true;
+                        break;
                     }
-                    // 将这列的类型转化为 ITEMKEY
-                    col_def.type = ColType::TYPE_ITEMKEY;
-                    found = true;
-                    break;
                 }
-            }
-            if (!found){
-                throw std::logic_error("主键不是本表的列!");
+                if (!found){
+                    throw std::logic_error("主键不是本表的列!");
+                }
             }
 
             storage_service::StorageService_Stub storage_stub(get_storage_channel());
@@ -864,8 +866,11 @@ public:
                 tab_meta.cols.emplace_back(c);
             }
 
-            assert(response.primary_size() == 1);
-            std::string pkey = response.primary(0);
+            assert(response.primary_size() == 1 || response.primary_size() == 0);
+            std::string pkey = "";
+            if (response.primary_size() == 1){
+                pkey = response.primary(0);
+            }
 
             tab_meta.primary_key = pkey;
             tab_meta.table_id = response.table_id();
@@ -884,15 +889,19 @@ public:
             }
 
             node_->local_buffer_pools[tab_meta.table_id] = new BufferPool(node_->pool_size_per_table , 10000);
-            node_->local_buffer_pools[tab_meta.table_id + 10000] = new BufferPool(node_->pool_size_per_fsm , 10000);
-            node_->local_buffer_pools[tab_meta.table_id + 20000] = new BufferPool(node_->pool_size_per_blink , 5000);
+            if (tab_meta.primary_key != ""){
+                node_->local_buffer_pools[tab_meta.table_id + 10000] = new BufferPool(node_->pool_size_per_blink , 10000);
+            }
+            node_->local_buffer_pools[tab_meta.table_id + 20000] = new BufferPool(node_->pool_size_per_fsm , 5000);
             
             (*global_page_lock_table_list_)[tab_meta.table_id] = new GlobalLockTable();
             (*global_valid_table_list_)[tab_meta.table_id] = new GlobalValidTable();
 
             // BLink
-            (*global_page_lock_table_list_)[tab_meta.table_id + 10000] = new GlobalLockTable();
-            (*global_valid_table_list_)[tab_meta.table_id + 10000] = new GlobalValidTable();
+            if (tab_meta.primary_key != "") {
+                (*global_page_lock_table_list_)[tab_meta.table_id + 10000] = new GlobalLockTable();
+                (*global_valid_table_list_)[tab_meta.table_id + 10000] = new GlobalValidTable();
+            }
 
             // FSM
             (*global_page_lock_table_list_)[tab_meta.table_id + 20000] = new GlobalLockTable();
@@ -911,9 +920,11 @@ public:
                 global_page_lock_table_list_->at(tab_meta.table_id)->BuildRPCConnection(compute_ips , compute_ports);
 
                 // blink
-                global_page_lock_table_list_->at(tab_meta.table_id + 10000)->Reset();
-                global_valid_table_list_->at(tab_meta.table_id + 10000)->Reset();
-                global_page_lock_table_list_->at(tab_meta.table_id + 10000)->BuildRPCConnection(compute_ips , compute_ports);
+                if (tab_meta.primary_key != "") {
+                    global_page_lock_table_list_->at(tab_meta.table_id + 10000)->Reset();
+                    global_valid_table_list_->at(tab_meta.table_id + 10000)->Reset();
+                    global_page_lock_table_list_->at(tab_meta.table_id + 10000)->BuildRPCConnection(compute_ips , compute_ports);
+                }
 
                 // fsm
                 global_page_lock_table_list_->at(tab_meta.table_id + 20000)->Reset();
@@ -921,7 +932,9 @@ public:
                 global_page_lock_table_list_->at(tab_meta.table_id + 20000)->BuildRPCConnection(compute_ips , compute_ports);
             }
 
-            bl_indexes[tab_meta.table_id] = new BLinkIndexHandle(this , tab_meta.table_id + 10000);
+            if (tab_meta.primary_key != "") {
+                bl_indexes[tab_meta.table_id] = new BLinkIndexHandle(this , tab_meta.table_id + 10000);
+            }
             fsm_trees[tab_meta.table_id] = new SecFSM(this , tab_meta.table_id + 20000);
 
             // std::cout << "Init table , blink and fsm , table_id = " << tab_meta.table_id << "\n"; 
@@ -1247,7 +1260,9 @@ public:
                 }else {
                     // std::cout << "Table ID = " << table_id << " Replace page = " << replaced_page_id << " Flush Log To Disk\n";
                     // 这里需要把日志给刷下去
-                    flush_page_log(table_id , replaced_page_id);
+                    Page *page = node_->getBufferPoolByIndex(table_id)->fetch_page(replaced_page_id);
+                    RmPageHdr *page_hdr = (RmPageHdr*)page->get_data();
+                    wait_page_log_flush(table_id , replaced_page_id, page_hdr->LLSN_);
                 }
             }
             // 写回到磁盘后，再解锁，防止别人拿到锁之后把页面换了
@@ -1650,11 +1665,17 @@ public:
         return node_id;
     }
 
-    void flush_page_log(table_id_t table_id , page_id_t page_id){
-        // TODO：把这个页面的日志都给刷下去
-        // 遍历节点dtx->temp_log
-        // 找到对应的日志，刷下去
-        
+    void wait_page_log_flush(table_id_t table_id , page_id_t page_id , LLSN require_lsn){
+        while(true){
+            persist_lsn_mtx.lock();
+            if (persist_lsn > require_lsn){
+                persist_lsn_mtx.unlock();
+                return;
+            }else {
+                persist_lsn_mtx.unlock();
+                usleep(10);
+            }
+        }
     }
 
     // 生成一个随机的数据页ID

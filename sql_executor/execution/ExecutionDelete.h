@@ -83,7 +83,12 @@ public:
             DataItemPtr item_ptr = std::make_shared<DataItem>(data_item->value_size , true);
             memcpy(item_ptr->value , data_item->value , data_item->value_size);
 
-            m_dtx->GenUpdateLog(data_item , pri_key , item_ptr->value , (RmPageHdr*)page);
+            if (m_tab.primary_key == ""){
+                m_dtx->GenUpdateLog(data_item , nullptr , m_rids[i], item_ptr->value , (RmPageHdr*)page);
+            }else {
+                m_dtx->GenUpdateLog(data_item , &pri_key , m_rids[i], item_ptr->value , (RmPageHdr*)page);
+            }
+            
 
             m_dtx->compute_server->ReleaseXPage(m_tab.table_id , m_rids[i].page_no_);
             delete_record++;

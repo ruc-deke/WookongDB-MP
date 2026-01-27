@@ -171,7 +171,11 @@ struct TabMeta{
         for (auto &index : tab.indexes) {
             os << index << "\n";
         }
-        os << tab.primary_key << "\n";
+        if (tab.primary_key.length() == 0) {
+            os << "__NO_PK__" << "\n";
+        } else {
+            os << tab.primary_key << "\n";
+        }
 
         return os;
     }
@@ -192,7 +196,11 @@ struct TabMeta{
         }// 反序列化主键信息
         std::string pk;
         is >> pk;
-        tab.primary_key = pk;
+        if (pk == "__NO_PK__") {
+            tab.primary_key = "";
+        } else {
+            tab.primary_key = pk;
+        }
         
         return is;
     }

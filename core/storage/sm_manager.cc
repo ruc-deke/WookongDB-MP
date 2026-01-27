@@ -70,11 +70,15 @@ int SmManager::open_db(const std::string &db_name){
         // 重建 BLink 索引
         auto disk_manager = rm_manager->get_diskmanager();
         std::string index_name = tab_name + "_bl";
-        if (disk_manager->is_file(index_name)) {
-            disk_manager->destroy_file(index_name);
+        std::shared_ptr<S_BLinkIndexHandle> index_handle = nullptr;
+
+        if (table->second.primary_key != "") {
+             if (disk_manager->is_file(index_name)) {
+                disk_manager->destroy_file(index_name);
+            }
+            disk_manager->create_file(index_name);
+            index_handle = std::make_shared<S_BLinkIndexHandle>(disk_manager, buffer_pool_mgr, tab_name);
         }
-        disk_manager->create_file(index_name);
-        auto index_handle = std::make_shared<S_BLinkIndexHandle>(disk_manager, buffer_pool_mgr, tab_name);
 
         // 读取一遍 FileHandle，构造 FSM 和 B+ 树索引
         auto file_handle = m_fhs[tab_name];
@@ -116,7 +120,9 @@ int SmManager::open_db(const std::string &db_name){
                     valid_slot_cnt++;
                     Rid rid = {.page_no_ = i , .slot_no_ = j};
 
-                    index_handle->insert_entry(&item_key , rid);
+                    if (table->second.primary_key != "") {
+                        index_handle->insert_entry(&item_key , rid);
+                    }
                 }
             }
             tot_valid_cnt += valid_slot_cnt;
@@ -135,9 +141,11 @@ int SmManager::open_db(const std::string &db_name){
         // std::cout << "TabName = " << tab_name << " Page Num = " << num_pages << " Tuple Num = " << tot_valid_cnt << "\n";
 
         // 刷写 BLink 索引相关页面到磁盘
-        index_handle->write_file_hdr_to_page();
-        buffer_pool_mgr->flush_all_pages(index_handle->getFD());
-        disk_manager->close_file(index_handle->getFD());
+        if (index_handle != nullptr) {
+            index_handle->write_file_hdr_to_page();
+            buffer_pool_mgr->flush_all_pages(index_handle->getFD());
+            disk_manager->close_file(index_handle->getFD());
+        }
 
         TabMeta tab_meta = table->second;
         for (auto index : tab_meta.indexes) {
@@ -309,10 +317,12 @@ int SmManager::create_table(const std::string &table_name , const std::vector<Co
     m_fhs.emplace(table_name , rm_manager->open_file(table_name).release());
 
     {
-        int error_code = create_primary(table_name);
-        if (error_code != LJ::ErrorCode::SUCCESS){
-            rm_manager->destroy_file(table_name);
-            return error_code;
+        if (pri_key != "") {
+             int error_code = create_primary(table_name);
+             if (error_code != LJ::ErrorCode::SUCCESS){
+                 rm_manager->destroy_file(table_name);
+                 return error_code;
+             }
         }
     }
 
@@ -320,7 +330,9 @@ int SmManager::create_table(const std::string &table_name , const std::vector<Co
     {
         int error_code = create_fsm(table_name , record_size , candidate);
         if (error_code != LJ::ErrorCode::SUCCESS){
-            rm_manager->destroy_file(table_name + "_bl");
+            if (pri_key != "") {
+                rm_manager->destroy_file(table_name + "_bl");
+            }
             rm_manager->destroy_file(table_name);
             return error_code;
         }
@@ -385,9 +397,11 @@ int SmManager::drop_table(const std::string &table_name){
     rm_manager->get_diskmanager()->close_file(fsm_fd);
     rm_manager->get_diskmanager()->destroy_file(table_name + "_fsm");
 
-    int blink_fd = rm_manager->get_diskmanager()->open_file(table_name + "_bl");
-    rm_manager->get_diskmanager()->close_file(blink_fd);
-    rm_manager->get_diskmanager()->destroy_file(table_name + "_bl");
+    if (table.primary_key != "") {
+        int blink_fd = rm_manager->get_diskmanager()->open_file(table_name + "_bl");
+        rm_manager->get_diskmanager()->close_file(blink_fd);
+        rm_manager->get_diskmanager()->destroy_file(table_name + "_bl");
+    }
 
     // 3. 从 db 元信息中移除
     db.m_tabs.erase(table_name);

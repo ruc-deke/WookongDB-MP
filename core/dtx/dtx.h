@@ -142,15 +142,17 @@ class DTX {
 
   void AddLogToTxn();
     UpdateLogRecord* GenUpdateLog(DataItem* item,
-                                  itemkey_t key,
+                                  itemkey_t *key,
+                                  Rid rid,
                                   const void* value,
                                   RmPageHdr* page = nullptr);
     InsertLogRecord* GenInsertLog(DataItem* item,
-                     itemkey_t key,
+                     itemkey_t* key,
                      const void* value,
                      const Rid& rid,
                      RmPageHdr* pagehdr);
     DeleteLogRecord* GenDeleteLog(table_id_t table_id,
+            itemkey_t* key,
             int page_no,
             int slot_no,RmPageHdr* pagehdr);
     NewPageLogRecord* GenNewPageLog(table_id_t table_id,

@@ -178,7 +178,7 @@ public:
                 request.set_dest_node_id(-1);
             }
             
-            // // // LOG(INFO) << "Send Pending to node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id << " dest node : " << request.dest_node_id();
+            // LOG(INFO) << "Send Pending to node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id << " dest node : " << request.dest_node_id();
             brpc::Channel* channel = compute_channels[node_id];
 
             compute_node_service::ComputeNodeService_Stub computenode_stub(channel);

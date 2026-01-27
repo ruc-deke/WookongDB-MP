@@ -174,6 +174,13 @@ public:
         return (itemkey_t)-1;
     }
 
+    Rid getRid(table_id_t table_id) const override {
+        if (table_id == m_tab.table_id) {
+            return m_rid;
+        }
+        return {.page_no_ = -1, .slot_no_ = -1};
+    }
+
     std::vector<table_id_t> get_table_ids() override {
         return { m_tab.table_id };
     }

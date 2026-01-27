@@ -422,7 +422,7 @@ void RunSQL(int sock){
         sql_dtx->TxBegin(iter);
       }
 
-      LOG(INFO) << "Run SQL" << sql_str;
+      LOG(INFO) << "Run SQL : " << sql_str;
 
       // 词法分析：将 SQL 字符串转换为 token 流
       YY_BUFFER_STATE b = yy_scan_string(sql_str.c_str());

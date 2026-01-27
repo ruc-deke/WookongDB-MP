@@ -1,6 +1,6 @@
 -- 题目五：查询执行 测试点5：连接查询
-create table student (id int, name char(9), major char(32) , primary key(id));
-create table grade (course char(9), student_id int, score float , primary key(student_id));
+create table student (id int, name char(9), major char(32));
+create table grade (course char(9), student_id int, score float);
 insert into student values (1, 'TomTomTom', 'Computer ScienceComputer Science');
 insert into student values (2, 'JerryJerr', 'Computer ScienceComputer Science');
 insert into student values (3, 'JackJackJ', 'Electrical Engineeringer Science');

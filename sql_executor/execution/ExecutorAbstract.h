@@ -37,6 +37,10 @@ public:
         return getKey();
     }
 
+    virtual Rid getRid(table_id_t table_id) const {
+        return {.page_no_ = -1, .slot_no_ = -1};
+    }
+
     virtual int getAffectRows() { return m_affect_rows; }
 
     virtual std::vector<table_id_t> get_table_ids() {

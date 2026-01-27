@@ -315,7 +315,13 @@ bool DTX::TxCommitSingleSQL(coro_yield_t &yield){
       Bitmap::reset(bitmap , rid.slot_no_);
       int count = Bitmap::getfreeposnum(bitmap,file_hdr->num_records_per_page_ );
       compute_server->update_page_space(table_id , rid.page_no_ , count * (file_hdr->record_size_ + sizeof(itemkey_t)));
-      compute_server->delete_from_blink(table_id , key);
+      
+      std::string tab_name = compute_server->getTableNameFromTableID(table_id);
+      assert(tab_name != "");
+      TabMeta tab = compute_server->get_node()->db_meta.get_table(tab_name);
+      if (tab.primary_key != "") {
+          compute_server->delete_from_blink(table_id , key);
+      }
     }else {
       // orginal_item->valid = 1;
       // char* bitmap = page + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
@@ -398,7 +404,7 @@ bool DTX::TxCommitSingle(coro_yield_t& yield) {
     orginal_item->lock = UNLOCKED;  
     // 把改过的信息给写回去
     memcpy(reinterpret_cast<char*>(orginal_item) + sizeof(DataItem), data_item.item_ptr->value, data_item.item_ptr->value_size);
-    GenUpdateLog(orginal_item, item_key, data_item.item_ptr->value,(RmPageHdr*)page);
+    GenUpdateLog(orginal_item, &item_key, rid , data_item.item_ptr->value,(RmPageHdr*)page);
     struct timespec start_time2, end_time2;
     clock_gettime(CLOCK_REALTIME, &start_time2);
     ReleaseXPage(yield, data_item.item_ptr->table_id, rid.page_no_);
@@ -502,7 +508,15 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
 
     orginal_item->lock = UNLOCKED;  
 
-    GenUpdateLog(orginal_item , pri_key , (char*)orginal_item + sizeof(DataItem) , (RmPageHdr*)page);
+    std::string tab_name = compute_server->getTableNameFromTableID(table_id);
+    assert(tab_name != "");
+    TabMeta tab = compute_server->get_node()->db_meta.get_table(tab_name);
+    if (tab.primary_key == ""){
+      GenUpdateLog(orginal_item , nullptr , rid , (char*)orginal_item + sizeof(DataItem) , (RmPageHdr*)page);
+    }else {
+      GenUpdateLog(orginal_item , &pri_key , rid , (char*)orginal_item + sizeof(DataItem) , (RmPageHdr*)page);
+    }
+    
 
     compute_server->ReleaseXPage(table_id , rid.page_no_);
   }
@@ -528,9 +542,15 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
         // data_item->lock = UNLOCKED;
 
         // 不管三七二十一，直接往 B+ 树里面插入
-        compute_server->insert_into_blink(table_id , item_key , rid);
+        std::string tab_name = compute_server->getTableNameFromTableID(table_id);
+        assert(tab_name != "");
+        TabMeta tab = compute_server->get_node()->db_meta.get_table(tab_name);
+        if (tab.primary_key != "") {
+            compute_server->insert_into_blink(table_id , item_key , rid);
+        }
         
-        GenUpdateLog(data_item , item_key , (char*)data_item + sizeof(DataItem) , (RmPageHdr*)data);
+        itemkey_t* pk_ptr = (tab.primary_key != "") ? &item_key : nullptr;
+        GenUpdateLog(data_item , pk_ptr , rid , (char*)data_item + sizeof(DataItem) , (RmPageHdr*)data);
         compute_server->ReleaseXPage(table_id , rid.page_no_);
 
         break;
@@ -542,21 +562,20 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
         DataItem *data_item = GetDataItemFromPage(table_id , rid , data , file_hdr , item_key , true);
         assert(item_key == key);
 
-        // assert(data_item->valid == 1);
-        // data_item->valid = 0;
-        // data_item->lock = UNLOCKED;
-        // char* bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR; 
-        // assert(Bitmap::is_set(bitmap , rid.slot_no_));
-        // Bitmap::reset(bitmap , rid.slot_no_);
-
         data_item->valid = 0;
         char* bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR; 
         assert(Bitmap::is_set(bitmap , rid.slot_no_));
         Bitmap::reset(bitmap , rid.slot_no_); 
 
-        compute_server->delete_from_blink(table_id , item_key);
+        std::string tab_name = compute_server->getTableNameFromTableID(table_id);
+        assert(tab_name != "");
+        TabMeta tab = compute_server->get_node()->db_meta.get_table(tab_name);
+        if (tab.primary_key != "") {
+            compute_server->delete_from_blink(table_id , item_key);
+        }
 
-        GenDeleteLog(table_id , rid.page_no_ , rid.slot_no_,(RmPageHdr*)data);
+        itemkey_t* pk_ptr = (tab.primary_key != "") ? &item_key : nullptr;
+        GenDeleteLog(table_id , pk_ptr, rid.page_no_ , rid.slot_no_,(RmPageHdr*)data);
 
         compute_server->ReleaseXPage(table_id , rid.page_no_);
 
@@ -570,7 +589,16 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
         assert(item_key == key);
         memcpy(data_item->value , write_record.GetDataItem()->value , data_item->value_size);
         
-        GenUpdateLog(data_item , item_key , write_record.GetDataItem()->value , (RmPageHdr*)data);
+        std::string tab_name = compute_server->getTableNameFromTableID(table_id);
+        assert(tab_name != "");
+        TabMeta tab = compute_server->get_node()->db_meta.get_table(tab_name);
+        if (tab.primary_key == ""){
+          GenUpdateLog(data_item , nullptr , rid, write_record.GetDataItem()->value , (RmPageHdr*)data);
+        }else {
+          GenUpdateLog(data_item , &item_key , rid, write_record.GetDataItem()->value , (RmPageHdr*)data);
+        }
+        
+        
 
         compute_server->ReleaseXPage(table_id , rid.page_no_);
 
@@ -594,7 +622,16 @@ void DTX::TxAbortSQL(coro_yield_t &yield){
 
     data_item->lock = UNLOCKED;
 
-    GenUpdateLog(data_item , item_key , (char*)data_item + sizeof(DataItem) , (RmPageHdr*)data);
+    std::string tab_name = compute_server->getTableNameFromTableID(table_id);
+    assert(tab_name != "");
+    TabMeta tab = compute_server->get_node()->db_meta.get_table(tab_name);
+    if (tab.primary_key == ""){
+      GenUpdateLog(data_item , nullptr , rid, (char*)data_item + sizeof(DataItem) , (RmPageHdr*)data);
+    }else {
+      GenUpdateLog(data_item , &item_key , rid, (char*)data_item + sizeof(DataItem) , (RmPageHdr*)data);
+    }
+
+    
     compute_server->ReleaseXPage(table_id , rid.page_no_);
   }
 

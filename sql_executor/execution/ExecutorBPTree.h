@@ -71,6 +71,13 @@ public:
         return m_key;
     }
 
+    Rid getRid(table_id_t table_id) const override {
+        if (table_id == m_tableID) {
+            return m_rid;
+        }
+        return {.page_no_ = -1, .slot_no_ = -1};
+    }
+
 
 private:
     std::string m_tabName;

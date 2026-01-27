@@ -268,6 +268,8 @@ class PageTableServiceImpl : public PageTableService {
             table_id_t table_id = request->page_id().table_id();
             node_id_t node_id = request->node_id();
 
+            // LOG(INFO) << "LRPSLock RemoteCall , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
+
             GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
             bool lock_success = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->LockShared(node_id,table_id, valid_info);
   
@@ -284,6 +286,7 @@ class PageTableServiceImpl : public PageTableService {
                 response->set_lsn(now_lsn);
 
                 if (!need_from_storage){
+                    // LOG(INFO) << "Remote Immediate Get Lock , Waiting For Push , table_id = " << table_id << " page_id = " << page_id << " node_id = " << node_id << " src_node_id = " << newest_node;
                     // 对于读锁来说，newest_node_id 一定等于-1
                     assert(newest_node != INVALID_NODE_ID);
                     // 通知目前持有锁的节点，把数据推送给请求的节点
@@ -295,9 +298,9 @@ class PageTableServiceImpl : public PageTableService {
                 page_id_pb->set_page_no(page_id);
                 response->set_allocated_page_id(page_id_pb);
 
-                 // LOG(INFO) << "LRPSLock LockSuccess Directly , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
+                //  LOG(INFO) << "LRPSLock LockSuccess Directly , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
             }else{
-                 // LOG(INFO) << "LRPSLock Wait Lock, node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id << " LockSuccess ? " << lock_success;
+                //  LOG(INFO) << "LRPSLock Wait Lock, node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id << " LockSuccess ? " << lock_success;
             }
             
             // 添加模拟延迟
@@ -312,7 +315,7 @@ class PageTableServiceImpl : public PageTableService {
             table_id_t table_id = request->page_id().table_id();
             node_id_t node_id = request->node_id();
 
-            // LOG(INFO) << "LRPSLock local , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
+            // LOG(INFO) << "LRPSLock LocalCall , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
             
             GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
             bool lock_success = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->LockShared(node_id,table_id, valid_info);
@@ -342,9 +345,9 @@ class PageTableServiceImpl : public PageTableService {
                 page_id_pb->set_page_no(page_id);
                 response->set_allocated_page_id(page_id_pb);
 
-                 // LOG(INFO) << "LRPSLock LockSuccess Directly , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
+                //  LOG(INFO) << "LRPSLock LockSuccess Directly , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
             }else{
-                 // LOG(INFO) << "LRPSLock Wait Lock, node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id << " LockSuccess ? " << lock_success;
+                //  LOG(INFO) << "LRPSLock Wait Lock, node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id << " LockSuccess ? " << lock_success;
             }
 
             return;
