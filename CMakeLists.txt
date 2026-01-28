@@ -153,3 +153,6 @@ add_subdirectory(storage_server)
 add_subdirectory(sql_executor)
 
 add_subdirectory(sql_client)
+
+add_subdirectory(tests)
+

@@ -89,7 +89,7 @@ class DTX {
   bool TxCommit(coro_yield_t& yield);
   bool TxCommitSingle(coro_yield_t& yield);
 
-  void TxAbort(coro_yield_t& yield);
+  void TxAbortWorkLoad(coro_yield_t& yield);
   
 
   // SQL
@@ -141,17 +141,17 @@ class DTX {
   int distribute_txn=0 ;
 
   void AddLogToTxn();
-    UpdateLogRecord* GenUpdateLog(DataItem* item,
+    LLSN GenUpdateLog(DataItem* item,
                                   itemkey_t *key,
                                   Rid rid,
                                   const void* value,
                                   RmPageHdr* page = nullptr);
-    InsertLogRecord* GenInsertLog(DataItem* item,
+    LLSN GenInsertLog(DataItem* item,
                      itemkey_t* key,
                      const void* value,
                      const Rid& rid,
                      RmPageHdr* pagehdr);
-    DeleteLogRecord* GenDeleteLog(table_id_t table_id,
+    LLSN GenDeleteLog(table_id_t table_id,
             itemkey_t* key,
             int page_no,
             int slot_no,RmPageHdr* pagehdr);
@@ -323,6 +323,9 @@ class DTX {
 
   TXStatus tx_status;
 
+  // 记录一下，当前事务做的最大 LSN
+  LLSN max_lsn;
+
 
   // 这个是跑 SmallBank 那些负载用的，SQL 模式不用这个
   std::vector<std::pair<itemkey_t , DataSetItem>> read_only_set;     // 本事务读取过的数据项集合
@@ -448,6 +451,8 @@ void DTX::ClearReadWriteSet() {
 
 ALWAYS_INLINE
 void DTX::Clean() {
+  max_lsn = 0;
+
   read_only_set.clear();
   read_write_set.clear();
   insert_set.clear();

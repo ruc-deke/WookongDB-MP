@@ -309,6 +309,31 @@ void Handler::GenThreads(std::string bench_name) {
 
   auto* compute_server = new ComputeServer(compute_node, compute_ips, compute_ports);
 
+  // 启动一个后台线程，刷日志
+  std::thread log_flush_thread([compute_server]() {
+    auto last_flush_time = std::chrono::steady_clock::now();
+    
+    while (compute_server->log_flush_running.load()) {
+        // 每10ms检查一次是否需要刷新
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_flush_time).count();
+        
+        // 触发条件1：日志数量达到1000条
+        // 触发条件2：距离上次刷新超过100ms
+        if (compute_server->ShouldFlushLog() || elapsed >= LOG_FLUSH_INTERVAL_MS) {
+            compute_server->LogFlush();
+            last_flush_time = now;
+        }
+    }
+    
+    // 线程退出前最后一次刷新
+    compute_server->LogFlush();
+    LOG(INFO) << "Log flush thread terminated";
+  });
+  log_flush_thread.detach();
+
   // ComputeServer 启动是用另外一个线程启动的， 这里等待一下启动
   if (WORKLOAD_MODE == 0){
     std::this_thread::sleep_for(std::chrono::seconds(10)); 

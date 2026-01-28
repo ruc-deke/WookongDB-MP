@@ -295,7 +295,7 @@ int LogReplay::ResolveTableFd(table_id_t table_id, const char* table_name_ptr, s
     if (it != table_fd_cache_.end()) {
         return it->second;
     }
-    int fd = disk_manager_->get_file_fd(table_name);
+    int fd = disk_manager_->open_file(table_name);
     table_fd_cache_[table_id] = fd;
     return fd;
 }
@@ -355,150 +355,153 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
         case LogType::INSERT: {
             InsertLogRecord* insert_log = dynamic_cast<InsertLogRecord*>(log);
 
-            LOG(INFO) << "Insert log: insert page_no: " << insert_log->page_no_;
+            // LOG(INFO) << "Insert log: insert page_no: " << insert_log->page_no_;
 
             std::string table_name(insert_log->table_name_, insert_log->table_name_ + insert_log->table_name_size_);
-            int fd = disk_manager_->get_file_fd(table_name);
+            int fd = disk_manager_->open_file(table_name);
             if (fd < 0) {
+                assert(false);
+            }
+
+            RmFileHdr file_hdr{};
+            char page0_buf[sizeof(RmPageHdr) + sizeof(RmFileHdr)];
+            disk_manager_->read_page(fd, PAGE_NO_RM_FILE_HDR, page0_buf, sizeof(page0_buf));
+            file_hdr = *reinterpret_cast<RmFileHdr*>(page0_buf + OFFSET_FILE_HDR);
+            if (insert_log->slot_no_ < 0 || insert_log->slot_no_ >= file_hdr.num_records_per_page_) {
                 break;
             }
 
-            std::vector<char> page_buf(PAGE_SIZE, 0);
-            disk_manager_->read_page(fd, insert_log->page_no_, page_buf.data(), PAGE_SIZE);
-            auto* page_hdr = reinterpret_cast<RmPageHdr*>(page_buf.data() + OFFSET_PAGE_HDR);
+            char buffer[PAGE_SIZE];
+            disk_manager_->read_page(fd, insert_log->page_no_, buffer, PAGE_SIZE);
+
+            auto* page_hdr = reinterpret_cast<RmPageHdr*>(buffer);
             const LLSN log_llsn = static_cast<LLSN>(insert_log->lsn_);
             if (page_hdr->LLSN_ >= log_llsn) {
-                break;
+                // TODO
+                break;      
             }
-
-            char* bitmap = page_buf.data() + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+            
+            char* bitmap = buffer + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
             const int slot_no = insert_log->slot_no_;
             if (!Bitmap::is_set(bitmap, slot_no)) {
                 Bitmap::set(bitmap, slot_no);
                 page_hdr->num_records_++;
+            }else {
+                // BitMap 一定是 false
+                assert(false);
             }
-            const int bucket_no = Bitmap::get_bucket(slot_no);
-            disk_manager_->update_value(fd, insert_log->page_no_, OFFSET_BITMAP + bucket_no,
-                                        &bitmap[bucket_no], sizeof(char));
-            const int slot_offset = sizeof(RmPageHdr) + bitmap_size_ + slot_no * (sizeof(DataItem) + sizeof(itemkey_t));
-            disk_manager_->update_value(fd, insert_log->page_no_, slot_offset,
-                                        (char*)&insert_log->insert_value_.key_, sizeof(itemkey_t));
-            disk_manager_->update_value(fd, insert_log->page_no_, slot_offset + sizeof(itemkey_t),
-                                        insert_log->insert_value_.value_, insert_log->insert_value_.value_size_ * sizeof(char));
+
+            // 要改三个地方，data_item + value + itemkey
+            char *slots = bitmap + file_hdr.bitmap_size_;
+            char* tuple = slots + slot_no * (file_hdr.record_size_ + sizeof(itemkey_t));
+
+            // std::cout << "FileHdr Record Size = " << file_hdr.record_size_ << " log record size = " << insert_log->insert_value_.value_size_ << "\n";
+
+            itemkey_t* item_key = reinterpret_cast<itemkey_t*>(tuple);
+            *item_key = insert_log->insert_value_.key_;
+
+
+            memcpy(tuple + sizeof(itemkey_t) , insert_log->insert_value_.value_ , insert_log->insert_value_.value_size_);
+
+            int id = *reinterpret_cast<int*>(insert_log->insert_value_.value_ + sizeof(DataItem));
+            int age = *reinterpret_cast<int*>(insert_log->insert_value_.value_ + sizeof(DataItem) + sizeof(int));
+            // std::cout << "id = " << id << " age = " << age << "\n";
 
             page_hdr->pre_LLSN_ = page_hdr->LLSN_;
             page_hdr->LLSN_ = log_llsn;
-            disk_manager_->update_value(fd, insert_log->page_no_, OFFSET_PAGE_HDR,
-                                        reinterpret_cast<char*>(page_hdr), sizeof(RmPageHdr));
+
+            // 写回到磁盘里
+            disk_manager_->write_page(fd , insert_log->page_no_ , buffer , PAGE_SIZE);
         } break;
         case LogType::DELETE: {
             DeleteLogRecord* delete_log = dynamic_cast<DeleteLogRecord*>(log);
 
-            LOG(INFO) << "Delete log: page_no: " << delete_log->page_no_;
-
-            int fd = ResolveTableFd(delete_log->table_id_, delete_log->table_name_, delete_log->table_name_size_);
-            if (fd < 0) {
-                break;
-            }
+            // int fd = ResolveTableFd(delete_log->table_id_, delete_log->table_name_, delete_log->table_name_size_);
+            int fd = disk_manager_->open_file(delete_log->table_name_);
+            assert(fd >= 0);
 
             RmFileHdr file_hdr{};
-            disk_manager_->read_page(fd, PAGE_NO_RM_FILE_HDR, reinterpret_cast<char*>(&file_hdr), sizeof(file_hdr));
+            char page0_buf[sizeof(RmPageHdr) + sizeof(RmFileHdr)];
+            disk_manager_->read_page(fd, PAGE_NO_RM_FILE_HDR, page0_buf, sizeof(page0_buf));
+            file_hdr = *reinterpret_cast<RmFileHdr*>(page0_buf + OFFSET_FILE_HDR);
             if (delete_log->slot_no_ < 0 || delete_log->slot_no_ >= file_hdr.num_records_per_page_) {
-                break;
+                assert(false);
             }
 
-            std::vector<char> page_buf(PAGE_SIZE, 0);
-            disk_manager_->read_page(fd, delete_log->page_no_, page_buf.data(), PAGE_SIZE);
+            char buffer[PAGE_SIZE];
+            disk_manager_->read_page(fd, delete_log->page_no_, buffer, PAGE_SIZE);
 
-            auto* page_hdr = reinterpret_cast<RmPageHdr*>(page_buf.data() + OFFSET_PAGE_HDR);
-            char* bitmap = page_buf.data() + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-
+            auto* page_hdr = reinterpret_cast<RmPageHdr*>(buffer);
+            char* bitmap = buffer + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
             const LLSN log_llsn = static_cast<LLSN>(delete_log->lsn_);
+
             if (page_hdr->LLSN_ >= log_llsn) {
+                // TODO
                 break;
             }
 
-            if (!Bitmap::is_set(bitmap, delete_log->slot_no_)) {
-                break;
-            }
-
-            bool was_full = (page_hdr->num_records_ == file_hdr.num_records_per_page_);
+            // TODO：DeleteLog 的逻辑需要重新考虑下，这里先不搞了
+            assert(Bitmap::is_set(bitmap , delete_log->slot_no_));
             Bitmap::reset(bitmap, delete_log->slot_no_);
-            if (page_hdr->num_records_ > 0) {
-                page_hdr->num_records_--;
-            }
 
             page_hdr->pre_LLSN_ = page_hdr->LLSN_;
             page_hdr->LLSN_ = log_llsn;
+            
+            char *slots = bitmap + file_hdr.bitmap_size_;
+            char* tuple = slots + delete_log->slot_no_ * (file_hdr.record_size_ + sizeof(itemkey_t));
+            DataItem *data_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+            assert(data_item->valid == 1);
+            assert(data_item->lock == EXCLUSIVE_LOCKED);
 
-            if (was_full) {
-                page_hdr->next_free_page_no_ = file_hdr.first_free_page_no_;
-                file_hdr.first_free_page_no_ = delete_log->page_no_;
-                disk_manager_->update_value(fd, PAGE_NO_RM_FILE_HDR, OFFSET_FIRST_FREE_PAGE_NO,
-                                            reinterpret_cast<char*>(&file_hdr.first_free_page_no_), sizeof(int));
-            }
+            // 写回到存储
+            disk_manager_->write_page(fd , delete_log->page_no_ , buffer , PAGE_SIZE);
 
-            disk_manager_->update_value(fd, delete_log->page_no_, OFFSET_PAGE_HDR,
-                                        reinterpret_cast<char*>(page_hdr), sizeof(RmPageHdr));
-            int bucket_no = Bitmap::get_bucket(delete_log->slot_no_);
-            disk_manager_->update_value(fd, delete_log->page_no_, OFFSET_BITMAP + bucket_no,
-                                        &bitmap[bucket_no], sizeof(char));
         } break;
         case LogType::UPDATE: {
-            std::cout << "进入UPDATE重做"<<std::endl;
+            // std::cout << "进入UPDATE重做"<<std::endl;
             UpdateLogRecord* update_log = dynamic_cast<UpdateLogRecord*>(log);
             std::string table_name(update_log->table_name_, update_log->table_name_ + update_log->table_name_size_);
-            int fd = disk_manager_->get_file_fd(table_name);
+            int fd = disk_manager_->open_file(table_name);
             if (fd < 0) {
-                std::cout << "因fd跳出UPDATE重做"<<std::endl;break;
+                assert(false);
             }
 
             RmFileHdr file_hdr{};
-            disk_manager_->read_page(fd, PAGE_NO_RM_FILE_HDR, reinterpret_cast<char*>(&file_hdr), sizeof(file_hdr));
-            const int slot_base = sizeof(RmPageHdr) + file_hdr.bitmap_size_ +
-                                   update_log->rid_.slot_no_ * (file_hdr.record_size_ + sizeof(itemkey_t));
-            const int value_offset = slot_base + static_cast<int>(sizeof(itemkey_t));
+            char page0_buf[sizeof(RmPageHdr) + sizeof(RmFileHdr)];
+            disk_manager_->read_page(fd, PAGE_NO_RM_FILE_HDR, page0_buf, sizeof(page0_buf));
+            file_hdr = *reinterpret_cast<RmFileHdr*>(page0_buf + OFFSET_FILE_HDR);
 
-            // 读取旧值做对比
-            std::vector<char> page_buf(PAGE_SIZE, 0);
-            disk_manager_->read_page(fd, update_log->rid_.page_no_, page_buf.data(), PAGE_SIZE);
-            auto* page_hdr = reinterpret_cast<RmPageHdr*>(page_buf.data() + OFFSET_PAGE_HDR);
+
+            char buffer[PAGE_SIZE];
+            disk_manager_->read_page(fd, update_log->rid_.page_no_, buffer, PAGE_SIZE);
+
+            RmPageHdr* page_hdr = reinterpret_cast<RmPageHdr*>(buffer);
             const LLSN log_llsn = static_cast<LLSN>(update_log->lsn_);
-            if (page_hdr->LLSN_ >= log_llsn) {
-                std::cout << "因页面LLSN"<<page_hdr->LLSN_<<"大于等于日志LLSN"<<log_llsn<<"跳出UPDATE重做"<<std::endl;break;
-            }
-            const char* old_val_ptr = page_buf.data() + value_offset;
-            const size_t copy_len = std::min(static_cast<size_t>(update_log->new_value_.value_size_),
-                                             static_cast<size_t>(PAGE_SIZE - value_offset));
 
-            // 解析用户 payload：DataItem 头后面紧跟真实值
-            float old_bal = 0.0f, new_bal = 0.0f;
-            if (copy_len >= sizeof(DataItem) + sizeof(uint32_t) + sizeof(float)) {
-                const uint8_t* old_payload = reinterpret_cast<const uint8_t*>(old_val_ptr + sizeof(DataItem));
-                const uint8_t* new_payload = reinterpret_cast<const uint8_t*>(update_log->new_value_.value_ + sizeof(DataItem));
-                std::memcpy(&old_bal, old_payload + sizeof(uint32_t), sizeof(float));
-                std::memcpy(&new_bal, new_payload + sizeof(uint32_t), sizeof(float));
+            if (page_hdr->LLSN_ >= log_llsn) {
+                // TODO：
+                break;
             }
-            std::cout << "old_bal=" << old_bal << " -> new_bal=" << new_bal <<std::endl;
-            // LOG(INFO) << "[UpdateLog Redo] table=" << table_name
-            //           << " key=" << update_log->new_value_.key_
-            //           << " old_bal=" << old_bal << " -> new_bal=" << new_bal;
-            
-            disk_manager_->update_value(fd,
-                                        update_log->rid_.page_no_,
-                                        value_offset,
-                                        update_log->new_value_.value_,
-                                        update_log->new_value_.value_size_ * sizeof(char));
 
             page_hdr->pre_LLSN_ = page_hdr->LLSN_;
             page_hdr->LLSN_ = log_llsn;
-            disk_manager_->update_value(fd, update_log->rid_.page_no_, OFFSET_PAGE_HDR,
-                                        reinterpret_cast<char*>(page_hdr), sizeof(RmPageHdr));
-        
+
+            char* bitmap = buffer + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
+            char *slots = bitmap + file_hdr.bitmap_size_;
+            char* tuple = slots + update_log->rid_.slot_no_ * (file_hdr.record_size_ + sizeof(itemkey_t));
+            itemkey_t *item_key = reinterpret_cast<itemkey_t*>(tuple);
+            *item_key = update_log->new_value_.key_;
+            memcpy(tuple + sizeof(item_key) , update_log->new_value_.value_ , update_log->new_value_.value_size_);
+
+            int id = *reinterpret_cast<int*>(update_log->new_value_.value_ + sizeof(DataItem));
+            int age = *reinterpret_cast<int*>(update_log->new_value_.value_ + sizeof(DataItem) + sizeof(int));
+            // std::cout << "id = " << id << " age = " << age << "\n";
+
+            disk_manager_->write_page(fd , update_log->rid_.page_no_ , buffer , PAGE_SIZE);        
         } break;
         case LogType::NEWPAGE: {
             NewPageLogRecord* new_page_log = dynamic_cast<NewPageLogRecord*>(log);
-            int fd = ResolveTableFd(new_page_log->table_id_, new_page_log->table_name_, new_page_log->table_name_size_);
+            int fd = ResolveTableFd(new_page_log->table_id_, nullptr, 0);
             if (fd < 0) break;
 
             bool is_file = true;
@@ -508,7 +511,9 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
             int old_first_free = RM_NO_PAGE;
             if (is_file) {
                 // 读取旧的 first_free_page_no，作为新链尾的 next
-                disk_manager_->read_page(fd, PAGE_NO_RM_FILE_HDR, reinterpret_cast<char*>(&old_first_free), sizeof(int));
+                char page0_buf[sizeof(RmPageHdr) + sizeof(RmFileHdr)];
+                disk_manager_->read_page(fd, PAGE_NO_RM_FILE_HDR, page0_buf, sizeof(page0_buf));
+                old_first_free = *reinterpret_cast<int*>(page0_buf + OFFSET_FILE_HDR + OFFSET_FIRST_FREE_PAGE_NO);
             }
 
             page_id_t chain_head = RM_NO_PAGE;
@@ -543,12 +548,12 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
                                             reinterpret_cast<char*>(&old_first_free), sizeof(int));
 
                 // 更新文件头 first_free 指向新链头
-                disk_manager_->update_value(fd, PAGE_NO_RM_FILE_HDR, OFFSET_FIRST_FREE_PAGE_NO,
+                disk_manager_->update_value(fd, PAGE_NO_RM_FILE_HDR, OFFSET_FILE_HDR + OFFSET_FIRST_FREE_PAGE_NO,
                                             reinterpret_cast<char*>(&chain_head), sizeof(int));
 
                 // 更新 num_pages: 基于原 num_pages 加上申请数量
                 int new_num_pages = file_num_pages + new_page_log->request_pages_;
-                disk_manager_->update_value(fd, PAGE_NO_RM_FILE_HDR, OFFSET_NUM_PAGES,
+                disk_manager_->update_value(fd, PAGE_NO_RM_FILE_HDR, OFFSET_FILE_HDR + OFFSET_NUM_PAGES,
                                             reinterpret_cast<char*>(&new_num_pages), sizeof(int));
             }
         } break;
@@ -586,10 +591,11 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
     if (result == -1) {
         LOG(FATAL) << "Fail to write persist_batch_id into log_file";
     }
-    result = write(log_write_head_fd_, &persist_off_, sizeof(uint64_t));
+    result = write(log_write_head_fd_, &persist_off_, sizeof(size_t));
     if (result == -1) {
         LOG(FATAL) << "Fail to write persist_off into log_file";
     }
+    // std::cout << "持久化点更新为：" << persist_off_ << std::endl;
 }
 
 void LogReplay::apply_undo_log(const LogRecord* log_record) {
@@ -604,9 +610,11 @@ void LogReplay::apply_undo_log(const LogRecord* log_record) {
                 return;
             }
             std::string table_name(update_log->table_name_, update_log->table_name_ + update_log->table_name_size_);
-            int fd = disk_manager_->get_file_fd(table_name);
+            int fd = disk_manager_->open_file(table_name);
             RmFileHdr file_hdr{};
-            disk_manager_->read_page(fd, PAGE_NO_RM_FILE_HDR, reinterpret_cast<char*>(&file_hdr), sizeof(file_hdr));
+            char page0_buf[sizeof(RmPageHdr) + sizeof(RmFileHdr)];
+            disk_manager_->read_page(fd, PAGE_NO_RM_FILE_HDR, page0_buf, sizeof(page0_buf));
+            file_hdr = *reinterpret_cast<RmFileHdr*>(page0_buf + OFFSET_FILE_HDR);
             const RmRecord& undo_image = update_log->old_value();
             const int slot_base = sizeof(RmPageHdr) + file_hdr.bitmap_size_ +
                                    update_log->rid_.slot_no_ * (file_hdr.record_size_ + sizeof(itemkey_t));
@@ -624,7 +632,7 @@ void LogReplay::apply_undo_log(const LogRecord* log_record) {
                 return;
             }
             int fd = ResolveTableFd(delete_log->table_id_, delete_log->table_name_, delete_log->table_name_size_);
-            disk_manager_->update_value(fd, PAGE_NO_RM_FILE_HDR, OFFSET_FIRST_FREE_PAGE_NO, (char*)(&delete_log->undo_first_free_page_no_), sizeof(int));
+            disk_manager_->update_value(fd, PAGE_NO_RM_FILE_HDR, OFFSET_FILE_HDR + OFFSET_FIRST_FREE_PAGE_NO, (char*)(&delete_log->undo_first_free_page_no_), sizeof(int));
             disk_manager_->update_value(fd, delete_log->page_no_, OFFSET_PAGE_HDR, (char*)&delete_log->undo_page_hdr_, sizeof(RmPageHdr));
             disk_manager_->update_value(fd, delete_log->page_no_, delete_log->bucket_offset_, const_cast<char*>(&delete_log->undo_bucket_value_), sizeof(char));
             break;
@@ -648,7 +656,7 @@ void LogReplay::apply_undo_log(const LogRecord* log_record) {
 int LogReplay::read_log(char *log_data, int size, int offset) {
     // read log file from the previous end
     assert (log_replay_fd_ != -1);
-    int file_size = disk_manager_->get_file_size(LOG_FILE_NAME);
+    int file_size = disk_manager_->get_file_size(log_file_path_);
     if (offset > file_size) {
         return -1;
     }
@@ -666,17 +674,15 @@ void LogReplay::replayFun(){
     int offset = persist_off_ + 1;
     int read_bytes;
     while (!replay_stop) {
-        // std::cout << "11111"<<std::endl;
         // 用size_t 如果出现负数就会有问题
         int read_size = std::min((int)max_replay_off_ - (int)offset + 1, (int)LOG_REPLAY_BUFFER_SIZE);
         //  LOG(INFO) << "Replay log size: " << read_size;
         if(read_size <= 0){
-            // don't need to replay
-            // LOG(INFO)<<"111";
+            // std::cout<<"Read_size="<<read_size<<std::endl;
             std::this_thread::sleep_for(std::chrono::milliseconds(50)); //sleep 50 ms
             continue;
         }
-        //LOG(INFO) << "Begin apply log, apply size is " << read_size << ", max_replay_off_: " << max_replay_off_ << ", offset: " << offset;
+        // LOG(INFO) << "Begin apply log, apply size is " << read_size << ", max_replay_off_: " << max_replay_off_ << ", offset: " << offset;
         // offset为要读取数据的起始位置，persist_off_为已经读取的字节的结尾位置，所以需要+1
         // offset ++;
         read_bytes = read_log(buffer_.buffer_, read_size, offset);
@@ -687,18 +693,18 @@ void LogReplay::replayFun(){
         while (inner_offset <= buffer_.offset_ ) {
             // buffer.offset_存储了buffer中数据的最大长度，判断在buffer存储的数据内能否读到下一条日志的总长度数据
             if (inner_offset + OFFSET_LOG_TOT_LEN + sizeof(uint32_t) > (unsigned long)buffer_.offset_) {
-                LOG(INFO) << "the next log record's tot_len cannot be read, inner_offset: " << inner_offset << ", buffer_offset: " << buffer_.offset_;
+                // LOG(INFO) << "the next log record's tot_len cannot be read, inner_offset: " << inner_offset << ", buffer_offset: " << buffer_.offset_;
                 break;
             }
             // 获取日志记录长度
             uint32_t size = *reinterpret_cast<const uint32_t *>(buffer_.buffer_ + inner_offset + OFFSET_LOG_TOT_LEN);
-            //LOG(INFO) << "the next log record's size is: " << size;
             // 如果剩余数据不是一条完整的日志记录，则不再进行读取
             if (size == 0 || size + inner_offset > (unsigned int)buffer_.offset_ + 1) {
             //  LOG(INFO) << "The remain data does not contain a complete log record, the next log record's size is: " << size << ", inner_offset: " << inner_offset << ", buffer_offset: " << buffer_.offset_;
                 usleep(1000);
                 break;
-            }           
+            }    
+            // LOG(INFO) << "the next log record's size is: " << size;       
             LogRecord *record;
             LogType type = *reinterpret_cast<const LogType *>(buffer_.buffer_ + inner_offset + OFFSET_LOG_TYPE);
             switch (type) {

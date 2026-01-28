@@ -231,7 +231,6 @@ int SmManager::create_primary(const std::string &table_name){
 
 int SmManager::create_fsm(const std::string &tab_name , int tuple_size , table_id_t table_id){
     std::string fsm_name = tab_name + "_fsm";
-    // 假设初始只分配少量页面用于 SQL 插入
     int initial_pages = 10000; 
     
     // 1. 创建 FSM 文件
@@ -244,7 +243,8 @@ int SmManager::create_fsm(const std::string &tab_name , int tuple_size , table_i
 
     auto file_handle = m_fhs[tab_name];
     int fd_fsm = rm_manager->get_diskmanager()->open_file(fsm_name);
-    rm_manager->get_diskmanager()->write_page(fd_fsm, RM_FILE_HDR_PAGE, (char *)&file_handle->file_hdr_, sizeof(file_handle->file_hdr_));
+    // rm_manager->get_diskmanager()->write_page(fd_fsm, RM_FILE_HDR_PAGE, (char *)&file_handle->file_hdr_, sizeof(file_handle->file_hdr_));
+    rm_manager->get_diskmanager()->update_value(fd_fsm, RM_FILE_HDR_PAGE, sizeof(RmPageHdr), (char *)&file_handle->file_hdr_, sizeof(file_handle->file_hdr_));
     
     // 3. 初始化 FSM 结构
     fsm->initialize(table_id + 20000, initial_pages);
@@ -308,12 +308,26 @@ int SmManager::create_table(const std::string &table_name , const std::vector<Co
     }
 
 
-    int record_size = curr_offset;
+    int record_size = curr_offset + sizeof(DataItem);
     if (record_size < 1 || record_size > RM_MAX_RECORD_SIZE) {
         return LJ::RECORD_TOO_LARGE;
     }
     rm_manager->create_file(table_name , record_size);
     // rm_manager->get_diskmanager()->create_file(table_name);
+
+    // 把 file_hdr 写入到 Page0->get_data() 中
+    int fd = rm_manager->get_diskmanager()->open_file(table_name);
+    RmFileHdr file_hdr;
+    file_hdr.record_size_ = curr_offset + sizeof(DataItem);
+    file_hdr.num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (file_hdr.record_size_ + sizeof(itemkey_t)) * BITMAP_WIDTH);
+    file_hdr.bitmap_size_ = (file_hdr.num_records_per_page_ + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
+    file_hdr.num_pages_ = 1;
+    file_hdr.first_free_page_no_ = RM_NO_PAGE;
+    
+    // 使用 update_value 只更新 RmFileHdr 部分，避免覆盖 RmPageHdr
+    rm_manager->get_diskmanager()->update_value(fd, RM_FILE_HDR_PAGE, sizeof(RmPageHdr), (char*)&file_hdr, sizeof(RmFileHdr));
+    rm_manager->get_diskmanager()->close_file(fd);
+
     m_fhs.emplace(table_name , rm_manager->open_file(table_name).release());
 
     {
@@ -337,19 +351,6 @@ int SmManager::create_table(const std::string &table_name , const std::vector<Co
             return error_code;
         }
     }
-
-    // 把 file_hdr 写入到 Page0->get_data() 中
-    int fd = rm_manager->get_diskmanager()->open_file(table_name);
-    char buf[PAGE_SIZE];
-    memset(buf , 0 , PAGE_SIZE);
-    RmFileHdr *file_hdr = reinterpret_cast<RmFileHdr*>(buf);
-    file_hdr->record_size_ = curr_offset + sizeof(DataItem);
-    file_hdr->num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (file_hdr->record_size_ + sizeof(itemkey_t)) * BITMAP_WIDTH);
-    file_hdr->bitmap_size_ = (file_hdr->num_records_per_page_ + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
-    file_hdr->num_pages_ = 1;
-    file_hdr->first_free_page_no_ = RM_NO_PAGE;
-    rm_manager->get_diskmanager()->write_page(fd , 0 , buf , PAGE_SIZE);
-    
 
     std::cout << "Create A Table , Table Name = " << table_name << " TableID = " << candidate << "\n";
 

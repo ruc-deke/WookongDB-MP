@@ -31,7 +31,7 @@ void YCSB::PopulateUserTable(){
     std::cout << "Table Init Page Num = " << table_file->file_hdr_.num_pages_ << "\n";
 
     
-    rm_manager->get_diskmanager()->write_page(table_file->GetFd(), RM_FILE_HDR_PAGE, (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));
+    rm_manager->get_diskmanager()->update_value(table_file->GetFd(), RM_FILE_HDR_PAGE, sizeof(RmPageHdr), (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));
 
     for (int id = 0 ; id < record_count ; id++){
         user_table_key_t key;
@@ -64,7 +64,7 @@ void YCSB::PopulateUserTable(){
     }               
     
     int fd1 = rm_manager->get_diskmanager()->open_file(table_name + "_fsm");
-    rm_manager->get_diskmanager()->write_page(fd1, RM_FILE_HDR_PAGE, (char *)&table_file_fsm->file_hdr_, sizeof(table_file_fsm->file_hdr_));
+    rm_manager->get_diskmanager()->update_value(fd1, RM_FILE_HDR_PAGE, sizeof(RmPageHdr), (char *)&table_file_fsm->file_hdr_, sizeof(table_file_fsm->file_hdr_));
     int leftrecords = record_count % num_records_per_page;//最后一页的记录数
     fsm_trees[0]->update_page_space(num_pages, (num_records_per_page - leftrecords) * (tuple_size + sizeof(itemkey_t)));//更新最后一页的空间信息,free space为可插入的元组数量*（key+value）
     fsm_trees[0]->flush_all_pages();

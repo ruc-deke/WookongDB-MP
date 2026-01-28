@@ -68,7 +68,8 @@ public:
                 return nullptr;
             }else {
                 // 事务持有元组的写锁，只有一种情况不回滚，那就是本事务刚删除掉元组
-                char *data = dtx->compute_server->FetchXPage(m_tab.table_id , rid.page_no_);
+                Page *x_page = dtx->compute_server->FetchXPage(m_tab.table_id , rid.page_no_);
+                char *data = x_page->get_data();
                 DataItem *data_item = dtx->GetDataItemFromPage(m_tab.table_id , rid , data , file_hdr , primary_key , true);
                 assert(data_item->lock == EXCLUSIVE_LOCKED);
                 if (data_item->valid == 0){
@@ -83,6 +84,7 @@ public:
                     data_item->user_insert = 0;
 
                     itemkey_t* pk_ptr = (m_tab.primary_key != "") ? &primary_key : nullptr;
+                    x_page->set_dirty(true);
                     dtx->GenInsertLog(data_item , pk_ptr , (char *)data_item + sizeof(DataItem) , rid , (RmPageHdr*)data);
 
                     dtx->compute_server->ReleaseXPage(m_tab.table_id , rid.page_no_);
@@ -115,7 +117,8 @@ public:
             }
 
             // 2. 插入到页面里
-            char *data = dtx->compute_server->FetchXPage(m_tab.table_id , free_page_id);
+            Page *x_page = dtx->compute_server->FetchXPage(m_tab.table_id , free_page_id);
+            char *data = x_page->get_data();
 
             // 插入了一个新页面，把这个新页面给挂到 FSM 上
             if(create_new_page_tag) {
@@ -188,6 +191,7 @@ public:
 
             itemkey_t* pk_ptr = (m_tab.primary_key != "") ? &primary_key : nullptr;
             Rid insert_rid = {.page_no_ = free_page_id, .slot_no_ = slot_no};
+            x_page->set_dirty(true);
             dtx->GenInsertLog(data_item , pk_ptr , (char *)data_item + sizeof(DataItem) , insert_rid , (RmPageHdr*)data);
 
             // std::cout << "Insert Pos : " << "Table ID = " << data_item->table_id << " Page ID = " << free_page_id << " Slot No = " << slot_no << "\n";

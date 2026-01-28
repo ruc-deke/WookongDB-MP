@@ -27,9 +27,10 @@ public:
         int delete_record = 0;
         for (int i = 0 ; i < rid_num ; i++){
             itemkey_t pri_key;
-            char *page = m_dtx->compute_server->FetchXPage(m_tab.table_id , m_rids[i].page_no_);
+            Page *x_page = m_dtx->compute_server->FetchXPage(m_tab.table_id , m_rids[i].page_no_);
+            char *data = x_page->get_data();
 
-            DataItem *data_item = m_dtx->GetDataItemFromPage(m_tab.table_id , m_rids[i] , page , m_fileHdr , pri_key , true);
+            DataItem *data_item = m_dtx->GetDataItemFromPage(m_tab.table_id , m_rids[i] , data , m_fileHdr , pri_key , true);
             // 执行到这里的时候，Recheck 下是否仍然满足条件，如果已经不满足了，那就跳过本元组
             if (data_item->valid == 0){
                 m_dtx->compute_server->ReleaseXPage(m_tab.table_id , m_rids[i].page_no_);
@@ -83,10 +84,11 @@ public:
             DataItemPtr item_ptr = std::make_shared<DataItem>(data_item->value_size , true);
             memcpy(item_ptr->value , data_item->value , data_item->value_size);
 
+            x_page->set_dirty(true);
             if (m_tab.primary_key == ""){
-                m_dtx->GenUpdateLog(data_item , nullptr , m_rids[i], item_ptr->value , (RmPageHdr*)page);
+                m_dtx->GenUpdateLog(data_item , nullptr , m_rids[i], (char*)item_ptr->value , (RmPageHdr*)data);
             }else {
-                m_dtx->GenUpdateLog(data_item , &pri_key , m_rids[i], item_ptr->value , (RmPageHdr*)page);
+                m_dtx->GenUpdateLog(data_item , &pri_key , m_rids[i], (char*)item_ptr->value , (RmPageHdr*)data);
             }
             
 

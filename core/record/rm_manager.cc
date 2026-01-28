@@ -24,7 +24,21 @@ void RmManager::create_file(const std::string& filename, int record_size) {
 
     // 将file header写入磁盘文件（名为file name，文件描述符为fd）中的第0页
     // head page直接写入磁盘，没有经过缓冲区的NewPage，那么也就不需要FlushPage
-    disk_manager_->write_page(fd, RM_FILE_HDR_PAGE, (char *)&file_hdr, sizeof(file_hdr));
+    // Update: page 0 now stores RmPageHdr + RmFileHdr
+    char page_buf[PAGE_SIZE];
+    memset(page_buf, 0, PAGE_SIZE);
+
+    // Initialize RmPageHdr
+    RmPageHdr *page_hdr = reinterpret_cast<RmPageHdr *>(page_buf);
+    page_hdr->next_free_page_no_ = RM_NO_PAGE;
+    page_hdr->num_records_ = 0;
+    page_hdr->LLSN_ = 0;
+    page_hdr->pre_LLSN_ = 0;
+
+    // Copy RmFileHdr
+    memcpy(page_buf + sizeof(RmPageHdr), &file_hdr, sizeof(file_hdr));
+
+    disk_manager_->write_page(fd, RM_FILE_HDR_PAGE, page_buf, PAGE_SIZE);
     disk_manager_->close_file(fd);
 }
 
@@ -45,8 +59,9 @@ std::unique_ptr<RmFileHandle> RmManager::open_file(const std::string& filename) 
  * @param {RmFileHandle*} file_handle 要关闭文件的句柄
  */
 void RmManager::close_file(const RmFileHandle* file_handle) {
-    disk_manager_->write_page(file_handle->fd_, RM_FILE_HDR_PAGE, (char *)&file_handle->file_hdr_,
-                                sizeof(file_handle->file_hdr_));
+    // Update RmFileHdr at the correct offset (after RmPageHdr)
+    disk_manager_->update_value(file_handle->fd_, RM_FILE_HDR_PAGE, sizeof(RmPageHdr), 
+                                (char *)&file_handle->file_hdr_, sizeof(file_handle->file_hdr_));
     // 缓冲区的所有页刷到磁盘，并从缓冲池中清除，注意这句话必须写在close_file前面
     buffer_pool_manager_->clear_file_pages(file_handle->fd_);
     disk_manager_->close_file(file_handle->fd_);

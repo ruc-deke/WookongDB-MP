@@ -401,10 +401,11 @@ namespace storage_service{
         bool is_blink = (table_path.find("_bl") != std::string::npos);
 
         if (!is_fsm && !is_blink) {
-            RmFileHdr file_hdr{};
-            disk_manager_->read_page(fd, RM_FILE_HDR_PAGE, reinterpret_cast<char*>(&file_hdr), sizeof(file_hdr));
-            file_hdr.num_pages_ = new_page_no + 1;
-            disk_manager_->write_page(fd, RM_FILE_HDR_PAGE, reinterpret_cast<char*>(&file_hdr), sizeof(file_hdr));
+            char page0_buf[sizeof(RmPageHdr) + sizeof(RmFileHdr)];
+            disk_manager_->read_page(fd, RM_FILE_HDR_PAGE, page0_buf, sizeof(page0_buf));
+            RmFileHdr* file_hdr = reinterpret_cast<RmFileHdr*>(page0_buf + sizeof(RmPageHdr));
+            file_hdr->num_pages_ = new_page_no + 1;
+            disk_manager_->update_value(fd, RM_FILE_HDR_PAGE, sizeof(RmPageHdr), reinterpret_cast<char*>(file_hdr), sizeof(RmFileHdr));
         }
 
         // std::cout << "Create a Page , table_id = " << table_id << " page_id = " << new_page_no << "\n";
@@ -438,14 +439,18 @@ namespace storage_service{
 
         if (!is_bp_index) {
             // RM 文件：维护页头和文件头的空闲链表
-            int next_free = RM_NO_PAGE;
+            // 读取 Page 0 获取当前的 first_free_page_no
+            char page0_buf[sizeof(RmPageHdr) + sizeof(RmFileHdr)];
+            disk_manager_->read_page(fd, PAGE_NO_RM_FILE_HDR, page0_buf, sizeof(page0_buf));
+            RmFileHdr* file_hdr = reinterpret_cast<RmFileHdr*>(page0_buf + sizeof(RmPageHdr));
+            int next_free = file_hdr->first_free_page_no_;
+
+            // 将被删除页面的 next_free 指向旧的 first_free
             disk_manager_->update_value(fd, page_no, OFFSET_NEXT_FREE_PAGE_NO, reinterpret_cast<char*>(&next_free), sizeof(int));
         
-            RmFileHdr file_hdr{};
-            disk_manager_->read_page(fd, PAGE_NO_RM_FILE_HDR, reinterpret_cast<char*>(&file_hdr), sizeof(file_hdr));
-        
+            // 更新 Page 0 的 first_free 指向当前被删除的页面
             int new_first_free = static_cast<int>(page_no);
-            disk_manager_->update_value(fd, PAGE_NO_RM_FILE_HDR, OFFSET_FIRST_FREE_PAGE_NO, reinterpret_cast<char*>(&new_first_free), sizeof(int));
+            disk_manager_->update_value(fd, PAGE_NO_RM_FILE_HDR, sizeof(RmPageHdr) + OFFSET_FIRST_FREE_PAGE_NO, reinterpret_cast<char*>(&new_first_free), sizeof(int));
         }
 
         // disk_manager_->close_file(fd);

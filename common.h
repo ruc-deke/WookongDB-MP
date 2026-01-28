@@ -71,6 +71,7 @@ static const std::string DB_META_NAME = "db.meta";
 #define OFFSET_NUM_RECORDS 4
 #define OFFSET_NEXT_FREE_PAGE_NO 0
 #define OFFSET_BITMAP 8
+#define OFFSET_FILE_HDR 24
 
 static constexpr uint64_t UNLOCKED = 0;
 static constexpr uint64_t EXCLUSIVE_LOCKED = 0xFF00000000000000;

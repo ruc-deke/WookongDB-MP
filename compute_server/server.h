@@ -4,6 +4,7 @@
 #include <brpc/server.h>
 #include <gflags/gflags.h>
 #include <mutex>
+#include <condition_variable>
 #include <map>
 #include <random>
 #include <chrono>
@@ -169,8 +170,8 @@ struct dtx_entry {
 };
 
 // 日志刷新配置常量
-const size_t LOG_FLUSH_THRESHOLD = 1000;        // 日志数量阈值：达到1000条触发刷新
-const int LOG_FLUSH_INTERVAL_MS = 100;          // 时间间隔：100ms触发刷新
+const size_t LOG_FLUSH_THRESHOLD = 100;        // 日志数量阈值：达到1000条触发刷新
+const int LOG_FLUSH_INTERVAL_MS = 10;          // 时间间隔：100ms触发刷新
 
 // Class ComputeNode 可以建立与pagetable的连接，但不能直接与其他计算节点通信
 // 因为compute_node_rpc.h引用了compute_node.h，compute_node.h引用了compute_node_rpc.h，会导致循环引用
@@ -383,9 +384,9 @@ public:
         
         RmFileHdr* hdr;
         if (is_remote) {
-            hdr = reinterpret_cast<RmFileHdr*>(const_cast<char*>(remote_data.c_str()));
+            hdr = reinterpret_cast<RmFileHdr*>(const_cast<char*>(remote_data.c_str()) + sizeof(RmPageHdr));
         } else {
-            hdr = reinterpret_cast<RmFileHdr*>(page_0->get_data());
+            hdr = reinterpret_cast<RmFileHdr*>(page_0->get_data() + sizeof(RmPageHdr));
         }
         auto ret = std::make_shared<RmFileHdr>(*hdr);
 
@@ -442,29 +443,28 @@ public:
         return page->get_data();
     }
 
-    char *FetchXPage(table_id_t table_id , page_id_t page_id){
+    Page *FetchXPage(table_id_t table_id , page_id_t page_id){
         assert(table_id >= 0 && table_id < 30000);
         assert(page_id >= 0);
         Page *page = nullptr;
         if(SYSTEM_MODE == 0) {
             page = rpc_fetch_x_page(table_id,page_id);
-        }
-        else if(SYSTEM_MODE == 1){
+        } else if(SYSTEM_MODE == 1){
             page = rpc_lazy_fetch_x_page(table_id,page_id , true);
-        }
-        else if(SYSTEM_MODE == 2){
+        } else if(SYSTEM_MODE == 2){
             page = local_fetch_x_page(table_id,page_id);
-        }
-        else if(SYSTEM_MODE == 3){
+        } else if(SYSTEM_MODE == 3){
             // TODO
             assert(false);
             page = single_fetch_x_page(table_id,page_id);
-        }else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
+        } else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
             page = rpc_ts_fetch_x_page(table_id , page_id);
+        } else {
+            assert(false);
         }
-        else assert(false);
-        return page->get_data();
+        return page;
     }
+
     void ReleaseSPage(table_id_t table_id , page_id_t page_id){
         assert(table_id >= 0 && table_id < 30000);
         if (SYSTEM_MODE == 0){
@@ -804,9 +804,7 @@ public:
         RecordPrinter::print_record_count(resp.tab_name_size() , &context);
 
         std::string ret;
-        // 立刻打印
         if (context.m_data_send != nullptr && context.m_offset != nullptr && *context.m_offset > 0) {
-            // std::cout.write(context.m_data_send, *context.m_offset);
             ret.assign(context.m_data_send, *context.m_offset);
         }
         delete[] context.m_data_send;
@@ -1183,7 +1181,13 @@ public:
             return put_page_into_buffer_eager(table_id , page_id , data);
         }else if (type == 1){
             // lazy
-            return put_page_into_buffe_lazy(table_id , page_id , data , need_to_record);
+            Page *page = put_page_into_buffe_lazy(table_id , page_id , data , need_to_record);
+            // 即使节点拿到了这个页面的X 锁，也不一定修改这个页面，is_dirty 的作用即判断下，本节点是否修改过这个页面
+            // 之所以需要知道是否修改过，是因为存在一个情况：假如节点 0啥也没干，persist_lsn = 0，节点干了一堆活，persist_lsn = 1000
+            // 然后节点 1 把页面传给了节点 0，节点 0 拿到了 X 锁，结果还是啥也没干，persist_lsn 仍然等于 0
+            // 此时节点 1 又申请了这个页面，节点 0 需要把页面传过去，传过去之前，需要等这个页面的日志刷下去，如果 is_dirty = fals，就不需要等待了
+            page->is_dirty_ = false;
+            return page;
         }else if (type == 2){
             // 2pc
             return put_page_into_buffer_2pc(table_id , page_id , data);
@@ -1193,6 +1197,7 @@ public:
             // 时间片
             return put_page_into_buffer_ts(table_id , page_id , data);
         }
+        assert(false);
     }
 
     // 将页面放进缓冲区中，如果缓冲区满，选择一个页面淘汰
@@ -1260,16 +1265,26 @@ public:
                 }else {
                     // std::cout << "Table ID = " << table_id << " Replace page = " << replaced_page_id << " Flush Log To Disk\n";
                     // 这里需要把日志给刷下去
-                    Page *page = node_->getBufferPoolByIndex(table_id)->fetch_page(replaced_page_id);
-                    RmPageHdr *page_hdr = (RmPageHdr*)page->get_data();
-                    wait_page_log_flush(table_id , replaced_page_id, page_hdr->LLSN_);
+                    // 只有数据表才需要检查 LSN (table_id < 10000)
+                    if (table_id < 10000) {
+                        Page *page = node_->getBufferPoolByIndex(table_id)->fetch_page(replaced_page_id);
+                        // LOG(INFO) << "Evict A Page , Need Wait Log Flush";
+                        wait_log_flush(page);
+                    }
                 }
             }
-            // 写回到磁盘后，再解锁，防止别人拿到锁之后把页面换了
+
+            auto *request = new page_table_service::BufferReleaseUnlockRequest();
+            Page *page = node_->getBufferPoolByIndex(table_id)->fetch_page(replaced_page_id);
+            if (table_id < 10000) {
+                RmPageHdr *page_hdr = (RmPageHdr*)page->get_data();
+                request->set_lsn(page_hdr->LLSN_);
+            } else {
+                request->set_lsn(0);
+            }
+            
             lr_local_lock->UnlockMtx();
 
-            // page_table_service::PageTableService_Stub pagetable_stub(get_pagetable_channel());
-            auto *request = new page_table_service::BufferReleaseUnlockRequest();
             auto *response = new page_table_service::BufferReleaseUnlockResponse();
             auto *pid = new page_table_service::PageID();
             pid->set_page_no(replaced_page_id);
@@ -1278,9 +1293,7 @@ public:
             request->set_node_id(node_->node_id);
 
             // 这里需要拿到页面的 LLSN，此时页面一定在缓冲区里，并且不会被淘汰，直接去拿就行
-            Page *page = node_->getBufferPoolByIndex(table_id)->fetch_page(replaced_page_id);
-            RmPageHdr *page_hdr = (RmPageHdr*)page->get_data();
-            request->set_lsn(page_hdr->LLSN_);
+            
 
             node_id_t page_belong_node = get_node_id_by_page_id(table_id , replaced_page_id);
             if (page_belong_node == node_->node_id){
@@ -1503,8 +1516,9 @@ public:
 
         if (table_id < 10000){
             // 创建了页面之后，需要通知其它节点页面数量变多了，方法是向 page0 写入一个信息
-            char *data = FetchXPage(table_id , 0);
-            RmFileHdr *file_hdr = reinterpret_cast<RmFileHdr*>(data);
+            Page *x_page = FetchXPage(table_id , 0);
+            x_page->is_dirty_ = true;
+            RmFileHdr *file_hdr = reinterpret_cast<RmFileHdr*>(x_page->get_data() + sizeof(RmPageHdr));
             // 有可能我和别人一起创建了新页面，我创建了 5，别人创建了 6，然后别人更新了 6，那我就不用管了
             if (file_hdr->num_pages_ < new_page + 1){
                 file_hdr->num_pages_ = new_page + 1;
@@ -1665,16 +1679,24 @@ public:
         return node_id;
     }
 
-    void wait_page_log_flush(table_id_t table_id , page_id_t page_id , LLSN require_lsn){
-        while(true){
-            persist_lsn_mtx.lock();
-            if (persist_lsn > require_lsn){
-                persist_lsn_mtx.unlock();
-                return;
-            }else {
-                persist_lsn_mtx.unlock();
-                usleep(10);
-            }
+    void wait_log_flush(Page *page){
+        if (!page->is_dirty()){
+            return ;
+        }
+
+        RmPageHdr *hdr = reinterpret_cast<RmPageHdr*>(page->get_data());
+        std::unique_lock<std::mutex> lock(persist_lsn_mtx);
+        while(persist_lsn <= hdr->LLSN_){
+            // std::cout << "Require LSN : " << hdr->LLSN_ << " now LSN : " << persist_lsn << "\n";
+            persist_lsn_cond.wait(lock);
+        }
+    }
+
+    void wait_log_flush(LLSN require_lsn){
+        std::unique_lock<std::mutex> lock(persist_lsn_mtx);
+        while(persist_lsn <= require_lsn){
+            // std::cout << "Require LSN : " << hdr->LLSN_ << " now LSN : " << persist_lsn << "\n";
+            persist_lsn_cond.wait(lock);
         }
     }
 
@@ -1856,7 +1878,9 @@ public:
             std::lock_guard<std::mutex> lk_lsn(persist_lsn_mtx);
             if (max_lsn > persist_lsn) {
                 persist_lsn = max_lsn;
+                persist_lsn_cond.notify_all();
             }
+            // LOG(INFO) << "persist lsn = " << persist_lsn;
         }
         
         // 4. 释放已持久化的日志内存
@@ -1951,6 +1975,7 @@ private:
     // 持久化 LSN 管理
     LLSN persist_lsn = 0;                       // 已持久化到存储层的最大 LSN
     mutable std::mutex persist_lsn_mtx;         // 保护 persist_lsn 的互斥锁
+    std::condition_variable persist_lsn_cond;   // persist_lsn 条件变量
 
 };
 

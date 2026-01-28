@@ -234,7 +234,7 @@ bool SmallBankDTX::TxSendPayment(SmallBank* smallbank_client, uint64_t* seed, co
 
   if (chk_val_0->bal < amount) {
       // std::cout << "Insufficient balance cause Abort" ;
-    dtx->TxAbort(yield);
+    dtx->TxAbortWorkLoad(yield);
     return true;
   }
 
@@ -574,7 +574,7 @@ bool SmallBankDTX::LongTxSendPayment(SmallBank* smallbank_client, uint64_t* seed
     smallbank_checking_val_t* chk_val_0 = (smallbank_checking_val_t*)chk_obj_0[i]->value;
     if (chk_val_0->bal < amount) {
       // std::cout << "Insufficient balance cause Abort" ;
-      dtx->TxAbort(yield);
+      dtx->TxAbortWorkLoad(yield);
       return true;
     }
   }

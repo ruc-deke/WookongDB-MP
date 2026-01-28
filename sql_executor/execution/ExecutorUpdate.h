@@ -34,7 +34,9 @@ public:
         m_affect_rows = 0;
         int rid_num = m_rids.size();
         for (int i = 0 ; i < rid_num ; i++){
-            char *data = m_dtx->compute_server->FetchXPage(m_tab.table_id , m_rids[i].page_no_);
+            Page *x_page = m_dtx->compute_server->FetchXPage(m_tab.table_id , m_rids[i].page_no_);
+            char *data = x_page->get_data();
+
             itemkey_t item_key;
             DataItem *data_item = m_dtx->GetDataItemFromPage(m_tab.table_id , m_rids[i] , data , file_hdr , item_key , true);
             if (data_item->valid == 0){
@@ -93,7 +95,7 @@ public:
 
             data_item->lock = EXCLUSIVE_LOCKED;
             data_item->user_insert = 0;
-
+            
             int set_num = m_setClauses.size();
 
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
@@ -116,6 +118,7 @@ public:
 
             itemkey_t* target_item_key = reinterpret_cast<itemkey_t*>(tuple);
 
+            x_page->set_dirty(true);
             if (m_tab.primary_key == ""){
                 m_dtx->GenUpdateLog(data_item , nullptr , m_rids[i], (char*)data_item + sizeof(DataItem) , (RmPageHdr*)data);
             }else {

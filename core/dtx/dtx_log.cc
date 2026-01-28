@@ -28,18 +28,19 @@ void DTX::AddLogToTxn(){
     if(txn_log == nullptr){
         txn_log = new TxnLog();
     }
+    // commit log
     BatchEndLogRecord* batch_end_log = new BatchEndLogRecord(txn_log->batch_id_, global_meta_man->local_machine_id, tx_id);
-    // std::unique_lock<std::mutex> l(txn_log->log_mutex);
-    // txn_log->log_mutex.lock();
     
     // 同时写入节点共享的log_records和事务的txn_log
-    compute_server->AddToLog(batch_end_log);  // 写入节点共享的log_records
-    txn_log->logs.push_back(batch_end_log);   // 也写入txn_log，用于事务提交时发送
-    // txn_log->log_mutex.unlock();
+    compute_server->AddToLog(batch_end_log); 
+
+    // 最后，需要等这个事务相关的日志全都落盘
+    // compute_server->wait_log_flush(max_lsn);
+    max_lsn = 0;
 }
 
 // Build a unified update log and stash it into temp_log
-UpdateLogRecord* DTX::GenUpdateLog(DataItem* item,
+LLSN DTX::GenUpdateLog(DataItem* item,
                                    itemkey_t *key,
                                    Rid rid,
                                    const void* value,
@@ -47,6 +48,7 @@ UpdateLogRecord* DTX::GenUpdateLog(DataItem* item,
     if (txn_log == nullptr) {
         txn_log = new TxnLog();
     }
+    // std::cout << "id = " << id << " age = " << age << "\n";
     
     const size_t item_size = item->GetSerializeSize();
     char* item_buf = (char*)malloc(item_size);
@@ -101,6 +103,7 @@ UpdateLogRecord* DTX::GenUpdateLog(DataItem* item,
                                                nullptr);
     log->prev_lsn_ = pagehdr->LLSN_;
     log->lsn_ = update_page_llsn(pagehdr);
+    // LOG(INFO) << "GenUpdateLog , table_id = " << item->table_id << " page_id = " << rid.page_no_ << " slot_no = " << rid.slot_no_ << " now llsn = " << pagehdr->LLSN_;
     // // 检验正确性用
     // const DataItem* di_hdr = reinterpret_cast<const DataItem*>(new_record.value_);
     // const size_t payload_size = (di_hdr != nullptr) ? static_cast<size_t>(di_hdr->value_size) : 0;
@@ -128,11 +131,12 @@ UpdateLogRecord* DTX::GenUpdateLog(DataItem* item,
     // //检验完毕
     // 同时写入节点共享的log_records和事务的txn_log
     compute_server->AddToLog(log);  // 写入节点共享的log_records
-    txn_log->logs.push_back(log);   // 也写入txn_log，用于事务提交时发送
-    return log;
+    assert(max_lsn <= log->lsn_);
+    max_lsn = log->lsn_;
+    return log->lsn_;
 }
 
-InsertLogRecord* DTX::GenInsertLog(DataItem* item,
+LLSN DTX::GenInsertLog(DataItem* item,
                                   itemkey_t* key,
                                   const void* value,
                                   const Rid& rid,
@@ -194,14 +198,18 @@ InsertLogRecord* DTX::GenInsertLog(DataItem* item,
                                                rid.page_no_,
                                                rid.slot_no_,
                                                table_name);
-    update_page_llsn(pagehdr);
+    log->prev_lsn_ = pagehdr->LLSN_;
+    log->lsn_ = update_page_llsn(pagehdr);
     // 同时写入节点共享的log_records和事务的txn_log
     compute_server->AddToLog(log);  // 写入节点共享的log_records
-    txn_log->logs.push_back(log);   // 也写入txn_log，用于事务提交时发送
-    return log;
+    // txn_log->logs.push_back(log);   // 也写入txn_log，用于事务提交时发送
+
+    assert(max_lsn <= log->lsn_);
+    max_lsn = log->lsn_;
+    return log->lsn_;
 }
 
-DeleteLogRecord* DTX::GenDeleteLog(table_id_t table_id,
+LLSN DTX::GenDeleteLog(table_id_t table_id,
                                    itemkey_t* key,
                                    int page_no,
                                    int slot_no,
@@ -246,10 +254,13 @@ DeleteLogRecord* DTX::GenDeleteLog(table_id_t table_id,
                                                table_name,
                                                page_no,
                                                slot_no);
+    log->prev_lsn_ = pagehdr->LLSN_;
+    log->lsn_ = update_page_llsn(pagehdr);
     // 同时写入节点共享的log_records和事务的txn_log
     compute_server->AddToLog(log);  // 写入节点共享的log_records
-    txn_log->logs.push_back(log);   // 也写入txn_log，用于事务提交时发送
-    return log;
+    assert(max_lsn <= log->lsn_);
+    max_lsn = log->lsn_;
+    return log->lsn_;
 }
 
 // Build a new-page log and stash it into temp_log
@@ -296,7 +307,7 @@ NewPageLogRecord* DTX::GenNewPageLog(table_id_t table_id,
                                                  request_pages);
     // 同时写入节点共享的log_records和事务的txn_log
     compute_server->AddToLog(log);  // 写入节点共享的log_records
-    txn_log->logs.push_back(log);   // 也写入txn_log，用于事务提交时发送
+    // txn_log->logs.push_back(log);   // 也写入txn_log，用于事务提交时发送
     return log;
 }
 

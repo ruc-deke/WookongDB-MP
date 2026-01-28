@@ -102,7 +102,7 @@ void SmallBank::PopulateSavingsTable() {
   table_file->file_hdr_.record_size_ = tuple_size;
   table_file->file_hdr_.num_records_per_page_ = num_records_per_page;
   table_file->file_hdr_.bitmap_size_ = (num_records_per_page + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
-  rm_manager->get_diskmanager()->write_page(table_file->GetFd(), RM_FILE_HDR_PAGE, (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));
+  rm_manager->get_diskmanager()->update_value(table_file->GetFd(), RM_FILE_HDR_PAGE, sizeof(RmPageHdr), (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));
   /* Populate the tables */
   // 插入用户数据，num_accounts_global 在 smallbank_config.json 里面配置
   for (uint32_t acct_id = 0; acct_id < num_accounts_global; acct_id++) {
@@ -121,7 +121,7 @@ void SmallBank::PopulateSavingsTable() {
   }
 
   int fd1 = rm_manager->get_diskmanager()->open_file(bench_name + "_savings" + "_fsm");
-  rm_manager->get_diskmanager()->write_page(fd1, RM_FILE_HDR_PAGE, (char *)&table_file_fsm->file_hdr_, sizeof(table_file_fsm->file_hdr_));
+  rm_manager->get_diskmanager()->update_value(fd1, RM_FILE_HDR_PAGE, sizeof(RmPageHdr), (char *)&table_file_fsm->file_hdr_, sizeof(table_file_fsm->file_hdr_));
   int leftrecords = num_accounts_global % num_records_per_page;//最后一页的记录数
   fsm_trees[0]->update_page_space(num_pages, (num_records_per_page - leftrecords) * (tuple_size + sizeof(itemkey_t)));//更新最后一页的空间信息,free space为可插入的元组数量*（key+value）
   fsm_trees[0]->flush_all_pages();
@@ -132,7 +132,7 @@ void SmallBank::PopulateSavingsTable() {
 
   // head page页面需要直接写入磁盘不经过newPage()所以需要手动刷页
   int fd = rm_manager->get_diskmanager()->open_file(bench_name + "_savings");
-  rm_manager->get_diskmanager()->write_page(fd, RM_FILE_HDR_PAGE, (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));
+  rm_manager->get_diskmanager()->update_value(fd, RM_FILE_HDR_PAGE, sizeof(RmPageHdr), (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));
   rm_manager->close_file(table_file.get());
   indexfile.close();
 }
@@ -148,7 +148,7 @@ void SmallBank::PopulateCheckingTable( ) {
   table_file->file_hdr_.record_size_ = tuple_size;
   table_file->file_hdr_.num_records_per_page_ = num_records_per_page;
   table_file->file_hdr_.bitmap_size_ = (num_records_per_page + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
-  rm_manager->get_diskmanager()->write_page(table_file->GetFd(), RM_FILE_HDR_PAGE, (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));
+  rm_manager->get_diskmanager()->update_value(table_file->GetFd(), RM_FILE_HDR_PAGE, sizeof(RmPageHdr), (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));
   /* Populate the tables */
   for (uint32_t acct_id = 0; acct_id < num_accounts_global; acct_id++) {
     // Checking
@@ -166,7 +166,7 @@ void SmallBank::PopulateCheckingTable( ) {
   }
 
   int fd1 = rm_manager->get_diskmanager()->open_file(bench_name + "_checking" + "_fsm");
-  rm_manager->get_diskmanager()->write_page(fd1, RM_FILE_HDR_PAGE, (char *)&table_file_fsm->file_hdr_, sizeof(table_file_fsm->file_hdr_));
+  rm_manager->get_diskmanager()->update_value(fd1, RM_FILE_HDR_PAGE, sizeof(RmPageHdr), (char *)&table_file_fsm->file_hdr_, sizeof(table_file_fsm->file_hdr_));
   int leftrecords = num_accounts_global % num_records_per_page;//最后一页的记录数
   fsm_trees[1]->update_page_space(num_pages, (num_records_per_page - leftrecords) * (tuple_size + sizeof(itemkey_t)));//更新最后一页的空间信息,free space为可插入的元组数量*（key+value）
   fsm_trees[1]->flush_all_pages();
@@ -177,6 +177,6 @@ void SmallBank::PopulateCheckingTable( ) {
   rm_manager->get_bufferPoolManager()->flush_all_pages(fsm_fd);
   
   int fd = rm_manager->get_diskmanager()->open_file(bench_name + "_checking");
-  rm_manager->get_diskmanager()->write_page(fd, RM_FILE_HDR_PAGE, (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));
+  rm_manager->get_diskmanager()->update_value(fd, RM_FILE_HDR_PAGE, sizeof(RmPageHdr), (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));
   rm_manager->close_file(table_file.get());
 }

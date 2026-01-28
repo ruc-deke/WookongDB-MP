@@ -138,7 +138,9 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
             if (left_rid.page_no_ == INVALID_PAGE_ID){
                 continue;
             }
-            char *data = dtx->compute_server->FetchXPage(left_table_id , left_rid.page_no_);
+            Page *x_page = dtx->compute_server->FetchXPage(left_table_id , left_rid.page_no_);
+            char *data = x_page->get_data();
+
             DataItem *left_item = dtx->GetDataItemFromPage(left_table_id , left_rid , data , file_hdr , left_key , true);
             if (left_item->lock > 0){
                 if (left_item->lock != EXCLUSIVE_LOCKED && dtx->read_keys.find({left_rid , left_table_id}) == dtx->read_keys.end()){
@@ -149,6 +151,7 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
                     std::string left_tab_name = dtx->compute_server->getTableNameFromTableID(left_table_id);
                     TabMeta left_tab = dtx->compute_server->get_node()->db_meta.get_table(left_tab_name);
                     itemkey_t* left_pk_ptr = (left_tab.primary_key != "") ? &left_key : nullptr;
+                    x_page->set_dirty(true);
                     dtx->GenUpdateLog(left_item , left_pk_ptr , left_rid , (char*)left_item + sizeof(DataItem) , (RmPageHdr*)(data));
                 }else if (left_item->lock != EXCLUSIVE_LOCKED){
                     // 本事务已经持有这个元组的读锁了，那啥也不用做
@@ -175,6 +178,7 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
                 std::string left_tab_name = dtx->compute_server->getTableNameFromTableID(left_table_id);
                 TabMeta left_tab = dtx->compute_server->get_node()->db_meta.get_table(left_tab_name);
                 itemkey_t* left_pk_ptr = (left_tab.primary_key != "") ? &left_key : nullptr;
+                x_page->set_dirty(true);
                 dtx->GenUpdateLog(left_item , left_pk_ptr , left_rid , (char*)left_item + sizeof(DataItem) , (RmPageHdr*)(data));
             }
 
@@ -189,7 +193,8 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
                 dtx->tx_status = TXStatus::TX_ABORTING;
                 break;
             }
-            data = dtx->compute_server->FetchXPage(right_table_id , right_rid.page_no_);
+            x_page = dtx->compute_server->FetchXPage(right_table_id , right_rid.page_no_);
+            data = x_page->get_data();
             DataItem *right_item = dtx->GetDataItemFromPage(right_table_id , right_rid , data , file_hdr , right_key , true);
             if (right_item->lock > 0){
                 if (right_item->lock != EXCLUSIVE_LOCKED && dtx->read_keys.find({right_rid , right_table_id}) == dtx->read_keys.end()){
@@ -200,6 +205,7 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
                     std::string right_tab_name = dtx->compute_server->getTableNameFromTableID(right_table_id);
                     TabMeta right_tab = dtx->compute_server->get_node()->db_meta.get_table(right_tab_name);
                     itemkey_t* right_pk_ptr = (right_tab.primary_key != "") ? &right_key : nullptr;
+                    x_page->set_dirty(true);
                     dtx->GenUpdateLog(right_item , right_pk_ptr , right_rid , (char*)right_item + sizeof(DataItem) , (RmPageHdr*)(data));
                 }else if (right_item->lock != EXCLUSIVE_LOCKED){
                     // 本事务已经持有这个元组的读锁了，那啥也不用做
@@ -226,6 +232,7 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
                 std::string right_tab_name = dtx->compute_server->getTableNameFromTableID(right_table_id);
                 TabMeta right_tab = dtx->compute_server->get_node()->db_meta.get_table(right_tab_name);
                 itemkey_t* right_pk_ptr = (right_tab.primary_key != "") ? &right_key : nullptr;
+                x_page->set_dirty(true);
                 dtx->GenUpdateLog(right_item , right_pk_ptr , right_rid , (char*)right_item + sizeof(DataItem) , (RmPageHdr*)(data));
             }
 
@@ -249,8 +256,9 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
             RmFileHdr::ptr file_hdr = dtx->compute_server->get_file_hdr(table_id);
             itemkey_t pri_key;
 
-            auto page = dtx->compute_server->FetchXPage(table_id , rid.page_no_);
-            DataItem *item = dtx->GetDataItemFromPage(table_id , rid , page , file_hdr , pri_key , true);
+            Page *x_page = dtx->compute_server->FetchXPage(table_id , rid.page_no_);
+            char *data = x_page->get_data();
+            DataItem *item = dtx->GetDataItemFromPage(table_id , rid , data , file_hdr , pri_key , true);
             // 读锁，需要考虑的几个情况
             if (item->lock > 0){
                 if (item->lock != EXCLUSIVE_LOCKED && dtx->read_keys.find({rid , table_id}) == dtx->read_keys.end()){
@@ -260,7 +268,9 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
 
                     TabMeta tab = executorTreeRoot->getTab();
                     itemkey_t* pk_ptr = (tab.primary_key != "") ? &pri_key : nullptr;
-                    dtx->GenUpdateLog(item , pk_ptr , rid , (char*)item + sizeof(DataItem) , (RmPageHdr*)(page));
+
+                    x_page->set_dirty(true);
+                    dtx->GenUpdateLog(item , pk_ptr , rid , (char*)item + sizeof(DataItem) , (RmPageHdr*)(data));
                 }else if (item->lock != EXCLUSIVE_LOCKED){
                     // 本事务已经持有这个元组的读锁了，那啥也不用做
                     assert(dtx->read_keys.find({rid , table_id}) != dtx->read_keys.end());
@@ -285,7 +295,8 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
 
                 TabMeta tab = executorTreeRoot->getTab();
                 itemkey_t* pk_ptr = (tab.primary_key != "") ? &pri_key : nullptr;
-                dtx->GenUpdateLog(item , pk_ptr , rid , (char*)item + sizeof(DataItem) , (RmPageHdr*)(page));
+                x_page->set_dirty(true);
+                dtx->GenUpdateLog(item , pk_ptr , rid , (char*)item + sizeof(DataItem) , (RmPageHdr*)(data));
             }
 
             std::vector<std::string> columns;

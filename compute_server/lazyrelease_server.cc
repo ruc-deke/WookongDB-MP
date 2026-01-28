@@ -164,10 +164,8 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
         node_id_t page_belong_node = get_node_id_by_page_id(table_id , page_id);
         if( page_belong_node == node_->node_id) {
             // 如果是本地节点, 则直接调用
-            // LOG(INFO) << "Fetching X Page Local , table_id = " << table_id << " page_id = " << page_id;
             this->page_table_service_impl_->LRPXLock_Localcall(&request, response);
-        }
-        else{
+        } else{
             // LOG(INFO) << "Fetching X Page Remote , table_id = " << table_id << " page_id = " << page_id;
             // 如果是远程节点, 则通过RPC调用
             brpc::Channel* page_table_channel =  this->nodes_channel + page_belong_node;
@@ -233,8 +231,7 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
             }else {
                 assert(false);
             }
-        }
-        else{
+        } else{
             // LOG(INFO) << "Waiting For Lock And Push , table_id = " << table_id << " page_id = " << page_id << " node_id = " << node_->getNodeID();
             // 等待加锁成功, 远程节点会主动把最新的页面数据推送过来
             double wait_push_time = 0.0;
@@ -269,7 +266,6 @@ Page* ComputeServer::rpc_lazy_fetch_x_page(table_id_t table_id, page_id_t page_i
     assert(page);
     assert(page->get_page_id().page_no == page_id && page->get_page_id().table_id == table_id);
 
-    // LOG(INFO) << "fetch X Page over " << "table_id = " << table_id << " page_id = " << page_id << " node_id = " << node_->getNodeID();
 
     return page;
 }
@@ -356,9 +352,11 @@ void ComputeServer::rpc_lazy_release_x_page(table_id_t table_id, page_id_t page_
 
     if (lr_lock->getDestNodeIDNoBlock() != INVALID_NODE_ID){
         // 释放 X 锁，需要把页面给刷下去
-        Page *trans_page = get_node()->getBufferPoolByIndex(table_id)->fetch_page(page_id);
-        RmPageHdr *page_hdr = (RmPageHdr*)trans_page->get_data();
-        wait_page_log_flush(table_id , page_id , page_hdr->LLSN_);
+        // B+ 树不需要等待
+        if (table_id < 10000) {
+            Page *trans_page = get_node()->getBufferPoolByIndex(table_id)->fetch_page(page_id);
+            wait_log_flush(trans_page);
+        }
         PushPageToOther(table_id , page_id , lr_lock->getDestNodeIDNoBlock());
         lr_lock->setDestNodeIDNoBlock(INVALID_NODE_ID);
     }

@@ -1,18 +1,9 @@
-| id | name | major |
-| 1 | TomTomTom | Computer ScienceComputer Science |
-| 2 | JerryJerr | Computer ScienceComputer Science |
-| 3 | JackJackJ | Electrical Engineeringer Science |
-| 3 | JerryJerr | aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa |
-| id |
-| 2 |
-| major |
-| Computer ScienceComputer Science |
-| aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa |
-| name | major |
-| name | major |
-| JerryJerr | Computer ScienceComputer Science |
-| name | id |
-| KangKanga | 0 |
-| JerryJerr | 3 |
-failure
-failure
+success
+Affect Raw : 1
+Affect Raw : 1
+Affect Raw : 1
+Affect Raw : 1
+Affect Raw : 1
+
+
+
