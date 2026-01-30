@@ -117,7 +117,11 @@ int main(int argc, char* argv[]) {
         char* recv_buf = new char[MAX_MEM_BUFFER_SIZE];
         std::thread send_sql([txn, permutation, i, recv_buf, &outfile]{
             send_recv_sql(txn->sockfd, permutation->operations[i]->sql, recv_buf);
-            outfile << recv_buf << "\n";
+            outfile << recv_buf;
+            size_t len = strlen(recv_buf);
+            if (len > 0 && recv_buf[len - 1] != '\n') {
+                outfile << "\n";
+            }
         });
         send_sql.detach();
         std::this_thread::sleep_for(std::chrono::milliseconds(500)); // sleep 500ms

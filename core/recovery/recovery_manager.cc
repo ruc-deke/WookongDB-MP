@@ -27,7 +27,7 @@ void RecoveryManager::Analysis() {
 		return;
 	}
 
-	int file_size = disk_manager_->get_file_size(LOG_FILE_NAME);
+	uint64_t file_size = disk_manager_->get_file_size(LOG_FILE_NAME);
 	if (file_size <= kLogFileHeaderSize) {
 		LOG(INFO) << "RecoveryManager Analysis: log file has no payload";
 		return;
@@ -35,12 +35,8 @@ void RecoveryManager::Analysis() {
 
 	int payload_bytes = file_size - kLogFileHeaderSize;
 	std::vector<char> buffer(payload_bytes);
-	int bytes_read = log_replay_.read_log(buffer.data(), payload_bytes, kLogFileHeaderSize);
-	if (bytes_read <= 0) {
-		LOG(WARNING) << "RecoveryManager Analysis: failed to read redo log payload";
-		return;
-	}
-
+	uint64_t bytes_read = log_replay_.read_log(buffer.data(), payload_bytes, kLogFileHeaderSize);
+	
 	int cursor = 0;
 	while (cursor + OFFSET_LOG_TOT_LEN + static_cast<int>(sizeof(uint32_t)) <= bytes_read) {
 		uint32_t record_size = *reinterpret_cast<const uint32_t*>(buffer.data() + cursor + OFFSET_LOG_TOT_LEN);

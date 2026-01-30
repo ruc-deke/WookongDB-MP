@@ -162,10 +162,6 @@ class DTX {
                     uint32_t free_space,
                     const std::string& table_name);
   void SendLogToStoragePool(uint64_t bid, brpc::CallId* cid, int urgent = 0); // use for rpc
-  LLSN generate_next_llsn();// 生成下一个 LLSN（原子操作）
-  void advance_llsn(LLSN new_llsn); // 推进 LLSN 至已知的最大值（用于页面读取后的同步
-  LLSN update_page_llsn(RmPageHdr* page_hdr); // 封装提交时的 LLSN 推进流程
-  LLSN get_current_llsn() const;
   std::vector<LogRecord*> temp_log;// 临时日志存储区
   DataItem* GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr::ptr file_hdr , itemkey_t& item_key);
   DataItem* GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid , RmFileHdr::ptr file_hdr , itemkey_t& item_key);
@@ -184,9 +180,6 @@ class DTX {
  
  private:  
   
-  int current_llsn_;     // 本节点当前的最大 LLSN,初始为0
-  std::mutex llsn_mutex_; // 用于 LLSN 递增的互斥锁
-
   timestamp_t global_timestamp = 0;
   timestamp_t local_timestamp = 0;
   timestamp_t GetTimestampRemote();

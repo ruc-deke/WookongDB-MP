@@ -330,6 +330,12 @@ public:
         return fsm_trees[table_id]->update_page_space(page_id , free_space);
     }
 
+    LLSN UpdatePageLLSN(RmPageHdr* pagehdr) {
+        log_mtx.lock();
+        LLSN lsn = update_page_llsn(pagehdr);
+        return lsn;
+    }
+
     Rid get_rid_from_blink(table_id_t table_id , itemkey_t key){
         Rid result;
         bool exist = bl_indexes[table_id]->search(&key , result);
@@ -1186,7 +1192,7 @@ public:
             // 之所以需要知道是否修改过，是因为存在一个情况：假如节点 0啥也没干，persist_lsn = 0，节点干了一堆活，persist_lsn = 1000
             // 然后节点 1 把页面传给了节点 0，节点 0 拿到了 X 锁，结果还是啥也没干，persist_lsn 仍然等于 0
             // 此时节点 1 又申请了这个页面，节点 0 需要把页面传过去，传过去之前，需要等这个页面的日志刷下去，如果 is_dirty = fals，就不需要等待了
-            page->is_dirty_ = false;
+            page->set_dirty(false);
             return page;
         }else if (type == 2){
             // 2pc
@@ -1268,7 +1274,6 @@ public:
                     // 只有数据表才需要检查 LSN (table_id < 10000)
                     if (table_id < 10000) {
                         Page *page = node_->getBufferPoolByIndex(table_id)->fetch_page(replaced_page_id);
-                        // LOG(INFO) << "Evict A Page , Need Wait Log Flush";
                         wait_log_flush(page);
                     }
                 }
@@ -1283,6 +1288,7 @@ public:
                 request->set_lsn(0);
             }
             
+            // LOG(INFO) << "BufferRelease Unlock , table_id = " << table_id << " page_id = " << replaced_page_id << " lsn = " << request->lsn();
             lr_local_lock->UnlockMtx();
 
             auto *response = new page_table_service::BufferReleaseUnlockResponse();
@@ -1517,7 +1523,7 @@ public:
         if (table_id < 10000){
             // 创建了页面之后，需要通知其它节点页面数量变多了，方法是向 page0 写入一个信息
             Page *x_page = FetchXPage(table_id , 0);
-            x_page->is_dirty_ = true;
+            x_page->set_dirty(true);
             RmFileHdr *file_hdr = reinterpret_cast<RmFileHdr*>(x_page->get_data() + sizeof(RmPageHdr));
             // 有可能我和别人一起创建了新页面，我创建了 5，别人创建了 6，然后别人更新了 6，那我就不用管了
             if (file_hdr->num_pages_ < new_page + 1){
@@ -1681,23 +1687,54 @@ public:
 
     void wait_log_flush(Page *page){
         if (!page->is_dirty()){
+            // no_need_wait_cnt++;
             return ;
         }
 
+
         RmPageHdr *hdr = reinterpret_cast<RmPageHdr*>(page->get_data());
+        // LOG(INFO) << "Transfer To Other , Need Wait Log Flush , table_id = " << page->get_page_id().table_id << " page_id = " << page->get_page_id().page_no << " wait lsn = " << hdr->LLSN_;
         std::unique_lock<std::mutex> lock(persist_lsn_mtx);
-        while(persist_lsn <= hdr->LLSN_){
-            // std::cout << "Require LSN : " << hdr->LLSN_ << " now LSN : " << persist_lsn << "\n";
+        LLSN debug_lsn = persist_lsn;
+        while(hdr->LLSN_ > persist_lsn){
             persist_lsn_cond.wait(lock);
+            debug_lsn = persist_lsn;
         }
+
+        page->set_dirty(false);
+        // LOG(INFO) << "Wait Log Flush Over , Now Persist Lsn = " << persist_lsn << " table_id = " << page->get_page_id().table_id << " page_id = " << page->get_page_id().page_no << " page lsn = " << hdr->LLSN_;
     }
 
     void wait_log_flush(LLSN require_lsn){
         std::unique_lock<std::mutex> lock(persist_lsn_mtx);
-        while(persist_lsn <= require_lsn){
-            // std::cout << "Require LSN : " << hdr->LLSN_ << " now LSN : " << persist_lsn << "\n";
+        while(require_lsn > persist_lsn){
             persist_lsn_cond.wait(lock);
         }
+    }
+
+    // 生成下一个 LLSN（原子操作）
+    LLSN generate_next_llsn(){
+        return ++current_llsn_;
+    }
+
+    // 推进 LLSN 至已知的最大值（用于页面读取后的同步）
+    void advance_llsn(LLSN new_llsn){
+        if (new_llsn > current_llsn_) {
+            current_llsn_ = new_llsn;
+        }
+    }
+
+    // 封装提交时的 LLSN 推进流程
+    LLSN update_page_llsn(RmPageHdr* page_hdr){
+        LLSN old_page_llsn = page_hdr->LLSN_;
+        LLSN new_llsn = generate_next_llsn();
+        if (new_llsn <= old_page_llsn) {
+            new_llsn = old_page_llsn + 1;
+            advance_llsn(new_llsn);
+        }
+        page_hdr->pre_LLSN_ = old_page_llsn;
+        page_hdr->LLSN_ = new_llsn;
+        return new_llsn;
     }
 
     // 生成一个随机的数据页ID
@@ -1836,8 +1873,6 @@ public:
             batch_logs.swap(log_records);
         }  // 锁在这里自动释放
         
-        // 释放锁后进行耗时的序列化和 RPC 操作
-        
         // 1. 将 batch_logs 序列化成字符串
         std::string serialized_logs;
         LLSN max_lsn = 0;  // 记录本批次中最大的 LSN
@@ -1848,7 +1883,7 @@ public:
             log->serialize(log_buf);
             serialized_logs.append(log_buf, log->log_tot_len_);
             delete[] log_buf;
-            
+
             // 更新最大 LSN
             if (log->lsn_ > max_lsn) {
                 max_lsn = log->lsn_;
@@ -1869,7 +1904,6 @@ public:
             
             if (cntl.Failed()) {
                 LOG(ERROR) << "Batch LogFlush failed: " << cntl.ErrorText();
-                // TODO: 实现重试机制或错误恢复策略
             }
         }
         
@@ -1899,8 +1933,13 @@ public:
      * 线程安全：使用互斥锁保护
      */
     void AddToLog(LogRecord *log){
-        std::lock_guard<std::mutex> lk(log_mtx);
+        std::lock_guard<std::mutex> lock(log_mtx);
         log_records.emplace_back(log);
+    }
+
+    void AddToLogNoBlock(LogRecord *log){
+        log_records.emplace_back(log);
+        log_mtx.unlock();
     }
     
     /**
@@ -1977,6 +2016,11 @@ private:
     mutable std::mutex persist_lsn_mtx;         // 保护 persist_lsn 的互斥锁
     std::condition_variable persist_lsn_cond;   // persist_lsn 条件变量
 
+    LLSN current_llsn_ = 0;                     // 本节点当前的最大 LLSN, 初始为0
+
+
+    std::atomic<int> need_wait_cnt{0};
+    std::atomic<int> no_need_wait_cnt{0}; 
 };
 
 int socket_start_client(std::string ip, int port);

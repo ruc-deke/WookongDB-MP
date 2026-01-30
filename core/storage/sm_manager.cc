@@ -231,7 +231,7 @@ int SmManager::create_primary(const std::string &table_name){
 
 int SmManager::create_fsm(const std::string &tab_name , int tuple_size , table_id_t table_id){
     std::string fsm_name = tab_name + "_fsm";
-    int initial_pages = 10000; 
+    int initial_pages = 100000; 
     
     // 1. 创建 FSM 文件
     // 这里的大小其实不太重要，因为后续 S_SecFSM 会管理页面分配，但还是给一个初始大小

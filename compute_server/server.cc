@@ -113,7 +113,7 @@ void ComputeNodeServiceImpl::NotifyPushPage(::google::protobuf::RpcController* c
     while (!server->get_node()->getBufferPoolByIndex(table_id)->is_in_bufferPool(page_id)){
         usleep(50);
     }
-    Page* page = server->get_node()->getBufferPoolByIndex(table_id)->fetch_page(page_id);
+    // Page* page = server->get_node()->getBufferPoolByIndex(table_id)->fetch_page(page_id);
     int dest_node_id_size = request->dest_node_ids_size();
     assert(dest_node_id_size != 0);
     // std::cout << "Server Receive Push Page command, table_id = " << table_id << " page_id = " << page_id <<  " dest node : " << request->dest_node_ids(0) << "\n";
@@ -131,20 +131,7 @@ void ComputeNodeServiceImpl::NotifyPushPage(::google::protobuf::RpcController* c
         // if (dest_node == src_node_id) { continue; }
         assert(dest_node != src_node_id);
 
-        compute_node_service::PushPageRequest push_request;
-        compute_node_service::PushPageResponse* push_response = new compute_node_service::PushPageResponse();
-        compute_node_service::PageID* page_id_pb = new compute_node_service::PageID();
-        page_id_pb->set_page_no(page_id);
-        page_id_pb->set_table_id(table_id);
-        push_request.set_allocated_page_id(page_id_pb);
-        push_request.set_page_data(page->get_data(), PAGE_SIZE);
-        push_request.set_src_node_id(server->get_node()->getNodeID());
-        push_request.set_dest_node_id(dest_node);
-
-        brpc::Controller* push_cntl = new brpc::Controller();
-        compute_node_service::ComputeNodeService_Stub compute_node_stub(server->get_compute_channel() + dest_node);
-        compute_node_stub.PushPage(push_cntl, &push_request, push_response,
-            brpc::NewCallback(ComputeServer::PushPageRPCDone, push_response, push_cntl, table_id, page_id, server));
+        server->PushPageToOther(table_id, page_id, dest_node);
     }
 }
 
@@ -176,14 +163,6 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
 
             // 如果锁已经用完了，那就先向下一轮获得锁的某个节点发送一次 Push 数据
             if (dest_node_id != -1){
-                if (unlock_remote == 2){
-                    // 目前持有的是写锁，且释放了，所以可以把日志刷下去了
-                    // 只有数据表才需要检查 LSN (table_id < 10000)
-                    if (table_id < 10000) {
-                        Page *pend_page = server->get_node()->getBufferPoolByIndex(table_id)->fetch_page(page_id);
-                        server->wait_log_flush(pend_page);
-                    }
-                }
                 server->PushPageToOther(table_id , page_id , dest_node_id);
             }
 
@@ -408,6 +387,11 @@ void ComputeServer::PushPageToOther(table_id_t table_id , page_id_t page_id , no
 
     if (NetworkLatency != 0)  usleep(NetworkLatency);
 
+    // 等待页面日志刷下去之后，再传走页面
+    if (table_id < 10000){
+        wait_log_flush(page);
+    }
+
     brpc::Controller* push_cntl = new brpc::Controller();
     compute_node_service::ComputeNodeService_Stub compute_node_stub(get_compute_channel() + dest_node_id);
     compute_node_stub.PushPage(push_cntl, &push_request, push_response,
@@ -557,6 +541,7 @@ std::string ComputeServer::rpc_fetch_page_from_storage_with_lsn(table_id_t table
     request.set_require_lsn(page_lsn);
 
     brpc::Controller cntl;
+    // LOG(INFO) << "GetPage From Storage With LSN , table_id = " << table_id << " page_id = " << page_id << " require lsn = " << page_lsn;
     storage_stub.GetPageWithLsn(&cntl , &request , &response , NULL);
     if(cntl.Failed()){
         LOG(ERROR) << "Fail to fetch page " << page_id << " from remote storage server";

@@ -28,7 +28,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/storage_server/storage_pool",
-            "args": ["tpcc"],
+            "args": ["ycsb"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/storage_server/",
             "environment": [],
@@ -68,7 +68,7 @@
             "program": "${workspaceFolder}/build/compute_server/compute_server",
             // lazy , 2pc , eager , ts_sep , ts_sep_hot
             // smallbank , tpcc , ycsb
-            "args": ["smallbank", "lazy", "10", "5000", "0", "0.8" , "0"],
+            "args": ["ycsb", "lazy", "10", "10", "0", "0.8" , "0"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
@@ -88,7 +88,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",
 
-            "args": ["smallbank", "lazy", "10", "5000", "0", "0.8" , "1"],
+            "args": ["ycsb", "lazy", "10", "10", "0", "0.8" , "1"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
@@ -107,7 +107,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",
-            "args": ["tpcc", "eager", "10", "5000", "0", "0.8" , "2"],
+            "args": ["ycsb", "lazy", "10", "10", "0", "0.8" , "2"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
@@ -219,5 +219,24 @@
                 }
             ]
         },
+        {
+            "name": "(gdb)cache_consistency_test",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/tests/cache_consistency_test",
+            "args": ["-h", "127.0.0.1", "-p", "9095", "${workspaceFolder}/tests/test_cases/cache_consistency_test/cache_consistency_test.sql", "${workspaceFolder}/tests/client_output/cache_consistency_test_output.txt"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        }
     ]
 }

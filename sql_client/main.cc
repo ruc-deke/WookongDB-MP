@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    char recv_buf[MAX_MEM_BUFFER_SIZE];
+    char recv_buf[MAX_MEM_BUFFER_SIZE] = {0};
 
     while (1) {
         char *line_read = readline("SQL> ");
@@ -72,7 +72,7 @@ int main(int argc, char *argv[]) {
                 printf("Connection has been closed\n");
                 break;
             } else {
-                for (int i = 0; i <= len; i++) {
+                for (int i = 0; i < len; i++) {
                     if (recv_buf[i] == '\0') {
                         break;
                     } else {

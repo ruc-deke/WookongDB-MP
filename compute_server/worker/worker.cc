@@ -459,7 +459,7 @@ void RunSQL(int sock){
       if (sql_dtx->tx_status == TXStatus::TX_ABORTING){
         sql_dtx->TxAbortSQL(baga);
         txn_begin = false;
-        response = "Tx Abort , RollBack";
+        response = "Abort";
         send(sock, response.c_str(), response.length(), 0);
         for(auto &tab_name : acquired_tables){
           compute_server->decreaseTableUse(tab_name);

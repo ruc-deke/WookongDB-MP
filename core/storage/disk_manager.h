@@ -58,7 +58,7 @@ public:
 
     void close_file(int fd);
 
-    int get_file_size(const std::string &file_name);
+    uint64_t get_file_size(const std::string &file_name);
 
     std::string get_file_name(int fd);
 

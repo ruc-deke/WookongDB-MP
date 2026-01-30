@@ -349,15 +349,14 @@ bool LogReplay::overwriteFixedLine(const std::string& filename, int lineNumber, 
     return true;
 }
 void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
-    // std::cout << "开始重做"<<std::endl;
-    //log->format_print2();
     switch(log->log_type_) {
         case LogType::INSERT: {
             InsertLogRecord* insert_log = dynamic_cast<InsertLogRecord*>(log);
 
-            // LOG(INFO) << "Insert log: insert page_no: " << insert_log->page_no_;
-
             std::string table_name(insert_log->table_name_, insert_log->table_name_ + insert_log->table_name_size_);
+            if (mode == "SQL" && !sm_manager->db.is_table(table_name)){
+                return;
+            }
             int fd = disk_manager_->open_file(table_name);
             if (fd < 0) {
                 assert(false);
@@ -368,7 +367,7 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
             disk_manager_->read_page(fd, PAGE_NO_RM_FILE_HDR, page0_buf, sizeof(page0_buf));
             file_hdr = *reinterpret_cast<RmFileHdr*>(page0_buf + OFFSET_FILE_HDR);
             if (insert_log->slot_no_ < 0 || insert_log->slot_no_ >= file_hdr.num_records_per_page_) {
-                break;
+               assert(false);
             }
 
             char buffer[PAGE_SIZE];
@@ -376,9 +375,10 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
 
             auto* page_hdr = reinterpret_cast<RmPageHdr*>(buffer);
             const LLSN log_llsn = static_cast<LLSN>(insert_log->lsn_);
-            if (page_hdr->LLSN_ >= log_llsn) {
+            if (page_hdr->LLSN_ >= log_llsn||log->prev_lsn_!=page_hdr->LLSN_) {
                 // TODO
-                break;      
+                // break;
+               assert(false);
             }
             
             char* bitmap = buffer + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
@@ -416,7 +416,9 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
         case LogType::DELETE: {
             DeleteLogRecord* delete_log = dynamic_cast<DeleteLogRecord*>(log);
 
-            // int fd = ResolveTableFd(delete_log->table_id_, delete_log->table_name_, delete_log->table_name_size_);
+            if (mode == "SQL" && !sm_manager->db.is_table(delete_log->table_name_)){
+                return;
+            }
             int fd = disk_manager_->open_file(delete_log->table_name_);
             assert(fd >= 0);
 
@@ -435,9 +437,9 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
             char* bitmap = buffer + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
             const LLSN log_llsn = static_cast<LLSN>(delete_log->lsn_);
 
-            if (page_hdr->LLSN_ >= log_llsn) {
+            if (page_hdr->LLSN_ >= log_llsn||log->prev_lsn_!=page_hdr->LLSN_) {
                 // TODO
-                break;
+                assert(false);
             }
 
             // TODO：DeleteLog 的逻辑需要重新考虑下，这里先不搞了
@@ -461,6 +463,10 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
             // std::cout << "进入UPDATE重做"<<std::endl;
             UpdateLogRecord* update_log = dynamic_cast<UpdateLogRecord*>(log);
             std::string table_name(update_log->table_name_, update_log->table_name_ + update_log->table_name_size_);
+            if (mode == "SQL" && !sm_manager->db.is_table(table_name)){
+                return;
+            }
+            
             int fd = disk_manager_->open_file(table_name);
             if (fd < 0) {
                 assert(false);
@@ -478,9 +484,12 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
             RmPageHdr* page_hdr = reinterpret_cast<RmPageHdr*>(buffer);
             const LLSN log_llsn = static_cast<LLSN>(update_log->lsn_);
 
-            if (page_hdr->LLSN_ >= log_llsn) {
-                // TODO：
-                break;
+            // LOG(INFO) << "Apply Update Log , table_name = " << 
+            //     table_name << " page_id = " << update_log->rid_.page_no_ << " slot_no = " << update_log->rid_.slot_no_
+            //     << " page lsn = " << page_hdr->LLSN_ << " log lsn = " << log_llsn << " log prev_lsn = " << log->prev_lsn_;
+
+            if (page_hdr->LLSN_ >= log_llsn||log->prev_lsn_!=page_hdr->LLSN_) {
+                assert(false);
             }
 
             page_hdr->pre_LLSN_ = page_hdr->LLSN_;
@@ -493,13 +502,11 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
             *item_key = update_log->new_value_.key_;
             memcpy(tuple + sizeof(item_key) , update_log->new_value_.value_ , update_log->new_value_.value_size_);
 
-            int id = *reinterpret_cast<int*>(update_log->new_value_.value_ + sizeof(DataItem));
-            int age = *reinterpret_cast<int*>(update_log->new_value_.value_ + sizeof(DataItem) + sizeof(int));
-            // std::cout << "id = " << id << " age = " << age << "\n";
-
             disk_manager_->write_page(fd , update_log->rid_.page_no_ , buffer , PAGE_SIZE);        
         } break;
         case LogType::NEWPAGE: {
+            // 这里有点问题，需要拿到 tab_name，现在反正没用这个，先不管了
+            assert(false);
             NewPageLogRecord* new_page_log = dynamic_cast<NewPageLogRecord*>(log);
             int fd = ResolveTableFd(new_page_log->table_id_, nullptr, 0);
             if (fd < 0) break;
@@ -653,42 +660,45 @@ void LogReplay::apply_undo_log(const LogRecord* log_record) {
  * @param {int} size 读取的数据量大小
  * @param {int} offset 读取的内容在文件中的位置
  */
-int LogReplay::read_log(char *log_data, int size, int offset) {
+uint64_t LogReplay::read_log(char *log_data, int size, uint64_t offset) {
     // read log file from the previous end
     assert (log_replay_fd_ != -1);
-    int file_size = disk_manager_->get_file_size(log_file_path_);
+    uint64_t file_size = disk_manager_->get_file_size(log_file_path_);
     if (offset > file_size) {
         return -1;
     }
 
-    size = std::min(size, file_size - offset);
+    if (file_size - offset < size){
+        size = file_size - offset;
+    }
+    // size = std::min(size, file_size - offset);
     if(size == 0) return 0;
     lseek(log_replay_fd_, offset, SEEK_SET);
-    ssize_t bytes_read = read(log_replay_fd_, log_data, size);
+    uint64_t bytes_read = read(log_replay_fd_, log_data, size);
     assert(bytes_read == size);
     return bytes_read;
 }
 
 void LogReplay::replayFun(){
     // offset 指向下一个要读的起始位置
-    int offset = persist_off_ + 1;
-    int read_bytes;
+    uint64_t offset = persist_off_ + 1;
+    uint64_t read_bytes;
     while (!replay_stop) {
         // 用size_t 如果出现负数就会有问题
-        int read_size = std::min((int)max_replay_off_ - (int)offset + 1, (int)LOG_REPLAY_BUFFER_SIZE);
+        size_t read_size = std::min((size_t)max_replay_off_ - (size_t)offset + 1, (size_t)LOG_REPLAY_BUFFER_SIZE);
         //  LOG(INFO) << "Replay log size: " << read_size;
         if(read_size <= 0){
             // std::cout<<"Read_size="<<read_size<<std::endl;
-            std::this_thread::sleep_for(std::chrono::milliseconds(50)); //sleep 50 ms
+            std::this_thread::sleep_for(std::chrono::milliseconds(10)); //sleep 10 ms
             continue;
         }
-        // LOG(INFO) << "Begin apply log, apply size is " << read_size << ", max_replay_off_: " << max_replay_off_ << ", offset: " << offset;
+        LOG(INFO) << "Begin apply log, apply size is " << read_size << ", max_replay_off_: " << max_replay_off_ << ", offset: " << offset;
         // offset为要读取数据的起始位置，persist_off_为已经读取的字节的结尾位置，所以需要+1
         // offset ++;
         read_bytes = read_log(buffer_.buffer_, read_size, offset);
         // LOG(INFO) << "read bytes: " << read_bytes;
         buffer_.offset_ = read_bytes - 1;
-        int inner_offset = 0;
+        size_t inner_offset = 0;
         // int replay_batch_id;
         while (inner_offset <= buffer_.offset_ ) {
             // buffer.offset_存储了buffer中数据的最大长度，判断在buffer存储的数据内能否读到下一条日志的总长度数据
@@ -699,8 +709,8 @@ void LogReplay::replayFun(){
             // 获取日志记录长度
             uint32_t size = *reinterpret_cast<const uint32_t *>(buffer_.buffer_ + inner_offset + OFFSET_LOG_TOT_LEN);
             // 如果剩余数据不是一条完整的日志记录，则不再进行读取
-            if (size == 0 || size + inner_offset > (unsigned int)buffer_.offset_ + 1) {
-            //  LOG(INFO) << "The remain data does not contain a complete log record, the next log record's size is: " << size << ", inner_offset: " << inner_offset << ", buffer_offset: " << buffer_.offset_;
+            if (size == 0 || size + inner_offset > (uint64_t)buffer_.offset_ + 1) {
+             LOG(INFO) << "The remain data does not contain a complete log record, the next log record's size is: " << size << ", inner_offset: " << inner_offset << ", buffer_offset: " << buffer_.offset_;
                 usleep(1000);
                 break;
             }    

@@ -1,7 +1,7 @@
 {
   "ycsb": {
     "num_record": 50000,
-    "attempted_num": 10000,
+    "attempted_num": 1000000,
     "num_hot_record": 20000, 
     "use_zipfian": 1,           
     "read_percent": 80,           

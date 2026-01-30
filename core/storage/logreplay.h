@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "sm_manager.h"
 #include "common.h"
 #include "log_record.h"
 #include "disk_manager.h"
@@ -25,13 +26,14 @@ public:
     }
 
     char buffer_[LOG_REPLAY_BUFFER_SIZE+1];
-    int offset_;    // 写入log的offset
+    uint64_t offset_;    // 写入log的offset
 };
 
 class LogReplay{
 public:
-    LogReplay(DiskManager* disk_manager, std::unordered_map<table_id_t, std::string> table_name_map = {})
-        : disk_manager_(disk_manager), table_name_map_(std::move(table_name_map)) {
+    LogReplay(DiskManager* disk_manager, SmManager *sm , const std::string m , std::unordered_map<table_id_t, std::string> table_name_map = {})
+        : disk_manager_(disk_manager), table_name_map_(std::move(table_name_map)) , sm_manager(sm) {
+        mode = m;
         char path[1024];
         getcwd(path, sizeof(path));
         log_file_path_ = std::string(path) + "/" + LOG_FILE_NAME;
@@ -71,6 +73,7 @@ public:
                 std::cerr << "Failed to read persist_off_." << std::endl;
                 assert(0);
             }
+            
             // std::cout << "持久化点更新为：" << persist_off_ << std::endl;
         }
         // 以读写模式打开log_replay文件, log_replay_fd负责顺序读, log_write_head_fd负责写head
@@ -78,7 +81,8 @@ public:
 
         max_replay_off_ = disk_manager_->get_file_size(log_file_path_) - 1;
         // LOG(INFO) << "init max_replay_off_: " << max_replay_off_<<std::endl; 
-
+        persist_off_=max_replay_off_;//这里是不对的，暂时先默认重启前日志都重做完了
+        std::cout << "persist off init = " << persist_off_ << "\n";
         replay_thread_ = std::thread(&LogReplay::replayFun, this);
         // checkpoint_thread_ = std::thread(&LogReplay::checkpointFun, this);//启动检查点线程，每隔一段时间将wal应用到磁盘
 
@@ -98,7 +102,7 @@ public:
         close(log_replay_fd_);
     };
 
-    int  read_log(char *log_data, int size, int offset);
+    uint64_t  read_log(char *log_data, int size, uint64_t offset);
     void apply_sigle_log(LogRecord* log_record, int curr_offset);
     void apply_sigle_log(const std::shared_ptr<LogRecord>& log_record, int curr_offset, bool allow_enqueue);
     void apply_undo_log(const LogRecord* log_record);
@@ -167,11 +171,11 @@ private:
     int log_write_head_fd_;         // 写文件头fd, 从文件末尾开始append写
 
     std::mutex latch1_;             // 用于保护max_replay_off_这一共享变量
-    size_t max_replay_off_;         // log文件中最后一个字节的偏移量
+    uint64_t max_replay_off_;         // log文件中最后一个字节的偏移量
 
     std::mutex latch2_;              // 用于保护persist_batch_id_和persist_off_两个共享变量
     batch_id_t persist_batch_id_;   // 已经可持久化的batch的id
-    size_t persist_off_;            // 已经可持久化的batch的最后一个字节的偏移量
+    uint64_t persist_off_;            // 已经可持久化的batch的最后一个字节的偏移量
 
     DiskManager* disk_manager_;
     LogBuffer buffer_;
@@ -192,6 +196,10 @@ private:
     int bitmap_size_;
 
     std::string log_file_path_;
+
+    // SQL
+    SmManager *sm_manager;
+    std::string mode;   //sql , ycsb , tpcc , smallbank
 
 public:
     //std::unordered_map<int,int>checkpoint;//记录每个页面id对应的持久化的llsn最大值

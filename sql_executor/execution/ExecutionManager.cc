@@ -9,7 +9,7 @@ void QlManager::run_mutli_query(std::shared_ptr<Plan> plan){
                 if (!compute_server->tryCreateTable()){
                     throw std::logic_error("Dropping Table , Please Wait A Minute");
                 }
-                run_res = "Create Table Success";
+                run_res = "success";
                 compute_server->create_table(x->m_tabName , x->m_cols , x->m_pkey);
                 break;
             }
@@ -18,7 +18,7 @@ void QlManager::run_mutli_query(std::shared_ptr<Plan> plan){
             }
             case T_DropTable: {
                 compute_server->dropTable(x->m_tabName);
-                run_res = "Drop Table Success";
+                run_res = "success";
                 break;
             }
             case T_DropIndex: {
@@ -50,19 +50,19 @@ run_stat QlManager::run_cmd_utility(std::shared_ptr<Plan> plan){
                 return run_stat::NORMAL;
             }
             case T_Transaction_begin:{
-                run_res = "Tx Begin";
+                run_res = "Begin";
                 return run_stat::TXN_BEGIN;
             }
             case T_Transaction_commit: {
-                run_res = "Tx Commit";
+                run_res = "Commit";
                 return run_stat::TXN_COMMIT;
             }
             case T_Transaction_rollback: {
-                run_res = "Tx Commit";
+                run_res = "RollBack";
                 return run_stat::TXN_ROLLBACK;
             }
             case T_Transaction_abort: {
-                run_res = "Tx Abort";
+                run_res = "Abort";
                 return run_stat::TXN_ABORT;
             }
             default: {
@@ -299,10 +299,13 @@ void QlManager::select_from(std::shared_ptr<AbstractExecutor> executorTreeRoot, 
                 dtx->GenUpdateLog(item , pk_ptr , rid , (char*)item + sizeof(DataItem) , (RmPageHdr*)(data));
             }
 
+            // 这里不能直接用 disk_item，因为打印的顺序已经被 Projection 改变了，所以需要调整一下
+            DataItemPtr print_item = executorTreeRoot->Next();
+
             std::vector<std::string> columns;
             for (auto &col : executorTreeRoot->cols()) {
                 std::string col_str;
-                char *rec_buf = (char*)item->value + col.offset;
+                char *rec_buf = (char*)print_item->value + col.offset;
                 if (col.type == ColType::TYPE_INT) {
                     col_str = std::to_string(*(int*)rec_buf);
                 }else if (col.type == ColType::TYPE_FLOAT) {

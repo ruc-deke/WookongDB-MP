@@ -284,6 +284,14 @@ int main(int argc, char* argv[]) {
       exit(-1);
     }
 
+    std::string log_path = "./storageserver.log" + std::to_string(getpid()); // 设置日志路径
+
+    if (std::ifstream(log_path)) { std::remove(log_path.c_str()); }
+    ::logging::LoggingSettings log_setting;  // 创建LoggingSetting对象进行设置
+    log_setting.log_file = log_path.c_str(); // 设置日志路径
+    log_setting.logging_dest = logging::LOG_TO_FILE; // 设置日志写到文件，不写的话不生效
+    ::logging::InitLogging(log_setting);     // 应用日志设置
+
     // Configure of this server
     std::string config_filepath = "../../config/storage_node_config.json";
     auto json_config = JsonConfig::load_file(config_filepath);
@@ -306,14 +314,16 @@ int main(int argc, char* argv[]) {
     }
 
     auto disk_manager = std::make_shared<DiskManager>();
-    auto log_replay = std::make_shared<LogReplay>(disk_manager.get()); 
-    auto log_manager = std::make_shared<LogManager>(disk_manager.get(), log_replay.get());
 
     auto buffer_mgr = std::make_shared<StorageBufferPoolManager>(RM_BUFFER_POOL_SIZE, disk_manager.get());
     auto rm_manager = std::make_shared<RmManager>(disk_manager.get(), buffer_mgr.get());
 
+    SmManager *sm_manager = new SmManager(rm_manager.get() , rm_manager->get_bufferPoolManager());
+
+    auto log_replay = std::make_shared<LogReplay>(disk_manager.get() , sm_manager , mode); 
+    auto log_manager = std::make_shared<LogManager>(disk_manager.get(), log_replay.get());
+
     if (mode == "sql"){
-      SmManager *sm_manager = new SmManager(rm_manager.get() , rm_manager->get_bufferPoolManager());
       auto server = std::make_shared<Server>(machine_id, local_rpc_port, local_meta_port, use_rdma, 
                       compute_node_num, compute_ip_list, compute_ports_list,
                       disk_manager.get(), log_manager.get(), rm_manager.get(), sm_manager);

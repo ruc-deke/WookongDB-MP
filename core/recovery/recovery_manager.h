@@ -13,8 +13,8 @@
 
 class RecoveryManager {
 public:
-    explicit RecoveryManager(DiskManager* disk_man) 
-        :log_replay_(disk_man), disk_manager_(disk_man) {}
+    explicit RecoveryManager(DiskManager* disk_man , SmManager *sm_manager , std::string mode) 
+        :log_replay_(disk_man , sm_manager , mode), disk_manager_(disk_man) {}
 
     void PerformRecovery();
     std::unordered_map<int, LLSN> checkpoint;//记录每个页面id对应的持久化的llsn最大值

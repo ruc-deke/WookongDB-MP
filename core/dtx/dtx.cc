@@ -38,7 +38,6 @@ DTX::DTX(MetaManager* meta_man,
   local_t_id = l_tid;   // thread_ID(Local)
   coro_id = coroid;
   coro_sched = sched;
-  current_llsn_ = 0;
   global_meta_man = meta_man;
   compute_server = server;
   tx_status = TXStatus::TX_INIT;
@@ -128,14 +127,6 @@ DataItem* DTX::GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , 
     DataItem* disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
     disk_item->value = (uint8_t*)reinterpret_cast<char*>(disk_item) + sizeof(DataItem);
 
-    // DataItemPtr itemPtr = std::make_shared<DataItem>(disk_item->table_id, static_cast<int>(disk_item->value_size));
-    // itemPtr->lock = disk_item->lock;
-    // itemPtr->version = disk_item->version;
-    // itemPtr->prev_lsn = disk_item->prev_lsn;
-    // itemPtr->valid = disk_item->valid;
-    // itemPtr->user_insert = disk_item->user_insert;
-    // memcpy(itemPtr->value, reinterpret_cast<char*>(disk_item) + sizeof(DataItem), disk_item->value_size);
-
     // 验证 key 正确
     itemkey_t *disk_key = reinterpret_cast<itemkey_t*>(tuple);
     assert(*disk_key == item_key);
@@ -144,9 +135,6 @@ DataItem* DTX::GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , 
         // TODO，需要把元组回滚到对应的版本
         UndoDataItem(disk_item);
     }
-
-    // DataItemPtr item_ptr = std::shared_ptr<DataItem>(disk_item);
-    // item_ptr->value = (uint8_t*)reinterpret_cast<char*>(disk_item) + sizeof(DataItem);
 
     return disk_item;
 }
@@ -160,16 +148,7 @@ DataItem* DTX::GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid , 
     DataItem* disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
     disk_item->value = (uint8_t*)reinterpret_cast<char*>(disk_item) + sizeof(DataItem);
 
-    // DataItemPtr itemPtr = std::make_shared<DataItem>(disk_item->table_id, static_cast<int>(disk_item->value_size));
-    // itemPtr->lock = disk_item->lock;
-    // itemPtr->version = disk_item->version;
-    // itemPtr->prev_lsn = disk_item->prev_lsn;
-    // itemPtr->valid = disk_item->valid;
-    // itemPtr->user_insert = disk_item->user_insert;
-    // memcpy(itemPtr->value, reinterpret_cast<char*>(disk_item) + sizeof(DataItem), itemPtr->value_size);
-
     itemkey_t *disk_key = reinterpret_cast<itemkey_t*>(tuple);
-    // assert(*disk_key == item_key);
     item_key = *disk_key;
 
     return disk_item;
@@ -182,23 +161,14 @@ DataItem* DTX::GetDataItemFromPage(table_id_t table_id , Rid rid , char *data , 
 
     DataItem *disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
     disk_item->value = reinterpret_cast<uint8_t*>(disk_item) + sizeof(DataItem);
-
-    // DataItem* disk_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
-    // auto itemPtr = std::make_unique<DataItem>(disk_item->table_id, static_cast<int>(disk_item->value_size));
-    // itemPtr->lock = disk_item->lock;
-    // itemPtr->version = disk_item->version;
-    // itemPtr->prev_lsn = disk_item->prev_lsn;
-    // itemPtr->valid = disk_item->valid;
-    // itemPtr->user_insert = disk_item->user_insert;
-    // memcpy(itemPtr->value, reinterpret_cast<char*>(disk_item) + sizeof(DataItem), itemPtr->value_size);
     
     pri_key = *reinterpret_cast<itemkey_t*>(tuple);
 
     if (!is_w){
+        // TODO
         UndoDataItem(disk_item);
     }
     return disk_item;
-
 }
 
 LLSN GetLLSNFromPageRW(char* data){

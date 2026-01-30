@@ -123,7 +123,7 @@ public:
         assert(fd > 0);
         table_id = fd;
 
-        int file_size = disk_manager->get_file_size(index_path);
+        uint64_t file_size = disk_manager->get_file_size(index_path);
         assert(file_size == 0);
 
         int key_size = sizeof(itemkey_t);
@@ -179,7 +179,7 @@ public:
         assert(fd >= 0);
         table_id = fd;
 
-        int file_size = disk_manager->get_file_size(index_path);
+        uint64_t file_size = disk_manager->get_file_size(index_path);
         assert(file_size == 0);
 
         int key_size = sizeof(itemkey_t);

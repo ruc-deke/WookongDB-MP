@@ -5,6 +5,7 @@
 #include "common.h"
 #include "storage/disk_manager.h"
 #include "logreplay.h"
+#include <mutex>
 
 class LogManager {
 public:
