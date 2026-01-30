@@ -692,7 +692,7 @@ void LogReplay::replayFun(){
             std::this_thread::sleep_for(std::chrono::milliseconds(10)); //sleep 10 ms
             continue;
         }
-        LOG(INFO) << "Begin apply log, apply size is " << read_size << ", max_replay_off_: " << max_replay_off_ << ", offset: " << offset;
+        // LOG(INFO) << "Begin apply log, apply size is " << read_size << ", max_replay_off_: " << max_replay_off_ << ", offset: " << offset;
         // offset为要读取数据的起始位置，persist_off_为已经读取的字节的结尾位置，所以需要+1
         // offset ++;
         read_bytes = read_log(buffer_.buffer_, read_size, offset);
@@ -710,7 +710,7 @@ void LogReplay::replayFun(){
             uint32_t size = *reinterpret_cast<const uint32_t *>(buffer_.buffer_ + inner_offset + OFFSET_LOG_TOT_LEN);
             // 如果剩余数据不是一条完整的日志记录，则不再进行读取
             if (size == 0 || size + inner_offset > (uint64_t)buffer_.offset_ + 1) {
-             LOG(INFO) << "The remain data does not contain a complete log record, the next log record's size is: " << size << ", inner_offset: " << inner_offset << ", buffer_offset: " << buffer_.offset_;
+            //  LOG(INFO) << "The remain data does not contain a complete log record, the next log record's size is: " << size << ", inner_offset: " << inner_offset << ", buffer_offset: " << buffer_.offset_;
                 usleep(1000);
                 break;
             }    
