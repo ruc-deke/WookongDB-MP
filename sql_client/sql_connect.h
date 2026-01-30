@@ -16,7 +16,7 @@
 #include <memory>
 #include <string>
 
-#define MAX_MEM_BUFFER_SIZE 8192
+#define MAX_MEM_BUFFER_SIZE 2097152
 
 bool is_exit_command(std::string &cmd) { 
     return cmd == "exit" || cmd == "exit;" || cmd == "bye" || cmd == "bye;" || cmd == "quit" || cmd == "quit;";

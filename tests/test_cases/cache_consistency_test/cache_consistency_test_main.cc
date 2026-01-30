@@ -112,7 +112,7 @@ int main(int argc, char* argv[]) {
     // Establish connections for each transaction based on their assigned node_id
     for(size_t i = 0; i < analyzer->transactions.size(); ++i) {
         int target_port = server_port + analyzer->transactions[i]->node_id;
-        std::cout << "Transaction " << i << " connecting to node " << analyzer->transactions[i]->node_id << " at port " << target_port << std::endl;
+        // std::cout << "Transaction " << i << " connecting to node " << analyzer->transactions[i]->node_id << " at port " << target_port << std::endl;
         analyzer->transactions[i]->sockfd = connect_database(unix_socket_path, server_host, target_port);
         if (analyzer->transactions[i]->sockfd < 0) {
             std::cerr << "Failed to connect to node " << analyzer->transactions[i]->node_id << " at port " << target_port << std::endl;

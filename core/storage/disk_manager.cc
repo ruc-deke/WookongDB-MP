@@ -157,9 +157,10 @@ int DiskManager::open_file(const std::string &path) {
         if (path2fd_.find(path) != path2fd_.end()){
             return path2fd_[path];
         }
-
         int fd = open(path.c_str() , O_RDWR);
-        assert(fd >= 0);
+        if (fd < 0){
+            return -1;
+        }
         assert(fd2path_.find(fd) == fd2path_.end());
 
         fd2path_[fd] = path;

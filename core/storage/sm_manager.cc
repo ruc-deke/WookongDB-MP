@@ -375,14 +375,10 @@ int SmManager::drop_table(const std::string &table_name){
         return LJ::ErrorCode::TABLE_NOT_FOUND;
     }
 
-    TabMeta& table = db.get_table(table_name);
-    // 1. 删除所有的索引
-    // for (const auto &index : table.indexes){
-    //     std::string index_name = getIndexName(table_name , index.cols , IndexType::BTREE_INDEX);
-    //     rm_manager->get_diskmanager()->destroy_file(index_name);
-    // }
+    TabMeta& tmp_table = db.get_table(table_name);
+    TabMeta table = table;
+    db.m_tabs.erase(table_name);
 
-    // 2. 关闭并删除表文件
     auto file_it = m_fhs.find(table_name);
     assert(file_it != m_fhs.end()); // 前边验证了存在文件，那一定在 file_it 里
     
@@ -403,9 +399,6 @@ int SmManager::drop_table(const std::string &table_name){
         rm_manager->get_diskmanager()->close_file(blink_fd);
         rm_manager->get_diskmanager()->destroy_file(table_name + "_bl");
     }
-
-    // 3. 从 db 元信息中移除
-    db.m_tabs.erase(table_name);
 
     // 4. 刷新 meta
     flush_meta();

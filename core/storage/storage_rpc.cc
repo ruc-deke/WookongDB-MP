@@ -324,7 +324,6 @@ namespace storage_service{
         assert(sm_manager);
         std::string tab_name = request->tab_name();
 
-        // 在这里等日志回放到目前为止
 
         int error_code = sm_manager->drop_table(tab_name);
         std::cout << "Drop Table : " << tab_name << " Error Code = " << error_code << "\n";

@@ -170,8 +170,8 @@ struct dtx_entry {
 };
 
 // 日志刷新配置常量
-const size_t LOG_FLUSH_THRESHOLD = 100;        // 日志数量阈值：达到1000条触发刷新
-const int LOG_FLUSH_INTERVAL_MS = 10;          // 时间间隔：100ms触发刷新
+const size_t LOG_FLUSH_THRESHOLD = 300;        // 日志数量阈值：达到300条触发刷新
+const int LOG_FLUSH_INTERVAL_MS = 10;          // 时间间隔：30ms触发刷新
 
 // Class ComputeNode 可以建立与pagetable的连接，但不能直接与其他计算节点通信
 // 因为compute_node_rpc.h引用了compute_node.h，compute_node.h引用了compute_node_rpc.h，会导致循环引用

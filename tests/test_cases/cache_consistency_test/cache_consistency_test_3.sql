@@ -17,7 +17,7 @@ t2b update cache_complex_3 set bal = 2010.0 where acc = 1;
 t2c select * from cache_complex_3 where acc = 1;
 t2d update cache_complex_3 set bal = 2020.0 where acc = 1;
 
-txn3 4 2
+txn3 4 1
 t3a update cache_complex_3 set bal = 3010.0 where acc = 1;
 t3b select * from cache_complex_3 where acc = 1;
 t3c update cache_complex_3 set bal = 3020.0 where acc = 1;

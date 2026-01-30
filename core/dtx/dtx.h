@@ -140,7 +140,7 @@ class DTX {
   int single_txn=0;
   int distribute_txn=0 ;
 
-  void AddLogToTxn();
+  void AddLogToTxn(); 
     LLSN GenUpdateLog(DataItem* item,
                                   itemkey_t *key,
                                   Rid rid,

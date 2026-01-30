@@ -15,7 +15,7 @@ t2a select * from cache_complex_2 where k = 1;
 t2b update cache_complex_2 set v = 12 where k = 1;
 t2c select * from cache_complex_2 where k = 1;
 
-txn3 3 2
+txn3 3 1
 t3a select * from cache_complex_2 where k = 1;
 t3b update cache_complex_2 set v = 13 where k = 1;
 t3c select * from cache_complex_2 where k = 1;

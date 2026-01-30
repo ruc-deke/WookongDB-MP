@@ -15,7 +15,7 @@
 // 664: tpcc
 // 1008: yscb
 
-#define BUFFER_LENGTH 8192
+#define BUFFER_LENGTH 2097152
 
 enum class TsPhase{
     BEGIN = 0,          // 初始化

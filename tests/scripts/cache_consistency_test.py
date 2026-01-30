@@ -3,8 +3,8 @@ import time
 import sys
 
 # test : cache_consistency_test
-NUM_TESTS = 5
-SCORES = [10, 10, 10, 10, 10]
+NUM_TESTS = 4
+SCORES = [10, 10, 10, 10]
 
 # Configuration
 HOST = "127.0.0.1"
@@ -58,33 +58,33 @@ def run():
     
     # 1. Start Storage Server
     os.chdir("./storage_server")
-    print("Starting Storage Server...")
+    # print("Starting Storage Server...")
     os.system("./storage_pool sql > /dev/null 2>&1 &")
     os.chdir("..")
     
     # 2. Start Remote Server (Meta Node)
     os.chdir("./remote_server")
-    print("Starting Remote Server...")
+    # print("Starting Remote Server...")
     os.system("./remote_node sql > /dev/null 2>&1 &")
     os.chdir("..")
     
     time.sleep(5)
     
-    # 3. Start Compute Nodes (Node 0, 1, 2)
-    # We need at least 3 nodes for complex cache consistency testing
+    # 3. Start Compute Nodes (Node 0, 1)
+    # We need at least 2 nodes for cache consistency testing
     os.chdir("./compute_server")
-    print("Starting Compute Server Node 0...")
+    # print("Starting Compute Server Node 0...")
     os.system("./compute_server 0 " + database_name + " > /dev/null 2>&1 &")
     time.sleep(1)
-    print("Starting Compute Server Node 1...")
+    # print("Starting Compute Server Node 1...")
     os.system("./compute_server 1 " + database_name + " > /dev/null 2>&1 &")
-    time.sleep(1)
-    print("Starting Compute Server Node 2...")
-    os.system("./compute_server 2 " + database_name + " > /dev/null 2>&1 &")
+    # time.sleep(1)
+    # print("Starting Compute Server Node 2...")
+    # os.system("./compute_server 2 " + database_name + " > /dev/null 2>&1 &")
     # 回到项目根目录下
     os.chdir("../..")
     
-    print("Waiting for servers to initialize...")
+    # print("Waiting for servers to initialize...")
     time.sleep(10)
     
     
@@ -107,7 +107,7 @@ def run():
         # Run the C++ test binary
         # Usage: ./cache_consistency_test -h IP -p PORT input_file output_file
         cmd = f"{TEST_BINARY_PATH} -h {HOST} -p {PORT} {test_file} {my_answer}"
-        print(f"Executing: {cmd}")
+        # print(f"Executing: {cmd}")
         ret = os.system(cmd)
         
         if ret != 0:

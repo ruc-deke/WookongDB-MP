@@ -358,8 +358,8 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
                 return;
             }
             int fd = disk_manager_->open_file(table_name);
-            if (fd < 0) {
-                assert(false);
+            if (fd < 0){
+                break;
             }
 
             RmFileHdr file_hdr{};
@@ -420,7 +420,9 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
                 return;
             }
             int fd = disk_manager_->open_file(delete_log->table_name_);
-            assert(fd >= 0);
+            if (fd < 0){
+                break;
+            }
 
             RmFileHdr file_hdr{};
             char page0_buf[sizeof(RmPageHdr) + sizeof(RmFileHdr)];
@@ -468,8 +470,8 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
             }
             
             int fd = disk_manager_->open_file(table_name);
-            if (fd < 0) {
-                assert(false);
+            if (fd < 0){
+                break;
             }
 
             RmFileHdr file_hdr{};
@@ -488,7 +490,7 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
             //     table_name << " page_id = " << update_log->rid_.page_no_ << " slot_no = " << update_log->rid_.slot_no_
             //     << " page lsn = " << page_hdr->LLSN_ << " log lsn = " << log_llsn << " log prev_lsn = " << log->prev_lsn_;
 
-            if (page_hdr->LLSN_ >= log_llsn||log->prev_lsn_!=page_hdr->LLSN_) {
+            if (page_hdr->LLSN_ >= log_llsn || log->prev_lsn_!=page_hdr->LLSN_) {
                 assert(false);
             }
 

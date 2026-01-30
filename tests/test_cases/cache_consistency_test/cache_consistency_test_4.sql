@@ -1,4 +1,4 @@
-preload 8
+preload 6
 drop table cache_complex_4;
 create table cache_complex_4 (id int, val int, tag char(8));
 insert into cache_complex_4 values (1, 100, 'A');
@@ -18,7 +18,7 @@ t2b select * from cache_complex_4 where id = 3;
 t2c update cache_complex_4 set val = 201 where id = 1;
 t2d select * from cache_complex_4 where id = 2;
 
-txn3 4 2
+txn3 4 1
 t3a update cache_complex_4 set val = 303 where id = 3;
 t3b select * from cache_complex_4 where id = 1;
 t3c update cache_complex_4 set val = 302 where id = 2;

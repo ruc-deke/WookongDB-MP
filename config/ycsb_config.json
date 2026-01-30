@@ -3,7 +3,7 @@
     "num_record": 50000,
     "attempted_num": 1000000,
     "num_hot_record": 20000, 
-    "use_zipfian": 1,           
+    "use_zipfian": 0,           
     "read_percent": 80,           
     "write_percent": 20,
     "field_len": 100,

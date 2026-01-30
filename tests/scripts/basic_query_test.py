@@ -154,11 +154,10 @@ def run():
             print(f"  Test {i+1} Passed")
             score += SCORES[i]
         else:
-            print(f"  Test {i+1} Failed")
+            print(f"Test {i+1} Failed")
         
-        if i < NUM_TESTS - 1:
-            print("Waiting 2 seconds before next test...")
-            time.sleep(5)
+        time.sleep(5)
+            
             
     print("-" * 20)
     print("Final score: " + str(score))
