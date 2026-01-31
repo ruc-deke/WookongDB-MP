@@ -17,7 +17,7 @@
 
 请按照以下顺序启动各组件：
 
-### 1. 存储层 (Storage Layer)
+### 1. 存储节点 (Storage Node)
 
 ```bash
 cd ./build/storage_server
@@ -32,7 +32,7 @@ cd ./build/storage_server
   ./storage_pool sql
   ```
 
-### 2. 元信息层 (Metadata Layer)
+### 2. 元信息节点 (Metadata Node)
 
 ```bash
 cd ./build/remote_server
@@ -44,7 +44,7 @@ cd ./build/remote_server
   ./remote_node sql
   ```
 
-### 3. 计算层 (Compute Layer)
+### 3. 计算节点 (Compute Node)
 
 #### 方式 A：以 SQL 模式启动
 
@@ -127,7 +127,7 @@ cd ./build/compute_server
    - 在 `"remote_compute_nodes"` -> `"compute_node_ips"` 列表中添加新节点 IP。
    - 在 `"remote_compute_nodes"` -> `"compute_node_ports"` 列表中添加新节点端口。
 
-> **重要**：除 `compute_node_config.json` 中的 `machine_id` 需根据节点区分外，所有节点上的其他配置项必须完全保持一致。
+> **重要**：所有节点上的配置项须保持一致，部分参数，例如 machine_num , thread_num 等，由节点启动时自动配置，无需修改
 
 ---
 
