@@ -14,9 +14,6 @@
 #include "replacer/lru_replacer.h"
 #include "replacer/replacer.h"
 
-// 这个类是BufferPoolManager的实现，用于管理存储层的buffer pool
-// 实际上这个缓冲池没什么大用
-// 
 class StorageBufferPoolManager {
    private:
     size_t pool_size_;      // buffer_pool中可容纳页面的个数，即帧的个数
@@ -70,7 +67,11 @@ class StorageBufferPoolManager {
 
     void flush_all_pages(int fd);
 
+    void clear_file_pages(int fd);
+
     void flush_all_pages();
+    
+    void clear_all_pages();
    private:
     bool find_victim_page(frame_id_t* frame_id);
 

@@ -3,11 +3,13 @@
 
 // 这个文件用于实现远程的页表，通过brpc实现，在无rdma环境下适用
 #pragma once
-#include "global_page_lock_table.h"
-#include "global_valid_table.h"
+#include "config.h"
+#include "GPLM/global_page_lock_table.h"
+#include "GPLM/global_valid_table.h"
 #include <butil/logging.h> 
 #include <brpc/server.h>
 #include <gflags/gflags.h>
+#include <unistd.h>
 
 #include "remote_page_table.pb.h"
 
@@ -24,9 +26,9 @@ class PageTableServiceImpl : public PageTableService {
     virtual ~PageTableServiceImpl(){};
 
     virtual void PSLock(::google::protobuf::RpcController* controller,
-                    const ::page_table_service::PSLockRequest* request,
-                    ::page_table_service::PSLockResponse* response,
-                    ::google::protobuf::Closure* done){
+            const ::page_table_service::PSLockRequest* request,
+            ::page_table_service::PSLockResponse* response,
+            ::google::protobuf::Closure* done){
         brpc::ClosureGuard done_guard(done);
         page_id_t page_id = request->page_id().page_no();
         node_id_t node_id = request->node_id();
@@ -36,6 +38,83 @@ class PageTableServiceImpl : public PageTableService {
 
         bool need_from_storage = false;
         node_id_t newest_node_id = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid(node_id , need_from_storage);
+        response->set_need_storage_fetch(need_from_storage);
+        
+        response->set_newest_node(newest_node_id);
+        page_table_service::PageID *page_id_pb = new page_table_service::PageID();
+        page_id_pb->set_page_no(page_id);
+        response->set_allocated_page_id(page_id_pb);
+        
+        // 添加模拟延迟
+        if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
+        return;
+    }
+
+    void PSLock_Localcall(const ::page_table_service::PSLockRequest* request,
+            ::page_table_service::PSLockResponse* response){
+        page_id_t page_id = request->page_id().page_no();
+        node_id_t node_id = request->node_id();
+        table_id_t table_id = request->page_id().table_id();
+
+        page_lock_table_list_->at(table_id)->Basic_GetLock(page_id)->LockShared();
+
+        bool need_from_storage = false;
+        node_id_t newest_node_id = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid(node_id , need_from_storage);
+        // LOG(INFO) << "table_id = " << table_id << " page_id = " << page_id << " node_id = " << node_id << " need_from_storage = " << need_from_storage << " newest_node = " << newest_node_id;
+        response->set_need_storage_fetch(need_from_storage);
+        response->set_newest_node(newest_node_id);
+        page_table_service::PageID *page_id_pb = new page_table_service::PageID();
+        page_id_pb->set_page_no(page_id);
+        response->set_allocated_page_id(page_id_pb);
+        
+        return;
+    }
+
+
+    virtual void PSUnlock(::google::protobuf::RpcController* controller,
+            const ::page_table_service::PSUnlockRequest* request,
+            ::page_table_service::PSUnlockResponse* response,
+            ::google::protobuf::Closure* done){
+        brpc::ClosureGuard done_guard(done);
+        page_id_t page_id = request->page_id().page_no();
+        table_id_t table_id = request->page_id().table_id();
+        node_id_t node_id = request->node_id();
+
+        page_lock_table_list_->at(table_id)->Basic_GetLock(page_id)->UnlockShared();
+        page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->ReleasePage(node_id);
+        page_lock_table_list_->at(table_id)->Basic_GetLock(page_id)->UnlockMtx();
+
+        // 添加模拟延迟
+        if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
+        return;
+    }
+
+    void PSUnlock_Localcall(const ::page_table_service::PSUnlockRequest* request,
+            ::page_table_service::PSUnlockResponse* response){
+        page_id_t page_id = request->page_id().page_no();
+        table_id_t table_id = request->page_id().table_id();
+        node_id_t node_id = request->node_id();
+
+        page_lock_table_list_->at(table_id)->Basic_GetLock(page_id)->UnlockShared();
+        page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->ReleasePage(node_id);
+        page_lock_table_list_->at(table_id)->Basic_GetLock(page_id)->UnlockMtx();
+
+        return;
+    }
+
+    virtual void PXLock(::google::protobuf::RpcController* controller,
+            const ::page_table_service::PXLockRequest* request,
+            ::page_table_service::PXLockResponse* response,
+            ::google::protobuf::Closure* done){
+        brpc::ClosureGuard done_guard(done);
+        page_id_t page_id = request->page_id().page_no();
+        node_id_t node_id = request->node_id();
+        table_id_t table_id = request->page_id().table_id();
+
+        bool need_from_storage = false;
+        page_lock_table_list_->at(table_id)->Basic_GetLock(page_id)->LockExclusive();
+        node_id_t newest_node_id = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid(node_id , need_from_storage);
+        response->set_need_storage_fetch(need_from_storage);
 
         response->set_newest_node(newest_node_id);
         page_table_service::PageID *page_id_pb = new page_table_service::PageID();
@@ -43,158 +122,106 @@ class PageTableServiceImpl : public PageTableService {
         response->set_allocated_page_id(page_id_pb);
 
         // 添加模拟延迟
-        usleep(NetworkLatency); // 100us
+        if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
         return;
     }
 
-    void PSLock_Localcall(const ::page_table_service::PSLockRequest* request,
-                    ::page_table_service::PSLockResponse* response){
+    void PXLock_Localcall(const ::page_table_service::PXLockRequest* request,
+                       ::page_table_service::PXLockResponse* response){
         page_id_t page_id = request->page_id().page_no();
         node_id_t node_id = request->node_id();
         table_id_t table_id = request->page_id().table_id();
 
-        page_lock_table_list_->at(table_id)->Basic_GetLock(page_id)->LockShared();
-        node_id_t newest_node_id = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid(node_id);
+        bool need_from_storage = false;
+        page_lock_table_list_->at(table_id)->Basic_GetLock(page_id)->LockExclusive();
+        node_id_t newest_node_id = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid(node_id , need_from_storage);
+        response->set_need_storage_fetch(need_from_storage);
 
         response->set_newest_node(newest_node_id);
         page_table_service::PageID *page_id_pb = new page_table_service::PageID();
         page_id_pb->set_page_no(page_id);
         response->set_allocated_page_id(page_id_pb);
+
         return;
     }
 
-
-    virtual void PSUnlock(::google::protobuf::RpcController* controller,
-                        const ::page_table_service::PSUnlockRequest* request,
-                        ::page_table_service::PSUnlockResponse* response,
-                        ::google::protobuf::Closure* done){
-            brpc::ClosureGuard done_guard(done);
-            page_id_t page_id = request->page_id().page_no();
-            table_id_t table_id = request->page_id().table_id();
-            page_lock_table_list_->at(table_id)->Basic_GetLock(page_id)->UnlockShared();
-            // page_lock_table_->Basic_GetLock(page_id)->UnlockShared();
-
-            // 添加模拟延迟
-            usleep(NetworkLatency); // 100us
-            return;
-        }
-
-    void PSUnlock_Localcall(const ::page_table_service::PSUnlockRequest* request,
-                        ::page_table_service::PSUnlockResponse* response){
-            page_id_t page_id = request->page_id().page_no();
-            table_id_t table_id = request->page_id().table_id();
-            page_lock_table_list_->at(table_id)->Basic_GetLock(page_id)->UnlockShared();
-            return;
-        }
-
-    virtual void PXLock(::google::protobuf::RpcController* controller,
-                       const ::page_table_service::PXLockRequest* request,
-                       ::page_table_service::PXLockResponse* response,
-                       ::google::protobuf::Closure* done){
-            brpc::ClosureGuard done_guard(done);
-            page_id_t page_id = request->page_id().page_no();
-            node_id_t node_id = request->node_id();
-            table_id_t table_id = request->page_id().table_id();
-
-//          node_id_t newest_node_id = page_valid_table_->GetValidInfo(page_id)->GetValid(node_id);
-//          page_lock_table_->Basic_GetLock(page_id)->LockExclusive();
-            bool need_from_storage = false;
-            page_lock_table_list_->at(table_id)->Basic_GetLock(page_id)->LockExclusive();
-            node_id_t newest_node_id = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid(node_id , need_from_storage);
-
-            response->set_newest_node(newest_node_id);
-            page_table_service::PageID *page_id_pb = new page_table_service::PageID();
-            page_id_pb->set_page_no(page_id);
-            response->set_allocated_page_id(page_id_pb);
-
-            // 添加模拟延迟
-            usleep(NetworkLatency); // 100us
-            return;
-        }
-
-    void PXLock_Localcall(const ::page_table_service::PXLockRequest* request,
-                       ::page_table_service::PXLockResponse* response){
-            page_id_t page_id = request->page_id().page_no();
-            node_id_t node_id = request->node_id();
-            table_id_t table_id = request->page_id().table_id();
-
-            page_lock_table_list_->at(table_id)->Basic_GetLock(page_id)->LockExclusive();
-            node_id_t newest_node_id = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid(node_id);
-
-            response->set_newest_node(newest_node_id);
-            page_table_service::PageID *page_id_pb = new page_table_service::PageID();
-            page_id_pb->set_page_no(page_id);
-            response->set_allocated_page_id(page_id_pb);
-            return;
-        }
-
     virtual void PXUnlock(::google::protobuf::RpcController* controller,
-                        const ::page_table_service::PXUnlockRequest* request,
-                        ::page_table_service::PXUnlockResponse* response,
-                        ::google::protobuf::Closure* done){
+            const ::page_table_service::PXUnlockRequest* request,
+            ::page_table_service::PXUnlockResponse* response,
+            ::google::protobuf::Closure* done){
 
-            brpc::ClosureGuard done_guard(done);
-            page_id_t page_id = request->page_id().page_no();
-            table_id_t table_id = request->page_id().table_id();
-            node_id_t node_id = request->node_id();
+        brpc::ClosureGuard done_guard(done);
+        page_id_t page_id = request->page_id().page_no();
+        table_id_t table_id = request->page_id().table_id();
+        node_id_t node_id = request->node_id();
 
-            // 释放X锁之前, 需要将其他计算节点的数据页状态设置为无效
-//            page_valid_table_->GetValidInfo(page_id)->XReleasePage(node_id);
-//            page_lock_table_->Basic_GetLock(page_id)->UnlockExclusive();
+        page_lock_table_list_->at(table_id)->Basic_GetLock(page_id)->UnlockExclusive();
         page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->ReleasePage(node_id);
-            page_lock_table_list_->at(table_id)->Basic_GetLock(page_id)->UnlockExclusive();
-           // std::cout <<"table_id: " << table_id << " page_id: " << page_id << " node_id: " << node_id << " has the newest" << std::endl;
-
-            // 添加模拟延迟
-            usleep(NetworkLatency); // 100us
-            return;
-        }
+        page_lock_table_list_->at(table_id)->Basic_GetLock(page_id)->UnlockMtx();
+        // std::cout <<"table_id: " << table_id << " page_id: " << page_id << " node_id: " << node_id << " has the newest" << std::endl;
+        
+        // 添加模拟延迟
+        if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
+        return;
+    }
 
     void PXUnlock_Localcall(const ::page_table_service::PXUnlockRequest* request,
-                        ::page_table_service::PXUnlockResponse* response){
-            page_id_t page_id = request->page_id().page_no();
-            table_id_t table_id = request->page_id().table_id();
-            node_id_t node_id = request->node_id();
+            ::page_table_service::PXUnlockResponse* response){
+        page_id_t page_id = request->page_id().page_no();
+        table_id_t table_id = request->page_id().table_id();
+        node_id_t node_id = request->node_id();
 
-            page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->ReleasePage(node_id);
-            page_lock_table_list_->at(table_id)->Basic_GetLock(page_id)->UnlockExclusive();
-            return;
-        }
+        page_lock_table_list_->at(table_id)->Basic_GetLock(page_id)->UnlockExclusive();
+        page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->ReleasePage(node_id);
+        page_lock_table_list_->at(table_id)->Basic_GetLock(page_id)->UnlockMtx();
+
+        return;
+    }
 
     // 以下是LAZY RELEASE模式的锁
     virtual void LRPXLock(::google::protobuf::RpcController* controller,
-                       const ::page_table_service::PXLockRequest* request,
-                       ::page_table_service::PXLockResponse* response,
-                       ::google::protobuf::Closure* done){
-            // std::cout << "LRPXLock Begin\n";
-            brpc::ClosureGuard done_guard(done);
-            page_id_t page_id = request->page_id().page_no();
-            table_id_t table_id = request->page_id().table_id();
-            node_id_t node_id = request->node_id();
+                    const ::page_table_service::PXLockRequest* request,
+                    ::page_table_service::PXLockResponse* response,
+                    ::google::protobuf::Closure* done){
+        brpc::ClosureGuard done_guard(done);
+        page_id_t page_id = request->page_id().page_no();
+        table_id_t table_id = request->page_id().table_id();
+        node_id_t node_id = request->node_id();
 
-            // LOG(INFO) << "LRPXLock Remote , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
+        // LOG(INFO) << "LRPXLock Remote , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
 
-            GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
-            bool lock_success = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->LockExclusive(node_id,table_id, valid_info);
+        GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
+        bool lock_success = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->LockExclusive(node_id,table_id, valid_info);
 
-            response->set_wait_lock_release(!lock_success);
-            if(lock_success){
-                bool need_from_storage = false;
-                node_id_t newest_node_id = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid(node_id , need_from_storage);
-                response->set_need_storage_fetch(need_from_storage);
-                response->set_newest_node(newest_node_id);
+        response->set_wait_lock_release(!lock_success);
+        response->set_lsn((LLSN)-1);
+        if(lock_success){
+            bool need_from_storage = false;
+            node_id_t newest_node_id = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid(node_id , need_from_storage);
+            response->set_need_storage_fetch(need_from_storage);
+            response->set_newest_node(newest_node_id);
 
-                // page_valid_table_list_->at(table_id)->setNodeValid(node_id , page_id);
+            LLSN now_lsn = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->getLsnIDNoBlock();
+            response->set_lsn(now_lsn);
 
-                page_table_service::PageID *page_id_pb = new page_table_service::PageID();
-                page_id_pb->set_page_no(page_id);
-                response->set_allocated_page_id(page_id_pb);
+            if (!need_from_storage){
+                if (newest_node_id != INVALID_NODE_ID){
+                    // LOG(INFO) << "Notify node" << newest_node_id << " to Push , table_id = " << table_id << " page_id = " << page_id;
+                    // 通知目前持有锁的节点，把数据推送给请求的节点
+                    page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->NotifyPushPage(table_id , node_id , newest_node_id);
+                }
             }
+            page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->UnlockMutex();
 
-            // 添加模拟延迟
-            usleep(NetworkLatency); // 100us
-            return;
+            page_table_service::PageID *page_id_pb = new page_table_service::PageID();
+            page_id_pb->set_page_no(page_id);
+            response->set_allocated_page_id(page_id_pb);
         }
+
+        // 添加模拟延迟
+        if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
+        return;
+    }
 
     void LRPXLock_Localcall(const ::page_table_service::PXLockRequest* request,
                        ::page_table_service::PXLockResponse* response){
@@ -208,13 +235,23 @@ class PageTableServiceImpl : public PageTableService {
             bool lock_success = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->LockExclusive(node_id,table_id, valid_info);
 
             response->set_wait_lock_release(!lock_success);
+            response->set_lsn((LLSN)-1);
             if(lock_success){
                 bool need_from_storage = false;
                 node_id_t newest_node_id = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid(node_id , need_from_storage);
                 response->set_need_storage_fetch(need_from_storage);
                 response->set_newest_node(newest_node_id);
 
-                // page_valid_table_list_->at(table_id)->setNodeValid(node_id , page_id);
+                LLSN now_lsn = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->getLsnIDNoBlock();
+                response->set_lsn(now_lsn);
+
+                if (!need_from_storage){
+                    if (newest_node_id != INVALID_NODE_ID){
+                        // 通知目前持有锁的节点，把数据推送给请求的节点
+                        page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->NotifyPushPage(table_id , node_id , newest_node_id);
+                    }
+                }
+                page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->UnlockMutex();
 
                 page_table_service::PageID *page_id_pb = new page_table_service::PageID();
                 page_id_pb->set_page_no(page_id);
@@ -231,13 +268,13 @@ class PageTableServiceImpl : public PageTableService {
             table_id_t table_id = request->page_id().table_id();
             node_id_t node_id = request->node_id();
 
-            // LOG(INFO) << "LRPSLock Remote , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
+            // LOG(INFO) << "LRPSLock RemoteCall , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
 
             GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
             bool lock_success = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->LockShared(node_id,table_id, valid_info);
   
             response->set_wait_lock_release(!lock_success);
-            
+            response->set_lsn((LLSN)-1);
             if(lock_success){
                 bool need_from_storage = false;
                 node_id_t newest_node = valid_info->GetValid(node_id , need_from_storage);
@@ -245,17 +282,29 @@ class PageTableServiceImpl : public PageTableService {
                 response->set_need_storage_fetch(need_from_storage);
                 response->set_newest_node(newest_node);
 
+                LLSN now_lsn = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->getLsnIDNoBlock();
+                response->set_lsn(now_lsn);
+
+                if (!need_from_storage){
+                    // LOG(INFO) << "Remote Immediate Get Lock , Waiting For Push , table_id = " << table_id << " page_id = " << page_id << " node_id = " << node_id << " src_node_id = " << newest_node;
+                    // 对于读锁来说，newest_node_id 一定等于-1
+                    assert(newest_node != INVALID_NODE_ID);
+                    // 通知目前持有锁的节点，把数据推送给请求的节点
+                    page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->NotifyPushPage(table_id , node_id , newest_node);
+                }
+                page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->UnlockMutex();
+
                 page_table_service::PageID *page_id_pb = new page_table_service::PageID();
                 page_id_pb->set_page_no(page_id);
                 response->set_allocated_page_id(page_id_pb);
 
-                 // LOG(INFO) << "LRPSLock LockSuccess Directly , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
+                //  LOG(INFO) << "LRPSLock LockSuccess Directly , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
             }else{
-                 // LOG(INFO) << "LRPSLock Wait Lock, node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id << " LockSuccess ? " << lock_success;
+                //  LOG(INFO) << "LRPSLock Wait Lock, node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id << " LockSuccess ? " << lock_success;
             }
             
             // 添加模拟延迟
-            usleep(NetworkLatency); // 100us
+            if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
             return;
         }
 
@@ -266,27 +315,39 @@ class PageTableServiceImpl : public PageTableService {
             table_id_t table_id = request->page_id().table_id();
             node_id_t node_id = request->node_id();
 
-            // LOG(INFO) << "LRPSLock local , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
-
+            // LOG(INFO) << "LRPSLock LocalCall , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
+            
             GlobalValidInfo* valid_info = page_valid_table_list_->at(table_id)->GetValidInfo(page_id);
             bool lock_success = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->LockShared(node_id,table_id, valid_info);
   
             response->set_wait_lock_release(!lock_success);
-            
+            response->set_lsn((LLSN)-1);
             if(lock_success){
                 bool need_from_storage = false;
                 node_id_t newest_node = valid_info->GetValid(node_id , need_from_storage);
-
                 response->set_need_storage_fetch(need_from_storage);
+
+                LLSN now_lsn = page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->getLsnIDNoBlock();
+                response->set_lsn(now_lsn);
+
+                if (!need_from_storage){
+                    // LOG(INFO) << "Remote Immediate Get Lock , Waiting For Push , table_id = " << table_id << " page_id = " << page_id << " node_id = " << node_id << " src_node_id = " << newest_node;
+                    assert(newest_node != INVALID_NODE_ID);
+                    // 通知目前持有锁的节点，把数据推送给请求的节点
+                    page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->NotifyPushPage(table_id , node_id , newest_node);
+                } 
+                page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->UnlockMutex();
+
+
                 response->set_newest_node(newest_node);
 
                 page_table_service::PageID *page_id_pb = new page_table_service::PageID();
                 page_id_pb->set_page_no(page_id);
                 response->set_allocated_page_id(page_id_pb);
 
-                 // LOG(INFO) << "LRPSLock LockSuccess Directly , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
+                //  LOG(INFO) << "LRPSLock LockSuccess Directly , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
             }else{
-                 // LOG(INFO) << "LRPSLock Wait Lock, node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id << " LockSuccess ? " << lock_success;
+                //  LOG(INFO) << "LRPSLock Wait Lock, node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id << " LockSuccess ? " << lock_success;
             }
 
             return;
@@ -323,19 +384,21 @@ class PageTableServiceImpl : public PageTableService {
         */
         // 第一种情况：已经把页面释放完了(注意本节点的请求一定不会在请求队列里，所以不需要考虑请求队列的情况)
         if (!gl->CheckIsHoldNoBlock(node_id)){
-            std::cout << "Rejected " << ++reject_cnt << " agree_cnt = " << agree_cnt << "\n";
+            // std::cout << "Rejected " << ++reject_cnt << " agree_cnt = " << agree_cnt << "\n";
             gl->mutexUnlock();
             response->set_agree(false);
             return;
         }
         // 第二种情况：还在释放页面的过程中
         if (gl->getIsPendingNoBlock()){
-            std::cout << "Rejected " << ++reject_cnt << " agree_cnt = " << agree_cnt << "\n";
+            // std::cout << "Rejected " << ++reject_cnt << " agree_cnt = " << agree_cnt << "\n";
             gl->mutexUnlock();
             response->set_agree(false);
             return;
         }
         agree_cnt++;
+        LLSN lsn = request->lsn();
+        gl->setLsnIDNoBlock(lsn);
 
         // LOG(INFO) << "Agree Release , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
 
@@ -351,6 +414,8 @@ class PageTableServiceImpl : public PageTableService {
         assert(page_lock_table_list_->at(table_id)->LR_GetLock(page_id)->is_request_queue_empty());
         gl->mutexUnlock();
         response->set_agree(true);
+
+        if (NetworkLatency != 0)  usleep(NetworkLatency);
 
         return;
     }
@@ -382,8 +447,8 @@ class PageTableServiceImpl : public PageTableService {
             response->set_agree(false);
             return;
         }
-        agree_cnt++;
-
+        LLSN lsn = request->lsn();
+        gl->setLsnIDNoBlock(lsn);
         // LOG(INFO) << "Agree Release , node_id = " << node_id << " table_id = " << table_id << " page_id = " << page_id;
 
         // 把本节点的有效信息设置为false
@@ -456,7 +521,7 @@ class PageTableServiceImpl : public PageTableService {
             }
             // valid_info->ReleasePage(node_id);
             // 添加模拟延迟
-            usleep(NetworkLatency); // 100us
+            if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
         }
 
     void LRPAnyUnLock_Localcall(const ::page_table_service::PAnyUnLockRequest* request,
@@ -530,7 +595,7 @@ class PageTableServiceImpl : public PageTableService {
             }
             
             // 添加模拟延迟
-            usleep(NetworkLatency); // 100us
+            if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
         }
 
     private:
@@ -538,6 +603,6 @@ class PageTableServiceImpl : public PageTableService {
     std::vector<GlobalValidTable*>* page_valid_table_list_;
 
     public:
-    std::atomic<int> immedia_transfer = 0;
+    std::atomic<int> immedia_transfer{0};
 };
 };

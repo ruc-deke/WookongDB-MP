@@ -2,6 +2,7 @@
 // Copyright (c) 2024
 
 #include "server.h"
+#include "workload/ycsb/ycsb_db.h"
 
 void ComputeServer::Get_2pc_Remote_data(node_id_t node_id, table_id_t table_id, Rid rid, bool lock, char* &data){
     assert(SYSTEM_MODE == 2);
@@ -24,8 +25,9 @@ void ComputeServer::Get_2pc_Remote_data(node_id_t node_id, table_id_t table_id, 
         data = nullptr;
     }
     else{
-        data = new char[sizeof(DataItem)];
-        memcpy(data, response.data().c_str(), sizeof(DataItem));
+        RmFileHdr::ptr file_hdr = get_file_hdr_cached(table_id);
+        data = new char[file_hdr->record_size_];
+        memcpy(data, response.data().c_str(), file_hdr->record_size_);
     }
     return;
 }
@@ -39,7 +41,8 @@ void ComputeServer::Write_2pc_Remote_data(node_id_t node_id, table_id_t table_id
     item_id->set_page_no(rid.page_no_);
     item_id->set_slot_id(rid.slot_no_);
     request.set_allocated_item_id(item_id);
-    request.set_data(data, MAX_ITEM_SIZE);
+    RmFileHdr::ptr file_hdr = get_file_hdr_cached(table_id);
+    request.set_data(data, file_hdr->record_size_);
     twopc_service::TwoPCService_Stub stub(&nodes_channel[node_id]);
     brpc::Controller cntl;
     stub.WriteDataItem(&cntl, &request, &response, NULL);
@@ -55,49 +58,66 @@ void ComputeServer::Write_2pc_Local_data(node_id_t node_id, table_id_t table_id,
     Page* page = local_fetch_x_page(table_id, page_id);
     char* page_data = page->get_data();
     char *bitmap = page_data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-    char *slots = bitmap + node_->getMetaManager()->GetTableMeta(table_id).bitmap_size_;
-    char* tuple = slots + slot_id * (sizeof(DataItem) + sizeof(itemkey_t));
+    RmFileHdr::ptr file_hdr = get_file_hdr_cached(table_id);
+    char *slots = bitmap + file_hdr->bitmap_size_;
+    char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
     DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
     assert(item->lock == EXCLUSIVE_LOCKED);
-    memcpy(item->value, data, MAX_ITEM_SIZE);
+    
+    // Fix: item->value is invalid when read from disk directly via reinterpret_cast
+    uint8_t* value_ptr = (uint8_t*)item + sizeof(DataItem);
+
+
+    // Verify Key
+    itemkey_t key = *reinterpret_cast<itemkey_t*>(tuple);
+    // You might want to pass key to this function to verify it matches, but for now we just log if needed
+    // assert(key == expected_key); 
+
+    // Fix: Copy only value, skip header
+    memcpy(value_ptr, data + sizeof(DataItem), item->value_size);
     item->lock = UNLOCKED;
     local_release_x_page(table_id, page_id);
 }
 
-void ComputeServer::Get_2pc_Local_page(node_id_t node_id, table_id_t table_id, Rid rid, bool lock, char* &data){
+void ComputeServer::Get_2pc_Local_page(node_id_t node_id, table_id_t table_id, Rid rid, bool lock, char* &data , itemkey_t item_key){
     assert(SYSTEM_MODE == 2);
     bool lock_success = true;
-    if(node_->getNodeID() != node_id){
-        LOG(ERROR) << "Get_2pc_Local_page called with wrong node_id";
-        assert(false);
-    }
+    assert(node_->get_node_id() == node_id);
     // Get local page data
     page_id_t page_id = rid.page_no_;
     int slot_id = rid.slot_no_;
+    // lock 代表是否是写锁
     if(!lock){
         Page* page = local_fetch_s_page(table_id, page_id);
         char* page_data = page->get_data();
         char* bitmap = page_data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR; 
-        char* slots = bitmap + node_->meta_manager_->GetTableMeta(table_id).bitmap_size_;
-        char* tuple = slots + slot_id * (sizeof(DataItem) + sizeof(itemkey_t));
+        RmFileHdr::ptr file_hdr = get_file_hdr_cached(table_id);
+        char* slots = bitmap + file_hdr->bitmap_size_;
+        char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
+
+        // DataItem *debug_item = reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+        itemkey_t key = *reinterpret_cast<itemkey_t*>(tuple);
+        assert(key == item_key);
         // No need to lock, just return the data
-        data = new char[sizeof(DataItem)];
-        memcpy(data, tuple + sizeof(itemkey_t), sizeof(DataItem));
+        data = new char[file_hdr->record_size_];
+        memcpy(data, tuple + sizeof(itemkey_t), file_hdr->record_size_);
         local_release_s_page(table_id, page_id);
     }else{
         Page* page = local_fetch_x_page(table_id, page_id);
         char* page_data = page->get_data();
         char *bitmap = page_data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-        char *slots = bitmap + node_->getMetaManager()->GetTableMeta(table_id).bitmap_size_;
-        char* tuple = slots + slot_id * (sizeof(DataItem) + sizeof(itemkey_t));
-        // lock the data
+        RmFileHdr::ptr file_hdr = get_file_hdr_cached(table_id);
+        char *slots = bitmap + file_hdr->bitmap_size_;
+        char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
         DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
+        itemkey_t key = *reinterpret_cast<itemkey_t*>(tuple);
+        assert(key == item_key);
+        // lock the data
         if(item->lock == UNLOCKED){
             item->lock = EXCLUSIVE_LOCKED;
-            data = new char[sizeof(DataItem)];
-            memcpy(data, tuple + sizeof(itemkey_t), sizeof(DataItem));
-        }
-        else {
+            data = new char[file_hdr->record_size_];
+            memcpy(data, tuple + sizeof(itemkey_t), file_hdr->record_size_);
+        } else {
             // abort, set data to nullptr
             data = nullptr;
         }
@@ -124,14 +144,14 @@ void ComputeServer::Get_2pc_Remote_page(node_id_t node_id, table_id_t table_id, 
     if(response.abort()){
         assert(lock == true);
         data = nullptr;
-    }
-    else{
+    } else {
         char* page = (char*)response.data().c_str();
         char *bitmap = page + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-        char *slots = bitmap + node_->meta_manager_->GetTableMeta(table_id).bitmap_size_;
-        char* tuple = slots + rid.slot_no_ * (sizeof(DataItem) + sizeof(itemkey_t));
-        data = new char[sizeof(DataItem)];
-        memcpy(data, tuple+sizeof(itemkey_t), sizeof(DataItem));
+        RmFileHdr::ptr file_hdr = get_file_hdr_cached(table_id);
+        char *slots = bitmap + file_hdr->bitmap_size_;
+        char* tuple = slots + rid.slot_no_ * (file_hdr->record_size_ + sizeof(itemkey_t));
+        data = new char[file_hdr->record_size_];
+        memcpy(data, tuple + sizeof(itemkey_t), file_hdr->record_size_);
     }
     return;
 }
@@ -241,7 +261,8 @@ int ComputeServer::Commit_2pc(std::unordered_map<node_id_t, std::vector<std::pai
             item_id->set_table_id(item.first.first);
             item_id->set_page_no(item.first.second.page_no_);
             item_id->set_slot_id(item.first.second.slot_no_);
-            request.add_data(item.second, MAX_ITEM_SIZE);
+            RmFileHdr::ptr file_hdr = get_file_hdr_cached(item.first.first);
+            request.add_data(item.second, file_hdr->record_size_ - sizeof(DataItem));
         }
         brpc::Controller *cntl = new brpc::Controller();
         cids.push_back(cntl->call_id());

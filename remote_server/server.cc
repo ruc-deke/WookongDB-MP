@@ -6,17 +6,16 @@
 
 #include "util/json_config.h"
 #include "config.h"
-#include "remote_bufferpool/remote_bufferpool_rpc.h"
 #include "remote_page_table/remote_page_table_rpc.h"
 #include "remote_page_table/remote_partition_table_rpc.h"
 #include "remote_page_table/timestamp_rpc.h"
-#include "global_page_lock.h"
-#include "global_valid_table.h"
+#include "GPLM/global_page_lock.h"
+#include "GPLM/global_valid_table.h"
 
 class Server {
 public:
-    Server(std::vector<GlobalLockTable*>* global_page_lock_table_list, std::vector<GlobalValidTable*>* global_valid_table_list, BufferPool* bufferpool)
-        : global_page_lock_table_list_(global_page_lock_table_list), global_valid_table_list_(global_valid_table_list), bufferpool_(bufferpool){
+    Server(std::vector<GlobalLockTable*>* global_page_lock_table_list, std::vector<GlobalValidTable*>* global_valid_table_list)
+        : global_page_lock_table_list_(global_page_lock_table_list), global_valid_table_list_(global_valid_table_list){
         
         // read config file
         auto server_config =  JsonConfig::load_file("../../config/remote_server_config.json");
@@ -65,6 +64,7 @@ public:
             if (server.Start(point,&options) != 0) {
                 LOG(ERROR) << "Fail to start Server";
             }
+            std::cout << "Remote Server Started at port " << rpc_port_ << std::endl;
             server.RunUntilAskedToQuit();
             exit(1);
         });
@@ -93,7 +93,6 @@ public:
 private:
     std::vector<GlobalLockTable*>* global_page_lock_table_list_;
     std::vector<GlobalValidTable*>* global_valid_table_list_;
-    BufferPool* bufferpool_;
 };
 
 // 主节点等待所有计算节点都连接上并完成注册，然后一起开始
@@ -136,12 +135,12 @@ int socket_start_server(Server *server) {
     }
 
     // 计算节点已经启动，建立连接
-    for(size_t i = 0; i < server->getGlobalPageLockTableList()->size(); i++){
-        server->getGlobalPageLockTableList()->at(i)->Reset();
-        server->getGlobalValidTableList()->at(i)->Reset();
-        // 对每一个表，添加所有主节点到这个锁表的 RPC
-        server->getGlobalPageLockTableList()->at(i)->BuildRPCConnection(server->compute_node_ips_, server->compute_node_ports_);
-    }
+    // for(size_t i = 0; i < server->getGlobalPageLockTableList()->size(); i++){
+    //     server->getGlobalPageLockTableList()->at(i)->Reset();
+    //     server->getGlobalValidTableList()->at(i)->Reset();
+    //     // 对每一个表，添加所有主节点到这个锁表的 RPC
+    //     server->getGlobalPageLockTableList()->at(i)->BuildRPCConnection(server->compute_node_ips_, server->compute_node_ports_);
+    // }
     
     for(size_t i=0; i<server->compute_node_ips_.size(); i++){
         // 发送 SYN 消息到客户端
@@ -230,6 +229,15 @@ int main(int argc, char* argv[]) {
     // 解析命令行参数
     gflags::ParseCommandLineFlags(&argc, &argv, true);
 
+    if (argc != 2){
+        std::cerr << "Please Input Mode \n";
+        std::cerr << "Mode : sql , ycsb , smallbank , tpcc\n";
+        std::cerr << "Example : ./remote_node sql\n";
+        exit(-1);
+    }
+
+    std::string workload = std::string(argv[1]);
+
     std::string log_path = "LOG.log";
     if (std::ifstream(log_path)){
         std::remove(log_path.c_str());
@@ -244,18 +252,43 @@ int main(int argc, char* argv[]) {
         ComputeNodeCount = atoi(argv[1]);
     }
 
-    // 初始化全局的bufferpool和page_lock_table
-    auto bufferpool = std::make_unique<BufferPool>(BufferFusionSize , 10000);
-    auto global_page_lock_table_list = std::make_unique<std::vector<GlobalLockTable*>>();
-    auto global_valid_table_list = std::make_unique<std::vector<GlobalValidTable*>>();
-    for(int i=0; i < 15; i++){
-        global_page_lock_table_list->push_back(new GlobalLockTable());
-        global_valid_table_list->push_back(new GlobalValidTable());
-    }
-    
-    // 启动rpc server
-    Server server(global_page_lock_table_list.get(), global_valid_table_list.get(), bufferpool.get());
+    int table_num;
+    auto server_config = JsonConfig::load_file("../../config/remote_server_config.json");
 
+    if (workload == "smallbank"){
+        table_num = 2;
+    }else if (workload == "tpcc"){
+        table_num = 11;
+    }else if (workload == "ycsb"){
+        table_num = 1;
+    }else if (workload == "sql"){
+        // TODO，暂时先这样
+        table_num = 1;
+    }else{
+        std::cerr << "Please Input Mode \n";
+        std::cerr << "Mode : sql , ycsb , smallbank , tpcc\n";
+        std::cerr << "Example : ./remote_node sql\n";
+        exit(-1);
+    }
+
+    // 初始化全局的bufferpool和page_lock_table
+    // auto bufferpool = std::make_unique<BufferPool>(BufferFusionSize , 10000);
+    auto global_page_lock_table_list = std::make_unique<std::vector<GlobalLockTable*>>();
+    global_page_lock_table_list->resize(30000);
+    auto global_valid_table_list = std::make_unique<std::vector<GlobalValidTable*>>();
+    global_valid_table_list->resize(30000);
+    for(int i = 0; i < table_num; i++){
+        global_page_lock_table_list->at(i) = new GlobalLockTable();
+        global_page_lock_table_list->at(i + 10000) = new GlobalLockTable();
+        global_page_lock_table_list->at(i + 20000) = new GlobalLockTable();
+
+        global_valid_table_list->at(i) = new GlobalValidTable();
+        global_valid_table_list->at(i + 10000) = new GlobalValidTable();
+        global_valid_table_list->at(i + 20000) = new GlobalValidTable();
+    }
+    Server server(global_page_lock_table_list.get(), global_valid_table_list.get());
+
+    
     // 启动socket server
     socket_start_server(&server);
     std::cout << "Start, and wait compute nodes finish running workload..." << std::endl;

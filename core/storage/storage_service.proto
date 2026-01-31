@@ -10,13 +10,61 @@ message LogWriteRequest {
         sint32 page_no = 2;
     }
     repeated PageID page_id = 2;
+    int32 urgent = 3;
 };
 
 message RaftLogWriteRequest{
     bytes raft_log = 1;
 }
-
 message LogWriteResponse{}
+
+message OpendbRequest{
+    bytes db_name = 1;
+    sint32 node_id = 2;
+};
+message OpendbResponse{
+    sint32 table_num = 1;
+    sint32 error_code = 2;
+    repeated bytes table_names = 3;
+    repeated sint32 table_id = 4;
+};
+
+message TableExistRequest{
+    bytes table_name = 1;
+};
+message TableExistResponse{
+    bool ans = 1;
+    sint32 table_id = 2;
+    repeated bytes col_names = 3;
+    repeated bytes col_types = 4;
+    repeated sint32 col_lens = 5;
+    repeated bytes primary = 6;
+};
+
+message CreateTableRequest{
+    bytes tab_name = 1;
+    repeated bytes cols_name = 2;
+    repeated sint32 cols_len = 3;
+    repeated sint32 cols_type = 4;
+};
+message CreateTableResponse{
+    sint32 error_code = 1;
+    sint32 table_id = 2;
+}
+
+message DropTableRequest{
+    bytes tab_name = 1;
+};
+message DropTableResponse{
+    sint32 error_code = 1;
+}
+
+message ShowTableRequest{
+
+};
+message ShowTableResponse{
+    repeated bytes tab_name = 1;
+};
 
 message GetPageRequest {
 	message PageID{
@@ -26,8 +74,20 @@ message GetPageRequest {
 	repeated PageID page_id = 1;
     uint64 require_batch_id = 2;
 };
-
 message GetPageResponse {
+    bytes data = 1;
+};
+
+message GetPageWithLsnRequest {
+    message PageID{
+    	bytes table_name = 1;
+        sint32 page_no = 2;
+    }
+	repeated PageID page_id = 1;
+    uint64 require_batch_id = 2;
+    sint64 require_lsn = 3;
+};
+message GetPageWithLsnResponse {
     bytes data = 1;
 };
 
@@ -42,7 +102,7 @@ message GetBatchIndexResponse {
     repeated sint32 slotid = 3;
 };
 
-// 新增：写整页接口
+// 写整页接口
 message WritePageRequest {
     message PageID{
         bytes table_name = 1;
@@ -54,11 +114,42 @@ message WritePageRequest {
 
 message WritePageResponse {}
 
+// 创建页面请求
+message CreatePageRequest {
+    int32 table_id = 1;
+    bytes table_name = 2;
+}
+message CreatePageResponse{
+    int32 page_no = 1 ; //新创建的页面号
+    bool success = 2;
+}
+
+// 删除页面请求
+message DeletePageRequest {
+    int32 table_id = 1;
+    int32 page_no = 2;
+    bytes table_name = 3;
+}
+message DeletePageResponse {
+    bool successs = 1;
+}
+
 service StorageService {
     rpc LogWrite(LogWriteRequest) returns (LogWriteResponse);
     rpc RaftLogWrite(RaftLogWriteRequest) returns (LogWriteResponse);
     rpc GetPage(GetPageRequest) returns (GetPageResponse);
+    rpc GetPageWithLsn(GetPageWithLsnRequest) returns(GetPageWithLsnResponse);
     rpc PrefetchIndex(GetBatchIndexRequest) returns (GetBatchIndexResponse);
-    // 新增：计算层主动将页面写入存储层
+
+    // LJ
     rpc WritePage(WritePageRequest) returns (WritePageResponse);
+    rpc CreatePage(CreatePageRequest) returns (CreatePageResponse);
+    rpc DeletePage(DeletePageRequest) returns (DeletePageResponse);
+
+    // SQL
+    rpc OpenDb(OpendbRequest) returns (OpendbResponse);
+    rpc TableExist(TableExistRequest) returns (TableExistResponse);
+    rpc CreateTable(CreateTableRequest) returns (CreateTableResponse);
+    rpc ShowTable(ShowTableRequest) returns (ShowTableResponse);
+    rpc DropTable(DropTableRequest) returns (DropTableResponse);
 };

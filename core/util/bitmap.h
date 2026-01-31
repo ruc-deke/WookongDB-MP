@@ -20,6 +20,27 @@ class Bitmap {
     // 如果pos位是1，则返回true
     static bool is_set(const char *bm, int pos) { return (bm[get_bucket(pos)] & get_bit(pos)) != 0; }
 
+    // 统计范围内所有为0的位数量
+    static int getfreeposnum(const char *bm, int max_n) {
+        int free_count = 0;
+        int full_buckets = max_n / BITMAP_WIDTH;
+        int tail_bits = max_n % BITMAP_WIDTH;
+
+        for (int bucket = 0; bucket < full_buckets; bucket++) {
+            unsigned char byte = static_cast<unsigned char>(bm[bucket]);
+            free_count += BITMAP_WIDTH - __builtin_popcount(static_cast<unsigned int>(byte));
+        }
+
+        if (tail_bits > 0) {
+            unsigned char byte = static_cast<unsigned char>(bm[full_buckets]);
+            unsigned char mask = static_cast<unsigned char>(0xFFu ^ ((1u << (BITMAP_WIDTH - tail_bits)) - 1u));
+            unsigned int set_in_tail = __builtin_popcount(static_cast<unsigned int>(byte & mask));
+            free_count += tail_bits - static_cast<int>(set_in_tail);
+        }
+
+        return free_count;
+    }
+
     /**
      * @brief 找下一个为0 or 1的位
      * @param bit false表示要找下一个为0的位，true表示要找下一个为1的位

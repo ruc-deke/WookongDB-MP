@@ -1,10 +1,18 @@
 #include "storage_rpc.h"
 #include "config.h"
+#include "record/record.h"
+#include "common.h"
+#include "base/data_item.h"
+#include "storage/blink_tree/blink_tree.h"
+
+#include "core/index/bp_tree/bp_tree_defs.h"
 
 namespace storage_service{
 
-    StoragePoolImpl::StoragePoolImpl(LogManager* log_manager, DiskManager* disk_manager, brpc::Channel* raft_channels, int raft_num)
-        :log_manager_(log_manager), disk_manager_(disk_manager), raft_channels_(raft_channels), raft_num_(raft_num){};
+    StoragePoolImpl::StoragePoolImpl(LogManager* log_manager, DiskManager* disk_manager, RmManager* rm_manager, brpc::Channel* raft_channels, int raft_num , SmManager *sm_manager_)
+        :log_manager_(log_manager), disk_manager_(disk_manager), rm_manager_(rm_manager), raft_channels_(raft_channels), raft_num_(raft_num) , sm_manager(sm_manager_){
+
+        };
 
     StoragePoolImpl::~StoragePoolImpl(){};
 
@@ -29,7 +37,6 @@ namespace storage_service{
                        ::google::protobuf::Closure* done){
             
         brpc::ClosureGuard done_guard(done);
-        // RDMA_// LOG(INFO) << "handle write log request, log is " << request->log();
         log_manager_->write_batch_log_to_disk(request->log());
 
 # if RAFT
@@ -67,29 +74,20 @@ namespace storage_service{
             // // LOG(INFO) << "storage node write raft commit log. ";
         }
 # endif
-        std::unordered_map<std::string, int> table_fd_map;
-        for(int i=0; i<request->page_id_size(); i++){
+
+        for(int i = 0; i < request->page_id_size(); i++){
             page_id_t page_no = request->page_id()[i].page_no();
             std::string table_name = request->page_id()[i].table_name();
-            int fd;
-            if(table_fd_map.find(table_name) == table_fd_map.end()){
-                fd = disk_manager_->open_file(table_name);
-                table_fd_map[table_name] = fd;
-            }
-            else{
-                fd = table_fd_map[table_name];
-            }
+            int fd = disk_manager_->open_file(table_name);
+
             PageId page_id(fd, page_no);
             log_manager_->log_replay_->pageid_batch_count_[page_id].first.lock();
             log_manager_->log_replay_->pageid_batch_count_[page_id].second++;
             log_manager_->log_replay_->pageid_batch_count_[page_id].first.unlock();
         }
-        for(auto it = table_fd_map.begin(); it != table_fd_map.end(); it++){
-            disk_manager_->close_file(it->second);
-        }
 
         // 添加模拟延迟
-        usleep(NetworkLatency); // 100us
+        if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
         return;
     };
 
@@ -104,9 +102,47 @@ namespace storage_service{
         // LOG(INFO) << "Receive Raft log";
 
         // 添加模拟延迟
-        usleep(NetworkLatency); // 100us
+        if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
         return;
     };
+
+    void StoragePoolImpl::GetPageWithLsn(::google::protobuf::RpcController* controller,
+                       const ::storage_service::GetPageWithLsnRequest* request,
+                       ::storage_service::GetPageWithLsnResponse* response,
+                       ::google::protobuf::Closure* done){
+        brpc::ClosureGuard done_guard(done);
+
+        LLSN lsn = request->require_lsn();
+        std::string return_data;
+        for(int i = 0; i < request->page_id().size(); i++){
+            std::string table_name = request->page_id()[i].table_name();
+            int fd = disk_manager_->open_file(table_name);
+            
+            page_id_t page_no = request->page_id()[i].page_no();
+            PageId page_id(fd, page_no);
+            batch_id_t request_batch_id = request->require_batch_id();
+            LogReplay* log_replay = log_manager_->log_replay_;
+
+            char data[PAGE_SIZE];
+
+            log_replay->latch3_.lock();
+            log_replay->pageid_batch_count_[page_id].first.lock();
+            while (log_replay->pageid_batch_count_[page_id].second > 0) {
+                usleep(10);
+            }
+            log_replay->pageid_batch_count_[page_id].first.unlock();
+            log_replay->latch3_.unlock();
+            page_id_t total_pages = disk_manager_->get_fd2pageno(fd);
+
+           // disk_manager_->read_page(fd, page_no, data, PAGE_SIZE);  
+            disk_manager_->read_page_with_lsn(fd, page_no, data, PAGE_SIZE, lsn);          
+            return_data.append(std::string(data, PAGE_SIZE));
+        }
+
+        response->set_data(return_data);
+
+        return;
+    }
 
     void StoragePoolImpl::GetPage(::google::protobuf::RpcController* controller,
                        const ::storage_service::GetPageRequest* request,
@@ -115,58 +151,33 @@ namespace storage_service{
 
         brpc::ClosureGuard done_guard(done);
 
-        std::unordered_map<std::string, int> table_fd_map;
         std::string return_data;
-        for(int i=0; i<request->page_id().size(); i++){
+        for(int i = 0; i < request->page_id().size(); i++){
             std::string table_name = request->page_id()[i].table_name();
+            int fd = disk_manager_->open_file(table_name);
             
-            int fd;
-            if(table_fd_map.find(table_name) == table_fd_map.end()){
-                fd = disk_manager_->open_file(table_name);
-                table_fd_map[table_name] = fd;
-            }
-            else{
-                fd = table_fd_map[table_name];
-            }
             page_id_t page_no = request->page_id()[i].page_no();
-            // std::cout << "Getting Page " << "table_name = " << table_name << " page_id = " << page_no << "\n";
             PageId page_id(fd, page_no);
             batch_id_t request_batch_id = request->require_batch_id();
             LogReplay* log_replay = log_manager_->log_replay_;
 
-            // RDMA_// LOG(INFO) << "handle GetPage request";
-            // RDMA_// LOG(INFO) << "request_batch_id: " << request_batch_id << ", persist_batch_id: " << log_replay->get_persist_batch_id();
             char data[PAGE_SIZE];
-            // TODO, 这里逻辑要重新梳理一下
-            // while(log_replay->get_persist_batch_id()+1 < request_batch_id) {
-            //     // wait
-            //     RDMA_// LOG(INFO) << "the batch_id requirement is not satisfied...." << "  persist id: "<<
-            //         log_replay->get_persist_batch_id() << "  request id: " << request_batch_id;
-            //     usleep(10);
-            // }
 
             log_replay->latch3_.lock();
             log_replay->pageid_batch_count_[page_id].first.lock();
             while (log_replay->pageid_batch_count_[page_id].second > 0) {
-                // wait
-                // LOG(INFO) << "the log replay queue is has another item...." << "  batch item cnt: "<<
-                    log_replay->pageid_batch_count_[page_id].second;
                 usleep(10);
             }
             log_replay->pageid_batch_count_[page_id].first.unlock();
             log_replay->latch3_.unlock();
+            page_id_t total_pages = disk_manager_->get_fd2pageno(fd);
 
-            disk_manager_->read_page(fd, page_no, data, PAGE_SIZE);
-            // std::cout << "Got Here\n\n";
+            disk_manager_->read_page(fd, page_no, data, PAGE_SIZE);            
             return_data.append(std::string(data, PAGE_SIZE));
-            // std::cout << return_data << "\n";
         }
 
         response->set_data(return_data);
-        for(auto it = table_fd_map.begin(); it != table_fd_map.end(); it++){
-            disk_manager_->close_file(it->second);
-        }
-        // RDMA_// LOG(INFO) << "success to GetPage";
+
         return;
     };
 
@@ -218,8 +229,6 @@ namespace storage_service{
                        ::google::protobuf::Closure* done){
         brpc::ClosureGuard done_guard(done);
 
-        // std::cout << "Got Here\n";
-
         std::string table_name = request->page_id().table_name();
         int fd = disk_manager_->open_file(table_name);
         page_id_t page_no = request->page_id().page_no();
@@ -229,7 +238,226 @@ namespace storage_service{
         
         disk_manager_->write_page(fd, page_no, payload.data(), PAGE_SIZE);
 
-        disk_manager_->close_file(fd);
         return;
     };
+
+    void StoragePoolImpl::OpenDb(::google::protobuf::RpcController* controller,
+                       const ::storage_service::OpendbRequest* request,
+                       ::storage_service::OpendbResponse* response,
+                       ::google::protobuf::Closure* done){
+        brpc::ClosureGuard done_guard(done);
+        std::lock_guard<std::mutex> lk(mutex);
+        
+        assert(sm_manager);
+        std::string db_name = request->db_name();
+        int node_id = request->node_id();
+
+        // std::cout << "Node ID = " << node_id <<  " open DB : " << db_name << "\n";
+
+        int error_code = sm_manager->open_db(db_name);
+        response->set_error_code(error_code);
+
+        for (auto &entry : sm_manager->db.m_tabs) {
+            response->add_table_names(entry.first);
+            response->add_table_id(entry.second.get_table_id());
+        }
+
+        response->set_table_num(sm_manager->db.m_tabs.size());
+
+        std::cout << "Node ID = " << node_id <<  " open DB : " << db_name << " error code : " << error_code << "\n";
+
+        return;
+    }
+
+    void StoragePoolImpl::CreateTable(::google::protobuf::RpcController *controller,
+                        const ::storage_service::CreateTableRequest *request ,
+                        ::storage_service::CreateTableResponse *response ,
+                      ::google::protobuf::Closure *done){
+        brpc::ClosureGuard done_guard(done);
+        assert(sm_manager);
+
+        std::lock_guard<std::mutex> lk(mutex);
+
+        std::string tab_name = request->tab_name();
+
+        std::vector<ColDef> col_defs;
+        std::string pri_key = "";
+
+        for (int i = 0 ; i < request->cols_len_size() ; i++){
+            int type = request->cols_type(i);
+            std::string name = request->cols_name(i);
+            int len = request->cols_len(i);
+
+            ColType col_type;
+            if (type == 0){
+                col_type = ColType::TYPE_INT;
+            }else if (type == 1){
+                col_type = ColType::TYPE_FLOAT;
+            }else if (type == 2){
+                col_type = ColType::TYPE_STRING;
+            }else if (type == 3){
+                // 如果某个参数的类型是 TYPE_ITEMKEY，那就认为这列是主键
+                // 主键不放在 DataItem里，元组的结构是 主键 + DataItem + 数据(DataItem 存的是 lock , version 那些东西)
+                pri_key = name;
+                col_type = ColType::TYPE_ITEMKEY;
+            }else {
+                assert(false);
+            }
+
+            ColDef col_def(name , col_type , len);
+            col_defs.emplace_back(col_def);
+        }
+
+        // 必须带上主键，否则不给过
+        // assert(pri_key != "");
+
+        int error_code = sm_manager->create_table(tab_name , col_defs , pri_key);
+        response->set_error_code(error_code);
+    }
+
+    void StoragePoolImpl::DropTable(::google::protobuf::RpcController* controller,
+                       const ::storage_service::DropTableRequest* request,
+                       ::storage_service::DropTableResponse* response,
+                       ::google::protobuf::Closure* done){
+        brpc::ClosureGuard done_guard(done);
+        std::lock_guard<std::mutex> lk(mutex);
+        assert(sm_manager);
+        std::string tab_name = request->tab_name();
+
+
+        int error_code = sm_manager->drop_table(tab_name);
+        std::cout << "Drop Table : " << tab_name << " Error Code = " << error_code << "\n";
+        response->set_error_code(error_code);
+    }
+
+    void StoragePoolImpl::TableExist(::google::protobuf::RpcController* controller,
+                       const ::storage_service::TableExistRequest* request,
+                       ::storage_service::TableExistResponse* response,
+                       ::google::protobuf::Closure* done){
+        brpc::ClosureGuard done_guard(done);
+        std::lock_guard<std::mutex> lk(mutex);
+        assert(sm_manager);
+        std::string table_name = request->table_name();
+        bool exist = sm_manager->db.is_table(table_name);
+        response->set_ans(exist);
+        if (exist){
+            auto &tab = sm_manager->db.get_table(table_name);
+            for (auto &col : tab.cols){
+                response->add_col_names(col.name);
+                response->add_col_lens(col.len);
+                if (col.type == ColType::TYPE_FLOAT){
+                    response->add_col_types("TYPE_FLOAT");
+                }else if (col.type == ColType::TYPE_INT){
+                    response->add_col_types("TYPE_INT");
+                }else if (col.type == ColType::TYPE_STRING){
+                    response->add_col_types("TYPE_STRING");
+                }else if (col.type == ColType::TYPE_ITEMKEY){
+                    response->add_col_types("TYPE_ITEMKEY");
+                }else {
+                    assert(false);
+                }
+            }
+
+            response->set_table_id(tab.table_id);
+            // assert(tab.primary_key != "");
+            // std::cout << "Read Table Pkey = " << tab.primary_key << "\n";
+            if (tab.primary_key != "") {
+                response->add_primary(tab.primary_key);
+            }
+        }
+        return;
+    }
+
+    void StoragePoolImpl::ShowTable(::google::protobuf::RpcController* controller,
+                       const ::storage_service::ShowTableRequest* request,
+                       ::storage_service::ShowTableResponse* response,
+                       ::google::protobuf::Closure* done){
+        brpc::ClosureGuard done_guard(done);
+        std::lock_guard<std::mutex> lk(mutex);
+        for (auto it : sm_manager->db.m_tabs){
+            response->add_tab_name(it.first);
+        }
+
+        return ;
+    }
+
+    void StoragePoolImpl::CreatePage(::google::protobuf::RpcController* controller , 
+                        const ::storage_service::CreatePageRequest *request ,
+                        ::storage_service::CreatePageResponse *response , 
+                        ::google::protobuf::Closure *done){
+        brpc::ClosureGuard done_guard(done);
+
+        table_id_t table_id = request->table_id();
+        std::string table_path = request->table_name();
+
+        int fd = disk_manager_->open_file(table_path);
+        page_id_t new_page_no = disk_manager_->allocate_page(fd);
+                            
+        // 初始化整页为 0
+        char zero_page[PAGE_SIZE];
+        memset(zero_page, 0, PAGE_SIZE);
+        disk_manager_->write_page(fd, new_page_no, zero_page, PAGE_SIZE);
+
+        // 如果不是 fsm 或者 blink，写入 file_hdr
+        bool is_fsm = (table_path.find("_fsm") != std::string::npos);
+        bool is_blink = (table_path.find("_bl") != std::string::npos);
+
+        if (!is_fsm && !is_blink) {
+            char page0_buf[sizeof(RmPageHdr) + sizeof(RmFileHdr)];
+            disk_manager_->read_page(fd, RM_FILE_HDR_PAGE, page0_buf, sizeof(page0_buf));
+            RmFileHdr* file_hdr = reinterpret_cast<RmFileHdr*>(page0_buf + sizeof(RmPageHdr));
+            file_hdr->num_pages_ = new_page_no + 1;
+            disk_manager_->update_value(fd, RM_FILE_HDR_PAGE, sizeof(RmPageHdr), reinterpret_cast<char*>(file_hdr), sizeof(RmFileHdr));
+        }
+
+        // std::cout << "Create a Page , table_id = " << table_id << " page_id = " << new_page_no << "\n";
+        
+        response->set_page_no(new_page_no);
+        response->set_success(true);
+        return;
+    }
+
+    void StoragePoolImpl::DeletePage(::google::protobuf::RpcController *controller , 
+                const ::storage_service::DeletePageRequest *request ,
+                ::storage_service::DeletePageResponse *response ,
+                ::google::protobuf::Closure *done){
+        brpc::ClosureGuard done_guard(done);
+
+        table_id_t table_id = request->table_id();
+        page_id_t page_no = request->page_no();
+        std::string table_path = request->table_name();
+
+        std::cout << "Delete Page , page_no = " << page_no << "\n"; 
+
+        int fd = disk_manager_->open_file(table_path);
+
+        // 判断是否为 B+ 索引文件
+        bool is_bp_index = (table_path.find("_bp") != std::string::npos);
+
+        // 将整页清零
+        char zero_page[PAGE_SIZE];
+        memset(zero_page, 0, PAGE_SIZE);
+        disk_manager_->write_page(fd, page_no, zero_page, PAGE_SIZE);
+
+        if (!is_bp_index) {
+            // RM 文件：维护页头和文件头的空闲链表
+            // 读取 Page 0 获取当前的 first_free_page_no
+            char page0_buf[sizeof(RmPageHdr) + sizeof(RmFileHdr)];
+            disk_manager_->read_page(fd, PAGE_NO_RM_FILE_HDR, page0_buf, sizeof(page0_buf));
+            RmFileHdr* file_hdr = reinterpret_cast<RmFileHdr*>(page0_buf + sizeof(RmPageHdr));
+            int next_free = file_hdr->first_free_page_no_;
+
+            // 将被删除页面的 next_free 指向旧的 first_free
+            disk_manager_->update_value(fd, page_no, OFFSET_NEXT_FREE_PAGE_NO, reinterpret_cast<char*>(&next_free), sizeof(int));
+        
+            // 更新 Page 0 的 first_free 指向当前被删除的页面
+            int new_first_free = static_cast<int>(page_no);
+            disk_manager_->update_value(fd, PAGE_NO_RM_FILE_HDR, sizeof(RmPageHdr) + OFFSET_FIRST_FREE_PAGE_NO, reinterpret_cast<char*>(&new_first_free), sizeof(int));
+        }
+
+        // disk_manager_->close_file(fd);
+
+        response->set_successs(true);
+        return;
+    }
 }

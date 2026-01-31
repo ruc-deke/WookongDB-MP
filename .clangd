@@ -1,0 +1,9 @@
+# /usr/local/workspace/Hybrid_Cloud_MP/.clangd
+CompileFlags:
+  Add:
+    - -I/home/wlj/include
+    - -I/home/wlj/include/output/include
+    - -I/home/wlj/include/src
+    - -I/usr/local/workspace/Hybrid_Cloud_MP/core
+    - -I/usr/local/workspace/Hybrid_Cloud_MP/thirdparty
+    - -I/usr/local/workspace/Hybrid_Cloud_MP/workload

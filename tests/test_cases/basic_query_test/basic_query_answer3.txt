@@ -1,0 +1,78 @@
+WookongDB-MP> create table student (id int, name char(9), major char(32));
+success
+WookongDB-MP> insert into student values (0, 'KangKanga', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+affect raw : 1
+WookongDB-MP> insert into student values (1, 'TomTomTom', 'Computer ScienceComputer Science');
+affect raw : 1
+WookongDB-MP> insert into student values (2, 'JerryJerr', 'Computer ScienceComputer Science');
+affect raw : 1
+WookongDB-MP> insert into student values (3, 'JackJackJ', 'Electrical Engineeringer Science');
+affect raw : 1
+WookongDB-MP> insert into student values (3, 'JerryJerr', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+affect raw : 1
+WookongDB-MP> update student set major = 'Electrical Engineering' where id = 2;
+affect raw : 1
+WookongDB-MP> select * from student where id>=1;
++------------------+------------------+------------------+
+|               id |             name |            major |
++------------------+------------------+------------------+
+|                1 |        TomTomTom | Computer Scie... |
+|                2 |        JerryJerr | Electrical En... |
+|                3 |        JackJackJ | Electrical En... |
+|                3 |        JerryJerr | aaaaaaaaaaaaa... |
++------------------+------------------+------------------+
+Total record(s): 4
+
+WookongDB-MP> select * from student where id = 0;
++------------------+------------------+------------------+
+|               id |             name |            major |
++------------------+------------------+------------------+
+|                0 |        KangKanga | aaaaaaaaaaaaa... |
++------------------+------------------+------------------+
+Total record(s): 1
+
+WookongDB-MP> update student set id = 100 where name = 'JerryJerry';
+affect raw : 2
+WookongDB-MP> select * from student where id > 2;
++------------------+------------------+------------------+
+|               id |             name |            major |
++------------------+------------------+------------------+
+|              100 |        JerryJerr | Electrical En... |
+|                3 |        JackJackJ | Electrical En... |
+|              100 |        JerryJerr | aaaaaaaaaaaaa... |
++------------------+------------------+------------------+
+Total record(s): 3
+
+WookongDB-MP> select * from student where id < 101;
++------------------+------------------+------------------+
+|               id |             name |            major |
++------------------+------------------+------------------+
+|                0 |        KangKanga | aaaaaaaaaaaaa... |
+|                1 |        TomTomTom | Computer Scie... |
+|              100 |        JerryJerr | Electrical En... |
+|                3 |        JackJackJ | Electrical En... |
+|              100 |        JerryJerr | aaaaaaaaaaaaa... |
++------------------+------------------+------------------+
+Total record(s): 5
+
+WookongDB-MP> update student set name = '789123456' , major = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' where id < 3;
+affect raw : 2
+WookongDB-MP> select * from student where id = 2;
++------------------+------------------+------------------+
+|               id |             name |            major |
++------------------+------------------+------------------+
++------------------+------------------+------------------+
+Total record(s): 0
+
+WookongDB-MP> select * from student where name = '789123456';
++------------------+------------------+------------------+
+|               id |             name |            major |
++------------------+------------------+------------------+
+|                0 |        789123456 | bbbbbbbbbbbbb... |
+|                1 |        789123456 | bbbbbbbbbbbbb... |
++------------------+------------------+------------------+
+Total record(s): 2
+
+WookongDB-MP> drop table student;
+success
+WookongDB-MP> Bye.

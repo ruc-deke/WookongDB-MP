@@ -9,7 +9,7 @@ Page* ComputeServer::single_fetch_s_page(table_id_t table_id, page_id_t page_id)
     static std::mt19937 gen(rd()); 
     std::uniform_real_distribution<double> dist(0.0, 1.0);
     if (dist(gen) <= SINGLE_MISS_CACHE_RATE){
-        rpc_fetch_page_from_storage(table_id, page_id);
+        rpc_fetch_page_from_storage(table_id, page_id , true);
     }
     return page;
 }
@@ -23,7 +23,7 @@ Page* ComputeServer::single_fetch_x_page(table_id_t table_id, page_id_t page_id)
     static std::mt19937 gen(rd());
     std::uniform_real_distribution<double> dist(0.0, 1.0);
     if (dist(gen) <= SINGLE_MISS_CACHE_RATE){
-        rpc_fetch_page_from_storage(table_id, page_id);
+        rpc_fetch_page_from_storage(table_id, page_id , true);
     }
     return page;
 }

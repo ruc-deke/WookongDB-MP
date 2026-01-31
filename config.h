@@ -12,10 +12,16 @@
 // ! pay attention: need modify this when use different workload
 // Max data item size.
 // 8: smallbank
-// 40: tatp
 // 664: tpcc
-// 40: micro-benchmark
-#define MAX_ITEM_SIZE 8
+// 1008: yscb
+
+#define BUFFER_LENGTH 2097152
+
+enum class TsPhase{
+    BEGIN = 0,          // 初始化
+    RUNNING = 1,        // 在时间片内
+    SWITCHING = 2       // 切换阶段
+};
 
 #define ComputeNodeBufferPageSize 262144 // 262144*4KB = 1GB
 // #define ComputeNodeBufferPageSize 2621440 // for leap
@@ -44,7 +50,7 @@ extern double LongTxnRate;
 
 #define MaxPartitionCount 1024
 
-#define ThreadPoolSizePerWorker 8 // 每个worker线程池的大小
+#define ThreadPoolSizePerWorker 2 // 每个worker线程池的大小
 // 定义计算节点的各个阶段
 enum class Phase {PARTITION, GLOBAL, SWITCH_TO_PAR, SWITCH_TO_GLOBAL, BEGIN};
 enum class OperationType {READ, WRITE};
@@ -64,7 +70,7 @@ enum class OperationType {READ, WRITE};
 
 #define RunOperationTime 500 // us, 1000us = 1ms
 
-#define NetworkLatency 0 // us, 1000us = 1ms
+#define NetworkLatency 0 // us, 1000us = 1ms , 1000000us = 1s
 
 #define BatchTimeStamp 200 
 

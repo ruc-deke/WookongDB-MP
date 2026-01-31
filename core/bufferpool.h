@@ -5,11 +5,13 @@
 #include "base/page.h"
 #include "common.h"
 #include "bufferpool_replacer.h"
-#include "local_LR_page_lock.h"
+#include "LPLM/local_LR_page_lock.h"
 
 #include "memory"
 #include "mutex"
 #include "iostream"
+#include <cstring>
+#include <mutex>
 #include <string_view>      
 #include "condition_variable"
 #include "functional"
@@ -40,7 +42,6 @@ public:
         for (size_t i = 0 ; i < pool_size; i++) {
             free_lists.emplace_back(i);
         }
-        resetPending();
     }
 
     ~BufferPool(){
@@ -49,6 +50,7 @@ public:
         }
     }
 
+    // 强要求页面一定在缓冲池里
     Page *fetch_page(page_id_t page_id){
         std::lock_guard<std::mutex> lk(mtx);
 
@@ -56,22 +58,49 @@ public:
         assert(it != page_table.end());
 
         frame_id_t frame_id = it->second;
-        replacer->pin(frame_id);
         Page *page = pages[frame_id];
+        // pin_count 的作用不是 RUCBase 那样的，作用只有一个，就是减少 replacer->pin 的次数
+        // 它不负责回收 frame，因为页面一定是用完了才 unpin
+        if (page->pin_count_++ == 0){
+            replacer->pin(frame_id);
+        }
+        
+        return page;
+    }
+
+    // 不要求页面在缓冲池里
+    Page *try_fetch_page(page_id_t page_id){
+        std::lock_guard<std::mutex> lk(mtx);
+        auto it = page_table.find(page_id);
+        if (it == page_table.end()){
+            return nullptr;
+        }
+
+        frame_id_t frame_id = it->second;
+        Page *page = pages[frame_id];
+        if (page->pin_count_++ == 0){
+            replacer->pin(frame_id);
+        }
+        assert(page->page_id_ == page_id);
 
         return page;
     }
 
-    std::string fetch_page_special(page_id_t page_id){
+    
+
+    const std::string try_fetch_page_ret_string(page_id_t page_id){
         std::lock_guard<std::mutex> lk(mtx);
         auto it = page_table.find(page_id);
         if (it == page_table.end()){
             return "";
         }
+
         frame_id_t frame_id = it->second;
-        replacer->pin(frame_id);
-        Page *page = pages[frame_id];
-        return std::string(page->get_data() , PAGE_SIZE);
+        std::string ret(pages[frame_id]->get_data() , PAGE_SIZE);
+
+        assert(pages[frame_id]->page_id_ == page_id);
+        assert(ret.size() == PAGE_SIZE);
+        return ret;
     }
 
     // 直接从缓冲区里面把这个页面删掉，这个是当节点释放页面所有权的时候调用的
@@ -82,6 +111,7 @@ public:
 
         frame_id_t frame_id = it->second;
         Page *pg = pages[frame_id];
+        pg->pin_count_ = 0;
         pg->reset_memory();
         pg->page_id_ = INVALID_PAGE_ID;
 
@@ -90,15 +120,6 @@ public:
         // 确保该帧不被 LRU 追踪，然后归还到 free_list
         replacer->pin(frame_id);
         free_lists.push_back(frame_id);
-    }
-
-
-    void pin_page(page_id_t page_id){
-        std::lock_guard<std::mutex> lk(mtx);
-        auto it = page_table.find(page_id);
-        assert(it != page_table.end());
-        frame_id_t frame_id = it->second;
-        replacer->pin(frame_id);
     }
 
 
@@ -114,20 +135,8 @@ public:
         assert(it != page_table.end());
 
         frame_id_t frame_id = it->second;
+        pages[frame_id]->pin_count_ = 0;
         // 不需要 pin_count，因为我这个缓冲区是严格限制的，unpin 一定是用完了缓冲区
-        replacer->unpin(frame_id);
-    }
-
-    // BufferRelease 专用的
-    void unpin_special(page_id_t page_id){
-        std::lock_guard<std::mutex> lk(mtx);
-        auto it = page_table.find(page_id);
-        // 到达的时候已经被淘汰了，那不管了
-        if (it == page_table.end()){
-            std::cout << "Has been 淘汰\n";
-            return;
-        }
-        frame_id_t frame_id = it->second;
         replacer->unpin(frame_id);
     }
 
@@ -138,6 +147,8 @@ public:
 
     bool checkIfDirectlyPutInBuffer(page_id_t page_id , frame_id_t &frame_id){
         std::lock_guard<std::mutex> lk(mtx);
+        assert(page_table.find(page_id) == page_table.end());
+
         if (!free_lists.empty()){
             frame_id = free_lists.front();
             free_lists.pop_front();
@@ -146,20 +157,31 @@ public:
         return false;
     }
 
+    bool checkIfDirectlyUpdate(page_id_t page_id , const void *data){
+        std::lock_guard<std::mutex>lk(mtx);
+        auto it = page_table.find(page_id);
+        if (it == page_table.end()){
+            return false;
+        }
+        frame_id_t frame_id = it->second;
+        assert(pages[frame_id]->pin_count_ == 0);
+        pages[frame_id]->pin_count_++;
+        replacer->pin(frame_id);
+        memcpy(pages[frame_id]->get_data() , data , PAGE_SIZE);
+        return true;
+    }
+
     // 第一个:选中要淘汰的页面
     // 返回的时候，被选中的这个页面的真实状态
-    std::pair<node_id_t , node_id_t> replace_page (page_id_t page_id , 
+    std::pair<page_id_t , page_id_t> replace_page (page_id_t page_id , 
             frame_id_t &frame_id,
             int &try_cnt ,
             const std::function<bool(page_id_t)> &try_begin_evict ){
         mtx.lock();
         assert(page_table.find(page_id) == page_table.end());
-        if (pending_operation_counts[page_id] != 0){
-            assert(!should_release_buffer[page_id]);
-        }
 
         bool need_loop = true;
-        node_id_t victim_page_id = INVALID_PAGE_ID;
+        page_id_t victim_page_id = INVALID_PAGE_ID;
         while (need_loop){
             bool res = replacer->tryVictim(&frame_id , try_cnt);
             if (!res){
@@ -199,6 +221,7 @@ public:
             assert(replaced_page != INVALID_PAGE_ID);
             // assert(page_table.find(replaced_page) != page_table.end());
             assert(page_table.find(replaced_page) != page_table.end());
+            // LOG(INFO) << "Replace a page , table_id = " << table_id << " page_id = " << replaced_page;
             page_table.erase(replaced_page);
         }                                                                                           
 
@@ -207,11 +230,8 @@ public:
         replacer->pin(frame_id);
         Page *page = pages[frame_id];
 
-        if (src == nullptr){
-            page->reset_memory();
-        }else {
-            std::memcpy(page->get_data() , src , PAGE_SIZE);
-        }
+        assert(src != nullptr);
+        std::memcpy(page->get_data() , src , PAGE_SIZE);
         page->page_id_ = page_id;
         page->id_.table_id = table_id;
         page->id_.page_no = page_id;
@@ -224,35 +244,6 @@ public:
         release_page(table_id , page_id);
     }
 
-    void resetPending(){
-        pending_operation_counts = std::vector<int>(max_page_num , 0);
-        should_release_buffer = std::vector<bool>(max_page_num, false);
-    }
-
-    int getPendingCounts(page_id_t page_id){
-        std::lock_guard<std::mutex> lk(mtx);
-        return pending_operation_counts[page_id];
-    }
-    bool getShouldReleaseBuffer(page_id_t page_id){
-        std::lock_guard<std::mutex> lk(mtx);
-        return should_release_buffer[page_id];
-    }
-
-    // 等待 Push 页面的操作完成
-    bool waitingForPushOver(page_id_t page_id){
-        std::unique_lock<std::mutex> lk(mtx);
-        // 如果还没标记释放的话，就返回
-        if (!should_release_buffer[page_id] || pending_operation_counts[page_id] == 0){
-            return false;
-        }
-
-        pushing_cv.wait(lk , [this , page_id]{
-            return (pending_operation_counts[page_id] == 0 || !should_release_buffer[page_id]);
-        });
-
-        return true;
-    }
-
 private:
     std::mutex mtx;
 
@@ -262,14 +253,6 @@ private:
 
     ReplacerBase::ptr replacer;
     std::list<frame_id_t> free_lists; //空闲的帧
-
-    // 当前页面计数，用于 PushPage 的时候延迟释放
-    std::vector<int> pending_operation_counts;
-    // 表示是否应该释放了
-    std::vector<bool> should_release_buffer;
-
-    // 等待 Push 操作完成，自己再用
-    std::condition_variable pushing_cv;
 
     // 页表：实现 PageID -> 帧的映射
     std::unordered_map<page_id_t , frame_id_t> page_table;

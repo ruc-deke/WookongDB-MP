@@ -31,6 +31,13 @@ message SendFinishRequest{
 
 message SendFinishResponse{}
 
+message TsSendFinishRequest{
+    sint32 node_id = 1;
+}
+message TsSendFinishResponse{
+
+}
+
 message ParSUnlockRequest {
     PartitionID partition_id = 1;
     sint32 node_id = 2;
@@ -50,12 +57,58 @@ message ParXLockResponse{
     uint32 global_time = 2;
 }
 
+message TsParXLockRequest{
+    PartitionID partition_id = 1;
+    sint32 node_id = 2;
+    repeated uint32 table_id = 3;
+    repeated uint64 start_page_no = 4;
+    repeated uint64 end_page_no = 5;
+};
+
+message TsParXLockResponse{
+    repeated uint32 table_id = 1;
+    repeated uint64 invalid_page_no = 2;
+    repeated uint32 newest_node_id = 3;
+}
+
+message TsHotParXLockRequest{
+    PartitionID partition_id = 1;
+    sint32 node_id = 2;
+    repeated uint32 table_id = 3;
+    repeated uint64 start_page_no = 4;
+    repeated uint64 end_page_no = 5;
+}
+message TsHotParXLockResponse{
+    repeated uint32 table_id = 1;
+    repeated uint64 invalid_page_no = 2;
+    repeated uint64 newest_node_id = 3;
+}
+
 message ParXUnlockRequest {
     PartitionID partition_id = 1;
     sint32 node_id = 2;
 };
 
 message ParXUnlockResponse{}
+
+message TsParXUnlockRequest{
+    PartitionID partition_id = 1;
+    sint32 node_id = 2;
+    repeated PageID page_id = 3;
+}
+message TsParXUnlockResponse{
+    PartitionID partition_id = 1;
+    sint32 node_id = 2;
+}
+message TsHotParXUnlockRequest{
+    PartitionID partition_id = 1;
+    sint32 node_id = 2;
+    repeated PageID page_id = 3;
+}
+message TsHotParXUnlockResponse{
+    PartitionID partition_id = 1;
+    sint32 node_id = 2;
+}
 
 message InvalidRequest{
     PageID page_id = 1;
@@ -66,8 +119,14 @@ message InvalidPagesRequest{
     repeated PageID page_id = 1;
     sint32 node_id = 2;
 }
-
 message InvalidResponse{}
+
+message TsInvalidPagesRequest{
+    repeated PageID page_id = 1;
+    sint32 node_id = 2;
+}
+message TsInvalidPagesResponse{
+}
 
 message GetInvalidRequest{
     uint32 node_id = 1;  // from which node
@@ -75,8 +134,19 @@ message GetInvalidRequest{
     repeated uint64 start_page_no = 3;
     repeated uint64 end_page_no = 4;
 }
-
 message GetInvalidResponse{
+    repeated uint32 table_id = 1;
+    repeated uint64 invalid_page_no = 2;
+    repeated uint32 newest_node_id = 3;
+}
+
+message TsGetPageLocateRequest{
+    uint32 node_id = 1;
+    repeated uint32 table_id = 2;
+    repeated uint64 start_page_no = 3;
+    repeated uint64 end_page_no = 4;
+}
+message TsGetPageLocateResponse{
     repeated uint32 table_id = 1;
     repeated uint64 invalid_page_no = 2;
     repeated uint32 newest_node_id = 3;
@@ -85,11 +155,20 @@ message GetInvalidResponse{
 service PartitionTableService {
     rpc ParSLock(ParSLockRequest) returns (ParSLockResponse);
     rpc ParSUnlock(ParSUnlockRequest) returns (ParSUnlockResponse);
+
+    rpc TsParXLock(TsParXLockRequest) returns (TsParXLockResponse);
+    rpc TsParXUnlock(TsParXUnlockRequest) returns (TsParXUnlockResponse);
+    rpc TsHotParXLock(TsHotParXLockRequest) returns (TsHotParXLockResponse);
+    rpc TsHotParXUnlock(TsHotParXUnlockRequest) returns (TsHotParXUnlockResponse);
+
     rpc ParXLock(ParXLockRequest) returns (ParXLockResponse);
     rpc ParXUnlock(ParXUnlockRequest) returns (ParXUnlockResponse);
     rpc Invalid(InvalidRequest) returns (InvalidResponse);
     rpc InvalidPages(InvalidPagesRequest) returns (InvalidResponse);
+    rpc TsInvalidPages(TsInvalidPagesRequest) returns (TsInvalidPagesResponse);
     rpc GetInvalid(GetInvalidRequest) returns (GetInvalidResponse);
+    rpc TsGetPageLocate(TsGetPageLocateRequest) returns (TsGetPageLocateResponse);
     rpc SendCorssRation(SendCrossRatioRequest) returns(SendCrossRatioResponse);
     rpc SendFinish(SendFinishRequest) returns(SendFinishResponse);
+    rpc TsSendFinish(TsSendFinishRequest) returns (TsSendFinishResponse);
 };

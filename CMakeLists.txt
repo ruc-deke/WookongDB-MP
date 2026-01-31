@@ -3,16 +3,18 @@ cmake_minimum_required(VERSION 3.10)
 project(Chimera)
 
 option(LINK_SO "Whether are linked dynamically" ON)
-add_compile_options(-Wno-deprecated-declarations)
+add_compile_options(-w -Wno-deprecated-declarations)
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 execute_process(
-    COMMAND bash -c "find ${PROJECT_SOURCE_DIR}/ -type d -regex \".*output/include$\" | head -n1 | xargs dirname | tr -d '\n'"
+    COMMAND bash -c "find ${PROJECT_SOURCE_DIR}/ -type d -regex \".*output/include$\" | head -n1 | xargs -r dirname | tr -d '\n'"
     OUTPUT_VARIABLE OUTPUT_PATH
 )
 
 set(CMAKE_PREFIX_PATH ${OUTPUT_PATH})
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-result -fPIC")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w -Wno-unused-result -fPIC")
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -99,9 +101,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 endif()
 
 set(CMAKE_CPP_FLAGS "${DEFINE_CLOCK_GETTIME} -DGFLAGS_NS=${GFLAGS_NS}")
-set(CMAKE_CXX_FLAGS "${CMAKE_CPP_FLAGS} -DDEBUG -O0 -D__const__=__unused__ -pipe -fPIC -fno-omit-frame-pointer -w")
+set(CMAKE_CXX_FLAGS "${CMAKE_CPP_FLAGS} -DDEBUG -O0 -D__const__=__unused__ -pipe -fPIC -fno-omit-frame-pointer -w -std=gnu++17")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w")
 set(CMAKE_BUILD_TYPE Debug)
 
+# 抑制所有编译警告（GCC 和 Clang 通用）
 add_compile_options(-w)
 
 find_path(LEVELDB_INCLUDE_PATH NAMES leveldb/db.h)
@@ -145,3 +149,10 @@ add_subdirectory(remote_server)
 add_subdirectory(compute_server)
 
 add_subdirectory(storage_server)
+
+add_subdirectory(core/sql_executor)
+
+add_subdirectory(WookongDB_client)
+
+add_subdirectory(tests)
+

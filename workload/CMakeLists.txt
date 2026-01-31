@@ -3,3 +3,4 @@
 
 add_subdirectory(smallbank)
 add_subdirectory(tpcc)
+add_subdirectory(ycsb)

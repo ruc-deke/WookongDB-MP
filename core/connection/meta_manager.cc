@@ -15,59 +15,40 @@
 #include "util/bitmap.h"
 #include "storage/storage_service.pb.h"
 
-MetaManager::MetaManager(std::string bench_name, IndexCache* index_cache, PageCache* page_cache) : index_cache_(index_cache), page_cache_(page_cache) {
+MetaManager::MetaManager(std::string bench_name, IndexCache* index_cache , PageCache* page_cache , int node_id , int system_mode) 
+  : index_cache_(index_cache), page_cache_(page_cache){
   // init table name and table id map
   if (bench_name == "smallbank") {
     table_name_map[0] = "smallbank_savings";
     table_name_map[1] = "smallbank_checking";
 
-    TableMeta meta;
-    meta.record_size_ = sizeof(DataItem);
-    meta.num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (meta.record_size_ + sizeof(itemkey_t)) * BITMAP_WIDTH);
-    meta.bitmap_size_ = (meta.num_records_per_page_ + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
-    
-    table_meta_map[0] = meta;
-    table_meta_map[1] = meta;
-    
   } else if (bench_name == "tpcc") {
-    table_name_map[0] = "TPCC_warehouse";
-    table_name_map[1] = "TPCC_district";
-    table_name_map[2] = "TPCC_customer";
-    table_name_map[3] = "TPCC_customerhistory";
-    table_name_map[4] = "TPCC_ordernew";
-    table_name_map[5] = "TPCC_order";
-    table_name_map[6] = "TPCC_orderline";
-    table_name_map[7] = "TPCC_item";
-    table_name_map[8] = "TPCC_stock";
-    table_name_map[9] = "TPCC_customerindex";
-    table_name_map[10] = "TPCC_orderindex";
-
-
+    table_name_map[0] = "tpcc_warehouse";
+    table_name_map[1] = "tpcc_district";
+    table_name_map[2] = "tpcc_customer";
+    table_name_map[3] = "tpcc_customerhistory";
+    table_name_map[4] = "tpcc_ordernew";
+    table_name_map[5] = "tpcc_order";
+    table_name_map[6] = "tpcc_orderline";
+    table_name_map[7] = "tpcc_item";
+    table_name_map[8] = "tpcc_stock";
+    table_name_map[9] = "tpcc_customerindex";
+    table_name_map[10] = "tpcc_orderindex";
+  }else if (bench_name == "ycsb"){
+    table_name_map[0] = "ycsb_user_table";
+  }else if (bench_name == ""){
+    // SQL
     
-    TableMeta meta;
-    meta.record_size_ = sizeof(DataItem);
-    meta.num_records_per_page_ = (BITMAP_WIDTH * (PAGE_SIZE - 1 - (int)sizeof(RmFileHdr)) + 1) / (1 + (meta.record_size_ + sizeof(itemkey_t)) * BITMAP_WIDTH);
-    meta.bitmap_size_ = (meta.num_records_per_page_ + BITMAP_WIDTH - 1) / BITMAP_WIDTH;
-
-    table_meta_map[0] = meta;
-    table_meta_map[1] = meta;
-    table_meta_map[2] = meta;
-    table_meta_map[3] = meta;
-    table_meta_map[4] = meta;
-    table_meta_map[5] = meta;
-    table_meta_map[6] = meta;
-    table_meta_map[7] = meta;
-    table_meta_map[8] = meta;
-    table_meta_map[9] = meta;
-    table_meta_map[10] = meta;
+  }else {
+    assert(false);
   }
 
   // Read config json file
   std::string config_filepath = "../../config/compute_node_config.json";
   auto json_config = JsonConfig::load_file(config_filepath);
   auto local_node = json_config.get("local_compute_node");
-  local_machine_id = (node_id_t)local_node.get("machine_id").get_int64();
-  txn_system = local_node.get("txn_system").get_int64();
+  local_machine_id = node_id;
+  txn_system = system_mode;
 
   auto compute_nodes = json_config.get("remote_compute_nodes");
   auto remote_compute_ips = compute_nodes.get("remote_compute_node_ips");
@@ -103,30 +84,35 @@ MetaManager::MetaManager(std::string bench_name, IndexCache* index_cache, PageCa
   for (size_t index = 0; index < remote_storage_ips.size(); index++) {
     std::string remote_ip = remote_storage_ips.get(index).get_str();
     int remote_meta_port = (int)remote_storage_meta_ports.get(index).get_int64();
-    node_id_t remote_machine_id = GetRemoteStorageMeta(remote_ip, remote_meta_port);
-    if (remote_machine_id == -1) {
-      LOG(ERROR) << "Thread " << std::this_thread::get_id() << " GetAddrStoreMeta() failed!, remote_machine_id = -1" << std::endl;
-      assert(false);
+    node_id_t remote_machine_id;
+    if (bench_name != ""){
+      // 如果是非 SQL 模式，需要从存储层获取到初始化的页面数量
+      remote_machine_id = GetRemoteStorageMeta(remote_ip, remote_meta_port);
+      if (remote_machine_id == -1) {
+        LOG(ERROR) << "Thread " << std::this_thread::get_id() << " GetAddrStoreMeta() failed!, remote_machine_id = -1" << std::endl;
+        assert(false);
+      }
     }
+    
     int remote_port = (int)remote_storage_ports.get(index).get_int64();
     remote_storage_nodes.push_back(RemoteNode{.node_id = remote_machine_id, .ip = remote_ip, .port = remote_port});
   }
-  // LOG(INFO) << "All storage meta received";
 
   // prefetch index
-  for (auto& table : table_name_map) {
-    PrefetchIndex(table.first);
+  if (bench_name != ""){
+    for (auto& table : table_name_map) {
+      // table.first ：table_id
+      PrefetchIndex(table.first);
+    }
+    for(auto &item : index_cache_->getRidsMap()) {
+        table_id_t item_table_id = item.first;
+        for(auto it : item.second) {
+            itemkey_t it_key = it.first;
+            Rid it_rid = it.second;
+            page_cache_->Insert(item_table_id,it_rid.page_no_,it_key);
+        }
+    }
   }
-
-  for(auto &item : index_cache_->getRidsMap()) {
-      table_id_t item_table_id = item.first;
-      for(auto it : item.second) {
-          itemkey_t it_key = it.first;
-          Rid it_rid = it.second;
-          page_cache_->Insert(item_table_id,it_rid.page_no_,it_key);
-      }
-  }
-  // LOG(INFO) << "All index prefetched";
 }
 
 node_id_t MetaManager::GetRemoteStorageMeta(std::string& remote_ip, int remote_port) {
@@ -179,18 +165,32 @@ node_id_t MetaManager::GetRemoteStorageMeta(std::string& remote_ip, int remote_p
 
   int table_num = *((int*)snooper);
   snooper += sizeof(int);
-  int* max_page_num_per_table = (int*)snooper;
+  int* init_page_num_per_table = (int*)snooper;
   snooper += table_num * sizeof(int);
   int record_per_page = *((int*)snooper);
   snooper += sizeof(int);
-  for(int i = 0; i < table_num; i++) {
-      max_page_num_per_tables.emplace_back(max_page_num_per_table[i]);
+  page_num_per_table = std::vector<int>(30000 , 0);
+  assert(table_num % 3 == 0);
+  assert(table_num > 0);
+  int real_table = table_num / 3;
+  // std::cout << "Real Table Cnt = " << real_table << "\n";
+  for(int i = 0; i < real_table ; i++) {
+      page_num_per_table[i] = init_page_num_per_table[i];
+      page_num_per_table[i + 10000] = init_page_num_per_table[i + real_table];
+      page_num_per_table[i + 20000] = init_page_num_per_table[i + real_table * 2];
+
+      // std::cout << "[MetaManager] Table ID = " << i << " Raw Page Num = " << page_num_per_table[i] 
+      //     << " BLink Raw Page Num = " << page_num_per_table[i + 10000]
+      //     << " FSM Raw Page Num = " << page_num_per_table[i + 20000] 
+      //     << "\n";
   }
+  
   assert(*(uint64_t*)snooper == MEM_STORE_META_END);
   free(recv_buf);
   return remote_machine_id;
 }
 
+// ljTag
 void MetaManager::PrefetchIndex(const int &table_id) {
   brpc::Channel index_channel;
   // Init Brpc channel
@@ -200,7 +200,7 @@ void MetaManager::PrefetchIndex(const int &table_id) {
   int storage_port = remote_storage_nodes[0].port;
   std::string storage_node = storage_ips + ":" + std::to_string(storage_port);
   if(index_channel.Init(storage_node.c_str(), &options) != 0) {
-      LOG(FATAL) << "Fail to initialize channel";
+    LOG(FATAL) << "Fail to initialize channel to " << storage_node;
   }
   brpc::Controller cntl;
   storage_service::GetBatchIndexRequest request;
@@ -215,11 +215,13 @@ void MetaManager::PrefetchIndex(const int &table_id) {
     stub.PrefetchIndex(&cntl, &request, &response, nullptr);
     if(cntl.Failed()){
       LOG(FATAL) << "Fail to prefetch index";
+      assert(false);
     }
     assert(response.itemkey_size() == response.pageid_size());
     assert(response.pageid_size() == response.slotid_size());
     size_t index_size = response.itemkey_size();
-    // std::cout << "Prefetch index size: " << index_size << std::endl;
+    
+    // std::cout << "Prefetch index , size = " << index_size << "\n";
     for(int i=0; i<response.itemkey_size(); i++){
       index_cache_->Insert(table_id, response.itemkey(i), Rid{response.pageid(i), response.slotid(i)});
     }
@@ -229,4 +231,8 @@ void MetaManager::PrefetchIndex(const int &table_id) {
     batch_id++;
     cntl.Reset();
   }
+}
+
+Rid MetaManager::Fetchrid(const int &table_id,itemkey_t key){
+  return index_cache_->Search(table_id,key);
 }

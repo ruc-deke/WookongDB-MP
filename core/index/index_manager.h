@@ -1,35 +1,60 @@
 #pragma once
 
-#include "bufferpool.h"
 #include "index_defs.h"
+#include "bp_tree/bp_tree_defs.h"
+#include "storage/disk_manager.h"
 
 #include "sstream"
+#include "vector"
+#include "assert.h"
 
 class IndexManager{
 public:
-    IndexManager(BufferPool *buffer_pool_) : buffer_pool(buffer_pool_) {}
+    IndexManager(DiskManager *disk_m) : disk_manager(disk_m) {
 
-    std::string get_index_name(const std::string &file_name , const std::vector<std::string> &index_cols , IndexType type){
+    }
+    ~IndexManager() = default;
+
+    std::string get_primary_name(const std::string &file_name){
         std::stringstream ss;
-        ss << file_name;
-        for (int i = 0 ; i < index_cols.size() ; i++){
-            ss << "_" << index_cols[i];
-        }
-        if (type == IndexType::BPTREE){
-            ss << ".bidx";
-        }else if (type == IndexType::HASH){
-            ss << ".hidx";
-        }else {
-            assert(false);
-        }
+        ss << file_name << "_bp";
         return ss.str();
     }
 
-    int create_btree_index(const std::string &file_name , const std::vector<std::string> &index_cols){
-        std::string index_name = get_index_name(file_name , index_cols , IndexType::BPTREE);
-        
+    std::string get_primary_blink(const std::string &file_name){
+        std::stringstream ss;
+        ss << file_name << "_bl";
+        return ss.str();
     }
 
+    void create_primary(const std::string &file_name);
+    void create_primary_blink(const std::string &file_name);
+
+    int open_primary(const std::string &filename){
+        std::string index_name = get_primary_name(filename);
+        int fd = disk_manager->open_file(index_name);
+        return fd;
+    }
+    int open_primary_blink(const std::string &filename){
+        std::string index_name = get_primary_blink(filename);
+        int fd = disk_manager->open_file(index_name);
+        return fd;
+    }
+
+    void destroy_primary(const std::string &file_name){
+        std::string index_name = get_primary_name(file_name);
+        disk_manager->destroy_file(index_name);
+    }
+
+    void destroy_primary_blink(const std::string &file_name){
+        std::string index_name = get_primary_blink(file_name);
+        disk_manager->destroy_file(index_name);
+    }
+
+
+
+
+
 private:
-    BufferPool *buffer_pool;
+    DiskManager *disk_manager;
 };

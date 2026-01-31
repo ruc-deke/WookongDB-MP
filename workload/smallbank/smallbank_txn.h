@@ -52,44 +52,22 @@ class SmallBankDTX : public BenchDTX {
 public:
     SmallBankDTX() {}
     SmallBankDTX(DTX *d) {dtx = d;}
-    // !生成事务部分：这个函数中只生成事务，并在本地执行
-    bool GenTxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned, node_id_t node_id);
-    /* Calculate the sum of saving and checking kBalance */
-    bool GenTxBalance(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned, node_id_t node_id);
-    /* Add $1.3 to acct_id's checking account */
-    bool GenTxDepositChecking(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned, node_id_t node_id);
-    /* Send $5 from acct_id_0's checking account to acct_id_1's checking account */
-    bool GenTxSendPayment(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned, node_id_t node_id);
-    /* Add $20 to acct_id's saving's account */
-    bool GenTxTransactSaving(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned, node_id_t node_id);
-    /* Read saving and checking kBalance + update checking kBalance unconditionally */
-    bool GenTxWriteCheck(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned, node_id_t node_id);
 
-    // // !batch执行部分：当batch执行完，进行本地计算和处理逻辑
-    bool ReTxAmalgamate(coro_yield_t& yield);
+    bool TxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , std::vector<std::vector<ZipFanGen*>> *zip_fan);
     /* Calculate the sum of saving and checking kBalance */
-    bool ReTxBalance(coro_yield_t& yield);
+    bool TxBalance(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , std::vector<std::vector<ZipFanGen*>> *zip_fan);
     /* Add $1.3 to acct_id's checking account */
-    bool ReTxDepositChecking(coro_yield_t& yield);
+    bool TxDepositChecking(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , std::vector<std::vector<ZipFanGen*>> *zip_fan);
     /* Send $5 from acct_id_0's checking account to acct_id_1's checking account */
-    bool ReTxSendPayment(coro_yield_t& yield);
+    bool TxSendPayment(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , std::vector<std::vector<ZipFanGen*>> *zip_fan);
     /* Add $20 to acct_id's saving's account */
-    bool ReTxTransactSaving(coro_yield_t& yield);
+    bool TxTransactSaving(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , std::vector<std::vector<ZipFanGen*>> *zip_fan);
     /* Read saving and checking kBalance + update checking kBalance unconditionally */
-    bool ReTxWriteCheck(coro_yield_t& yield);
-    /******************** The batched business logic (Transaction) end ********************/
+    bool TxWriteCheck(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned , std::vector<std::vector<ZipFanGen*>> *zip_fan);
 
-    bool TxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned);
-    /* Calculate the sum of saving and checking kBalance */
-    bool TxBalance(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned);
-    /* Add $1.3 to acct_id's checking account */
-    bool TxDepositChecking(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned);
-    /* Send $5 from acct_id_0's checking account to acct_id_1's checking account */
-    bool TxSendPayment(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned);
-    /* Add $20 to acct_id's saving's account */
-    bool TxTransactSaving(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned);
-    /* Read saving and checking kBalance + update checking kBalance unconditionally */
-    bool TxWriteCheck(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned);
+    bool TxCreateAccount(SmallBank* smallbank_client , uint64_t *seed , coro_yield_t &yield , tx_id_t tx_id , DTX *dtx);
+    bool TxDeleteAccount(SmallBank *smallbank_client , uint64_t *seed , coro_yield_t &yield , tx_id_t tx_id , DTX *dtx);
+
     /******************** The business logic (Transaction) end ********************/
 
     bool LongTxAmalgamate(SmallBank* smallbank_client, uint64_t* seed, coro_yield_t& yield, tx_id_t tx_id, DTX* dtx, bool is_partitioned);

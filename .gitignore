@@ -1,4 +1,5 @@
 build/
+.cache/
 figure/
 *.pyc
 result.txt
@@ -10,3 +11,4 @@ third_party/brpc
 result/
 perf*
 cmake-build-debug/
+output.txt

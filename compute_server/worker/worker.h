@@ -7,7 +7,10 @@
 #include "compute_server/server.h"
 #include "connection/meta_manager.h"
 #include "smallbank/smallbank_db.h"
+#include "ycsb/ycsb_db.h"
 #include "tpcc/tpcc_db.h"
+
+
 
 struct thread_params {
   t_id_t thread_id;
@@ -27,4 +30,15 @@ struct thread_params {
 
 void run_thread(thread_params* params,
                 SmallBank* smallbank_client,
-                TPCC* tpcc_client);
+                TPCC* tpcc_client,
+                YCSB* ycsb_client);
+
+void CaculateInfo(ComputeServer *server);
+
+void initThread(thread_params* params,
+              SmallBank* smallbank_cli,
+              TPCC* tpcc_cli,
+              YCSB* ycsb_cli);
+
+void RunWorkLoad(ComputeServer* server, std::string bench_name, int thread_id = -1 , int run_cnt = 1);
+void RunSQL(int sock);

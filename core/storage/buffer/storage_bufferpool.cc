@@ -82,6 +82,7 @@ Page* StorageBufferPoolManager::fetch_page(PageId page_id) {
     frame_id_t frame_id = INVALID_FRAME_ID;
     // 2.1 没有找到victim page
     if (!find_victim_page(&frame_id)) {
+        assert(false);
         return nullptr;
     }
     // 2.2 找到victim page，将其data替换为磁盘中该page的内容
@@ -89,6 +90,7 @@ Page* StorageBufferPoolManager::fetch_page(PageId page_id) {
     update_page(page, page_id, frame_id);  // data置为空，dirty页写入磁盘，然后dirty状态置false
     // disk_manager_->ReadPage(page_id, page->data_);
     disk_manager_->read_page(page->get_page_id().table_id, page->get_page_id().page_no, page->get_data(), PAGE_SIZE);
+    // std::cout << "Need To Disk , Table ID = " << page->get_page_id().table_id << " PageID = " << page->get_page_id().page_no << "\n";
     replacer_->pin(frame_id);  // pin it
     page->pin_count_ = 1;
     return page;
@@ -236,28 +238,96 @@ bool StorageBufferPoolManager::delete_page(PageId page_id) {
  */
 void StorageBufferPoolManager::flush_all_pages(int fd) {
     std::unique_lock<std::mutex> lock{latch_};
+    int cnt = 0;
+
+    for (size_t i = 0; i < pool_size_; i++) {
+        Page *page = &pages_[i];
+        if (page->get_page_id().table_id == fd && page->get_page_id().page_no != INVALID_PAGE_ID && page->is_dirty_) {
+            cnt++;
+            disk_manager_->write_page(page->get_page_id().table_id, page->get_page_id().page_no, page->get_data(), PAGE_SIZE);
+            page->is_dirty_ = false;
+        }
+    }
+
+    // std::cout << "Flush Page Cnt = " << cnt << " Fd = " << fd << "\n"; 
+}
+
+/**
+ * @description: 将buffer_pool中属于指定fd的所有页写回到磁盘，并从缓冲池中移除
+ * @param {int} fd 文件句柄
+ */
+void StorageBufferPoolManager::clear_file_pages(int fd) {
+    std::unique_lock<std::mutex> lock{latch_};
+    int cnt = 0;
 
     for (size_t i = 0; i < pool_size_; i++) {
         Page *page = &pages_[i];
         if (page->get_page_id().table_id == fd && page->get_page_id().page_no != INVALID_PAGE_ID) {
-            disk_manager_->write_page(page->get_page_id().table_id, page->get_page_id().page_no, page->get_data(), PAGE_SIZE);
+            // Flush if dirty
+            if (page->is_dirty_) {
+                disk_manager_->write_page(page->get_page_id().table_id, page->get_page_id().page_no, page->get_data(), PAGE_SIZE);
+                page->is_dirty_ = false;
+                cnt++;
+            }
+            
+            // Remove from page table
+            page_table_.erase(page->get_page_id());
+            
+            // Remove from replacer (LRU list) if it was there
+            replacer_->pin(i); 
+            
+            // Reset page
+            page->reset_memory();
+            page->id_.table_id = fd; 
+            page->id_.page_no = INVALID_PAGE_ID;
+            page->pin_count_ = 0;
             page->is_dirty_ = false;
+            
+            // Add to free list
+            free_list_.push_back(i);
         }
     }
+    // std::cout << "Cleared " << cnt << " dirty pages for fd " << fd << "\n";
 }
 
-/**
- * @description: 将buffer_pool中的所有页写回到磁盘
- * @param {int} fd 文件句柄
- */
+
 void StorageBufferPoolManager::flush_all_pages() {
     std::unique_lock<std::mutex> lock{latch_};
+    int flush_cnt = 0;
+    for (size_t i = 0; i < pool_size_; i++) {
+        Page *page = &pages_[i];
+        if (page->get_page_id().page_no != INVALID_PAGE_ID && page->is_dirty_) {
+            disk_manager_->write_page(page->get_page_id().table_id, page->get_page_id().page_no, page->get_data(), PAGE_SIZE);
+            page->is_dirty_ = false;
+            flush_cnt++;
+        }
+    }
+
+    // std::cout << "Final Flush Page Cnt = " << flush_cnt << "\n";
+}
+
+void StorageBufferPoolManager::clear_all_pages() {
+    std::unique_lock<std::mutex> lock{latch_};
+    int cnt = 0;
 
     for (size_t i = 0; i < pool_size_; i++) {
         Page *page = &pages_[i];
         if (page->get_page_id().page_no != INVALID_PAGE_ID) {
-            disk_manager_->write_page(page->get_page_id().table_id, page->get_page_id().page_no, page->get_data(), PAGE_SIZE);
+            // Remove from page table
+            page_table_.erase(page->get_page_id());
+            
+            // Remove from replacer (LRU list) if it was there
+            replacer_->pin(i); 
+            
+            // Reset page
+            page->reset_memory();
+            page->id_.page_no = INVALID_PAGE_ID;
+            page->pin_count_ = 0;
             page->is_dirty_ = false;
+            
+            // Add to free list
+            free_list_.push_back(i);
         }
     }
+    // std::cout << "Cleared " << cnt << " dirty pages (ALL)" << "\n";
 }

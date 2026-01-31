@@ -11,9 +11,13 @@
 #include <mutex>
 
 #include "common.h"
+#include "core/fiber/thread.h"
 
 class DiskManager {
-   public:
+public:
+    typedef RWMutex RWMutexType;
+
+public:
     explicit DiskManager();
 
     ~DiskManager() = default;
@@ -21,6 +25,9 @@ class DiskManager {
     void write_page(int fd, page_id_t page_no, const char *offset, int num_bytes);
 
     void read_page(int fd, page_id_t page_no, char *offset, int num_bytes);
+
+    // 读取特定版本的页面；如果页面LLSN落后于target_lsn，则等待并重试
+    bool read_page_with_lsn(int fd, page_id_t page_no, char *offset, int num_bytes, LLSN target_lsn, int retry_sleep_us = 10);
 
     // update part of page data, value_size: num_bytes
     void update_value(int fd, page_id_t page_no, int slot_offset, char* value, int value_size);
@@ -51,7 +58,7 @@ class DiskManager {
 
     void close_file(int fd);
 
-    int get_file_size(const std::string &file_name);
+    uint64_t get_file_size(const std::string &file_name);
 
     std::string get_file_name(int fd);
 
@@ -75,13 +82,15 @@ class DiskManager {
      */
     page_id_t get_fd2pageno(int fd) { return fd2pageno_[fd]; }
 
-    static constexpr int MAX_FD = 8192;
+    static constexpr int MAX_FD = 30000;
 
-   private:
+private:
     // 文件打开列表，用于记录文件是否被打开
     std::unordered_map<std::string, int> path2fd_;  //<Page文件磁盘路径,Page fd>哈希表
     std::unordered_map<int, std::string> fd2path_;  //<Page fd,Page文件磁盘路径>哈希表
-
+    
     int log_fd_ = -1;                             // WAL日志文件的文件句柄，默认为-1，代表未打开日志文件
     std::atomic<page_id_t> fd2pageno_[MAX_FD]{};  // 文件中已经分配的页面个数，初始值为0
+
+    RWMutexType mutex;  // 并发锁
 };

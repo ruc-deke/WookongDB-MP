@@ -51,6 +51,6 @@ private:
      * @param {RmFileHandle*} file_handle 要关闭文件的句柄
      */
     void close_file(const RmFileHandle* file_handle);
-
+    
 
 };

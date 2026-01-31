@@ -1,0 +1,102 @@
+WookongDB-MP> create table student (id int, name char(9), major char(32));
+success
+WookongDB-MP> insert into student values (0, 'KangKanga', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+affect raw : 1
+WookongDB-MP> insert into student values (1, 'TomTomTom', 'Computer ScienceComputer Science');
+affect raw : 1
+WookongDB-MP> insert into student values (2, 'JerryJerr', 'Computer ScienceComputer Science');
+affect raw : 1
+WookongDB-MP> insert into student values (3, 'JackJackJ', 'Electrical Engineeringer Science');
+affect raw : 1
+WookongDB-MP> insert into student values (3, 'JerryJerr', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+affect raw : 1
+WookongDB-MP> insert into student values (4, 'JerryJerr', 'bbbbbbbbbbbbbbbcccccccccdddddddd');
+affect raw : 1
+WookongDB-MP> insert into student values (5, 'JackJackJ', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+affect raw : 1
+WookongDB-MP> insert into student values (-1, 'LiXianShe', 'c741258963qwertyuioplkjhgfdsazxc');
+affect raw : 1
+WookongDB-MP> insert into student values (7, 'RMDBrmdbr', '74125896332145698712365478996321');
+affect raw : 1
+WookongDB-MP> delete from student where name = 'Jack';
+affect raw : 0
+WookongDB-MP> delete from student where id < 0;
+affect raw : 1
+WookongDB-MP> select * from student;
++------------------+------------------+------------------+
+|               id |             name |            major |
++------------------+------------------+------------------+
+|                0 |        KangKanga | aaaaaaaaaaaaa... |
+|                1 |        TomTomTom | Computer Scie... |
+|                2 |        JerryJerr | Computer Scie... |
+|                3 |        JackJackJ | Electrical En... |
+|                3 |        JerryJerr | aaaaaaaaaaaaa... |
+|                4 |        JerryJerr | bbbbbbbbbbbbb... |
+|                5 |        JackJackJ | aaaaaaaaaaaaa... |
+|                7 |        RMDBrmdbr | 7412589633214... |
++------------------+------------------+------------------+
+Total record(s): 8
+
+WookongDB-MP> select name,major from student where id > -5;
++------------------+------------------+
+|             name |            major |
++------------------+------------------+
+|        KangKanga | aaaaaaaaaaaaa... |
+|        TomTomTom | Computer Scie... |
+|        JerryJerr | Computer Scie... |
+|        JackJackJ | Electrical En... |
+|        JerryJerr | aaaaaaaaaaaaa... |
+|        JerryJerr | bbbbbbbbbbbbb... |
+|        JackJackJ | aaaaaaaaaaaaa... |
+|        RMDBrmdbr | 7412589633214... |
++------------------+------------------+
+Total record(s): 8
+
+WookongDB-MP> delete from student where id = 3 and name = 'JackJackJ';
+affect raw : 1
+WookongDB-MP> select * from student;
++------------------+------------------+------------------+
+|               id |             name |            major |
++------------------+------------------+------------------+
+|                0 |        KangKanga | aaaaaaaaaaaaa... |
+|                1 |        TomTomTom | Computer Scie... |
+|                2 |        JerryJerr | Computer Scie... |
+|                3 |        JerryJerr | aaaaaaaaaaaaa... |
+|                4 |        JerryJerr | bbbbbbbbbbbbb... |
+|                5 |        JackJackJ | aaaaaaaaaaaaa... |
+|                7 |        RMDBrmdbr | 7412589633214... |
++------------------+------------------+------------------+
+Total record(s): 7
+
+WookongDB-MP> select name from student where id = 3;
++------------------+
+|             name |
++------------------+
+|        JerryJerr |
++------------------+
+Total record(s): 1
+
+WookongDB-MP> select name from student where name = 'JackJackJ';
++------------------+
+|             name |
++------------------+
+|        JackJackJ |
++------------------+
+Total record(s): 1
+
+WookongDB-MP> delete from student where major = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+affect raw : 3
+WookongDB-MP> select * from student where id>=1;
++------------------+------------------+------------------+
+|               id |             name |            major |
++------------------+------------------+------------------+
+|                1 |        TomTomTom | Computer Scie... |
+|                2 |        JerryJerr | Computer Scie... |
+|                4 |        JerryJerr | bbbbbbbbbbbbb... |
+|                7 |        RMDBrmdbr | 7412589633214... |
++------------------+------------------+------------------+
+Total record(s): 4
+
+WookongDB-MP> drop table student;
+success
+WookongDB-MP> Bye.

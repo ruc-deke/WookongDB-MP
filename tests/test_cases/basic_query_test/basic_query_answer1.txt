@@ -1,0 +1,40 @@
+WookongDB-MP> create table student (id int, name char(32), major char(32));
+success
+WookongDB-MP> create table grade (course char(32), student_id int, score float);
+success
+WookongDB-MP> show tables;
++------------------+
+|           Tables |
++------------------+
+|            grade |
+|          student |
++------------------+
+Total record(s): 2
+
+WookongDB-MP> drop table student;
+success
+WookongDB-MP> show tables;
++------------------+
+|           Tables |
++------------------+
+|            grade |
++------------------+
+Total record(s): 1
+
+WookongDB-MP> create table grade (id int);
+fail
+WookongDB-MP> drop table t;
+fail
+WookongDB-MP> show tables;
++------------------+
+|           Tables |
++------------------+
+|            grade |
++------------------+
+Total record(s): 1
+
+WookongDB-MP> drop table grade;
+success
+WookongDB-MP> drop table student;
+fail
+WookongDB-MP> Bye.

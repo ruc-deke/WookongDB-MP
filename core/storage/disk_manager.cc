@@ -6,6 +6,7 @@
 #include <butil/logging.h> 
 
 #include "common.h"
+#include "core/record/record.h"
 #include "util/errors.h"
 #include "disk_manager.h"
 
@@ -13,16 +14,12 @@ DiskManager::DiskManager() {
     memset(fd2pageno_, 0, MAX_FD * (sizeof(std::atomic<page_id_t>) / sizeof(char))); 
 }
 
-/**
- * @description: 将数据写入文件的指定磁盘页面中
- * @param {int} fd 磁盘文件的文件句柄
- * @param {page_id_t} page_no 写入目标页面的page_id
- * @param {char} *offset 要写入磁盘的数据
- * @param {int} num_bytes 要写入磁盘的数据大小
- */
+// WritePage 应该不需要写锁，因为对于同一个页面来说，同一时间一定只有一个节点会调用这个
+// 先不加写锁，有问题再说
 void DiskManager::write_page(int fd, page_id_t page_no, const char *offset, int num_bytes) {
-    lseek(fd, page_no * PAGE_SIZE, SEEK_SET);
-    ssize_t bytes_write = write(fd, offset, num_bytes);  // 这里的offset可以是uint_8*类型，也可以是char*类型
+    // RWMutexType::WriteLock w_lock(mutex);
+    // 这里不能用 lseek，多线程环境下会把指针动来动去的
+    ssize_t bytes_write = pwrite(fd, offset, num_bytes, (off_t)page_no * PAGE_SIZE);
 
     if (bytes_write != num_bytes) {
         LOG(ERROR) << "DiskManager::write_page Error: failed to write complete page data.";
@@ -30,60 +27,65 @@ void DiskManager::write_page(int fd, page_id_t page_no, const char *offset, int 
     }
 }
 
-/**
- * @description: 读取文件中指定编号的页面中的部分数据到内存中
- * @param {int} fd 磁盘文件的文件句柄
- * @param {page_id_t} page_no 指定的页面编号
- * @param {char} *offset 读取的内容写入到offset中
- * @param {int} num_bytes 读取的数据量大小
- */
+// 同理，这个应该也不用读锁，因为没人会来写
 void DiskManager::read_page(int fd, page_id_t page_no, char *offset, int num_bytes) {
-    // Todo:
-    // 1.lseek()定位到文件头，通过(fd,page_no)可以定位指定页面及其在磁盘文件中的偏移量
-    // 2.调用read()函数
-    // 注意read返回值与num_bytes不等时，throw InternalError("DiskManager::read_page Error");
-
     // SEEK_SET 定位到文件头
-    lseek(fd, page_no * PAGE_SIZE, SEEK_SET);
-    ssize_t bytes_read = read(fd, offset, num_bytes);
+    ssize_t bytes_read = pread(fd, offset, num_bytes, (off_t)page_no * PAGE_SIZE);
 
     // 没有成功从buffer偏移处读取指定数字节
     if (bytes_read != num_bytes) {
-        // throw InternalError("DiskManager::read_page Error");
-        LOG(ERROR) << "DiskManager::read_page Error: failed to read the complete page data of page " << page_no;
-        LOG(ERROR) << "read bytes is " << bytes_read;
+        LOG(ERROR) << "Read Page Error , page no = " << page_no
+            << " Read Bytes = " << bytes_read;
         throw InternalError("DiskManager::read_page Error");
     }
 }
 
+bool DiskManager::read_page_with_lsn(int fd, page_id_t page_no, char *offset, int num_bytes, LLSN target_lsn, int retry_sleep_us) {
+    while (true) {
+        read_page(fd, page_no, offset, num_bytes);
+
+        const auto* page_hdr = reinterpret_cast<const RmPageHdr*>(offset + OFFSET_PAGE_HDR);
+        LLSN page_lsn = static_cast<LLSN>(page_hdr->LLSN_);
+        if (page_lsn >= target_lsn) {
+            return true;
+        }
+
+        if (retry_sleep_us > 0) {
+            usleep(retry_sleep_us);
+        }
+    }
+}
+
+// 同理
 void DiskManager::update_value(int fd, page_id_t page_no, int slot_offset, char* value, int value_size) {
-    lseek(fd, page_no * PAGE_SIZE + slot_offset, SEEK_SET);
-    ssize_t bytes_write = write(fd, value, value_size);
+    // lseek(fd, page_no * PAGE_SIZE + slot_offset, SEEK_SET);
+    // ssize_t bytes_write = write(fd, value, value_size);
+    ssize_t bytes_write = pwrite(fd, value, value_size, (off_t)page_no * PAGE_SIZE + slot_offset);
     if(bytes_write != value_size) {
         LOG(ERROR) << "DiskManager::update_value Error: failed to write complete data.";
         throw InternalError("DiskManager::update_value Error");
     }
 }
 
-/**
- * @description: 分配一个新的页号
- * @return {page_id_t} 分配的新页号
- * @param {int} fd 指定文件的文件句柄
- */
 page_id_t DiskManager::allocate_page(int fd) {
+    RWMutexType::WriteLock w_lock(mutex);
     assert(fd >= 0 && fd < MAX_FD);
     return fd2pageno_[fd]++;
 }
 
-void DiskManager::deallocate_page(__attribute__((unused)) page_id_t page_id) {}
+// 不知道干啥的，不管了
+void DiskManager::deallocate_page(__attribute__((unused)) page_id_t page_id) {
+    
+}
 
 bool DiskManager::is_dir(const std::string& path) {
+    RWMutexType::ReadLock r_lock(mutex);
     struct stat st;
     return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
 }
 
 void DiskManager::create_dir(const std::string &path) {
-    // Create a subdirectory
+    RWMutexType::WriteLock w_lock(mutex);
     std::string cmd = "mkdir " + path;
     if (system(cmd.c_str()) < 0) {  // 创建一个名为path的目录
         LOG(ERROR) << "DiskManager::create_dir Error: failed to create the directory " << "\"" << path << "\"";
@@ -92,6 +94,7 @@ void DiskManager::create_dir(const std::string &path) {
 }
 
 void DiskManager::destroy_dir(const std::string &path) {
+    RWMutexType::WriteLock w_lock(mutex);
     std::string cmd = "rm -r " + path;
     if (system(cmd.c_str()) < 0) {
         LOG(ERROR) << "DiskManager::destroy_dir Error: failed to delete the directory" << "\"" << path << "\"";
@@ -99,43 +102,33 @@ void DiskManager::destroy_dir(const std::string &path) {
     }
 }
 
-/**
- * @description: 判断指定路径文件是否存在
- * @return {bool} 若指定路径文件存在则返回true 
- * @param {string} &path 指定路径文件
- */
 bool DiskManager::is_file(const std::string &path) {
+    RWMutexType::ReadLock r_lock(mutex);
     struct stat st;
     return stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
 }
 
-/**
- * @description: 用于创建指定路径文件
- * @return {*}
- * @param {string} &path
- */
 void DiskManager::create_file(const std::string &path) {
-    if (is_file(path)) {
-        throw FileExistsError(path);
-    }
-    int fd = open(path.c_str(), O_CREAT, S_IRUSR | S_IWUSR);
+    assert(!is_file(path));
+    RWMutexType::WriteLock w_lock(mutex);
+
+    assert(path2fd_.find(path) == path2fd_.end());
+    int fd = open(path.c_str(), O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd < 0) {
         throw UnixError();
     }
-    if (close(fd) != 0) {
-        throw UnixError();
-    }
+
+    path2fd_[path] = fd;
+    fd2path_[fd] = path;
+    fd2pageno_[fd] = 0;
 }
 
-/**
- * @description: 删除指定路径的文件
- * @param {string} &path 文件所在路径
- */
+
 void DiskManager::destroy_file(const std::string &path) {
-    if (!is_file(path)) {
-        throw FileNotFoundError(path);
-    }
-    // If file is open, cannot destroy file
+    RWMutexType::WriteLock w_lock(mutex);
+    struct stat st;
+    assert(stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode));
+
     if (path2fd_.count(path)) {
         throw FileNotClosedError(path);
     }
@@ -146,17 +139,40 @@ void DiskManager::destroy_file(const std::string &path) {
 }
 
 
-/**
- * @description: 打开指定路径文件 
- * @return {int} 返回打开的文件的文件句柄
- * @param {string} &path 文件所在路径
- */
 int DiskManager::open_file(const std::string &path) {
-    int fd = open(path.c_str(), O_RDWR);
-    if (fd < 0) {
-        throw UnixError();
+    RWMutexType::ReadLock r_lock(mutex);
+
+    // path2fd_ 存储了打开文件符，这样就不用每次 IO 都重新打开一次文件了
+    if (path2fd_.find(path) != path2fd_.end()){
+        int fd = path2fd_[path];
+        assert(fd >= 0);
+        assert(fd2path_.find(fd) != fd2path_.end());
+        return fd;
+    }else {
+        r_lock.unlock();
+        // 加写锁
+        RWMutexType::WriteLock w_lock(mutex);
+
+        // 有可能别人和我一起走到这里，那只需要一个人来处理即可
+        if (path2fd_.find(path) != path2fd_.end()){
+            return path2fd_[path];
+        }
+        int fd = open(path.c_str() , O_RDWR);
+        if (fd < 0){
+            return -1;
+        }
+        assert(fd2path_.find(fd) == fd2path_.end());
+
+        fd2path_[fd] = path;
+        path2fd_[path] = fd;
+
+        off_t end_off = lseek(fd, 0, SEEK_END);
+        assert(end_off >= 0);
+
+        fd2pageno_[fd] = static_cast<page_id_t>(end_off / PAGE_SIZE);
+        lseek(fd, 0, SEEK_SET);
+        return fd;
     }
-    return fd;
 }
 
 /**
@@ -164,43 +180,53 @@ int DiskManager::open_file(const std::string &path) {
  * @param {int} fd 打开的文件的文件句柄
  */
 void DiskManager::close_file(int fd) {
+    RWMutexType::WriteLock w_lock(mutex);
     if (close(fd) != 0) {
         throw UnixError();
+    }
+
+    assert(fd2path_.find(fd) != fd2path_.end());
+
+    auto it = fd2path_.find(fd);
+    if (it != fd2path_.end()) {
+        path2fd_.erase(it->second);
+        fd2path_.erase(it);
+        fd2pageno_[fd] = 0;
     }
 }
 
 
-/**
- * @description: 获得文件的大小
- * @return {int} 文件的大小
- * @param {string} &file_name 文件名
- */
-int DiskManager::get_file_size(const std::string &file_name) {
+uint64_t DiskManager::get_file_size(const std::string &file_name) {
+    RWMutexType::ReadLock lock(mutex);
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) != nullptr) {
+        // LOG(INFO) << "DiskManager::get_file_size cwd: " << cwd << ", path: " << file_name;
+    } else {
+        // LOG(INFO) << "DiskManager::get_file_size cwd: <unknown>, path: " << file_name;
+    }
     struct stat stat_buf;
     int rc = stat(file_name.c_str(), &stat_buf);
-    return rc == 0 ? stat_buf.st_size : -1;
+    uint64_t ret = (rc == 0 ? stat_buf.st_size : -1);
+    return ret;
 }
 
-/**
- * @description: 根据文件句柄获得文件名
- * @return {string} 文件句柄对应文件的文件名
- * @param {int} fd 文件句柄
- */
+
 std::string DiskManager::get_file_name(int fd) {
+    RWMutexType::ReadLock r_lock(mutex);
     if (!fd2path_.count(fd)) {
         throw FileNotOpenError(fd);
     }
     return fd2path_[fd];
 }
 
-/**
- * @description:  获得文件名对应的文件句柄
- * @return {int} 文件句柄
- * @param {string} &file_name 文件名
- */
+
 int DiskManager::get_file_fd(const std::string &file_name) {
+    RWMutexType::ReadLock r_lock(mutex);
+    assert(path2fd_.count(file_name));
     if (!path2fd_.count(file_name)) {
+        r_lock.unlock();
         return open_file(file_name);
     }
     return path2fd_[file_name];
 }
+

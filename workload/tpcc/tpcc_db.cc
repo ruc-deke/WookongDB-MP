@@ -7,61 +7,30 @@
 #include "util/json_config.h"
 
 void TPCC::LoadTable(node_id_t node_id, node_id_t num_server) {
-    printf(
-            "sizeof(tpcc_warehouse_val_t) = %lu, sizeof(tpcc_district_val_t) = %lu\n"
-            "sizeof(tpcc_customer_val_t) = %lu, sizeof(tpcc_customer_index_val_t) = %lu\n"
-            "sizeof(tpcc_history_val_t) = %lu, sizeof(tpcc_new_order_val_t) = %lu\n"
-            "sizeof(tpcc_order_val_t) = %lu, sizeof(tpcc_order_index_val_t) = %lu\n"
-            "sizeof(tpcc_order_line_val_t) = %lu, sizeof(tpcc_item_val_t) = %lu\n"
-            "sizeof(tpcc_stock_val_t) = %lu, DataItemSize = %lu\n",
-            sizeof(tpcc_warehouse_val_t),
-            sizeof(tpcc_district_val_t),
-
-            sizeof(tpcc_customer_val_t),
-            sizeof(tpcc_customer_index_val_t),
-            sizeof(tpcc_history_val_t),
-
-            sizeof(tpcc_new_order_val_t),
-            sizeof(tpcc_order_val_t),
-            sizeof(tpcc_order_index_val_t),
-            sizeof(tpcc_order_line_val_t),
-            sizeof(tpcc_item_val_t),
-            sizeof(tpcc_stock_val_t),
-            DataItemSize);
     // Initiate + Populate table for primary role
     if ((node_id_t)TPCCTableType::kWarehouseTable % num_server == node_id) {
-        printf("Primary: Initializing Warehouse table\n");
-        printf("Warehouse table setup\n");
         PopulateWarehouseTable(9324);
     }
     if ((node_id_t)TPCCTableType::kDistrictTable % num_server == node_id) {
-        printf("Primary: Initializing District table\n");
         PopulateDistrictTable(123456789);
     }
     if ((node_id_t)TPCCTableType::kCustomerTable % num_server == node_id) {
-        printf("Primary: Initializing Customer+CustomerIndex+History table\n");
         PopulateCustomerAndHistoryTable(1210);
 
     }
     if ((node_id_t)TPCCTableType::kOrderTable % num_server == node_id) {
-        printf("Primary: Initializing Order+OrderIndex+NewOrder+OrderLine table\n");
-
         PopulateOrderNewOrderAndOrderLineTable(705);
     }
     if ((node_id_t)TPCCTableType::kStockTable % num_server == node_id) {
-        printf("Primary: Initializing Stock table\n");
-
         PopulateStockTable(3214154);
     }
     if ((node_id_t)TPCCTableType::kItemTable % num_server == node_id) {
-        printf("Primary: Initializing Item table\n");
-
         PopulateItemTable(987646);
     }
 }
 
 void TPCC::PopulateWarehouseTable(unsigned long seed) {
-    rm_manager->create_file(bench_name + "_warehouse", sizeof(DataItem));
+    rm_manager->create_file(bench_name + "_warehouse", sizeof(DataItem) + sizeof(tpcc_warehouse_val_t));
     std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(bench_name + "_warehouse");
     std::ofstream indexfile;
     indexfile.open(bench_name + "_warehouse_index.txt");
@@ -101,14 +70,12 @@ void TPCC::PopulateWarehouseTable(unsigned long seed) {
                                                        true);
         total_warehouse_records_examined++;
     }
-    int fd = rm_manager->get_diskmanager()->open_file(bench_name + "_warehouse");
-    rm_manager->get_diskmanager()->write_page(fd, RM_FILE_HDR_PAGE, (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));
-    rm_manager->get_diskmanager()->close_file(fd);
     indexfile.close();
+    rm_manager->close_file(table_file.get());
 }
 
 void TPCC::PopulateDistrictTable(unsigned long seed) {
-    rm_manager->create_file(bench_name + "_district", sizeof(DataItem));
+    rm_manager->create_file(bench_name + "_district", sizeof(DataItem) + sizeof(tpcc_district_val_t));
     std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(bench_name + "_district");
     std::ofstream indexfile;
     indexfile.open(bench_name + "_district_index.txt");
@@ -150,25 +117,23 @@ void TPCC::PopulateDistrictTable(unsigned long seed) {
             total_district_records_examined++;
         }
     }
-    int fd = rm_manager->get_diskmanager()->open_file(bench_name + "_district");
-    rm_manager->get_diskmanager()->write_page(fd, RM_FILE_HDR_PAGE, (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));
-    rm_manager->get_diskmanager()->close_file(fd);
     indexfile.close();
+    rm_manager->close_file(table_file.get());
 }
 
 //no batch in this implementation
 void TPCC::PopulateCustomerAndHistoryTable(unsigned long seed) {
-    rm_manager->create_file(bench_name + "_customer", sizeof(DataItem));
+    rm_manager->create_file(bench_name + "_customer", sizeof(DataItem) + sizeof(tpcc_customer_val_t));
     std::unique_ptr<RmFileHandle> table_file0 = rm_manager->open_file(bench_name + "_customer");
     std::ofstream indexfile0;
     indexfile0.open(bench_name + "_customer_index.txt");
 
-    rm_manager->create_file(bench_name + "_customerindex", sizeof(DataItem));
+    rm_manager->create_file(bench_name + "_customerindex", sizeof(DataItem) + sizeof(tpcc_customer_index_val_t));
     std::unique_ptr<RmFileHandle> table_file1 = rm_manager->open_file(bench_name + "_customerindex");
     std::ofstream indexfile1;
     indexfile1.open(bench_name + "_customerindex_index.txt");
 
-    rm_manager->create_file(bench_name + "_customerhistory", sizeof(DataItem));
+    rm_manager->create_file(bench_name + "_customerhistory", sizeof(DataItem) + sizeof(tpcc_history_val_t));
     std::unique_ptr<RmFileHandle> table_file2 = rm_manager->open_file(bench_name + "_customerhistory");
     std::ofstream indexfile2;
     indexfile2.open(bench_name + "_customerhistory_index.txt");
@@ -179,8 +144,6 @@ void TPCC::PopulateCustomerAndHistoryTable(unsigned long seed) {
     // printf("total_customer_records_inserted = %d, total_customer_records_examined = %d\n",
     //        total_customer_records_inserted, total_customer_records_examined);
     FastRandom random_generator(seed);
-    printf("num_warehouse = %d, num_district_per_warehouse = %d, num_customer_per_district = %d\n",
-           num_warehouse, num_district_per_warehouse, num_customer_per_district);
     for (uint32_t w_id = 1; w_id <= num_warehouse; w_id++) {
         for (uint32_t d_id = 1; d_id <= num_district_per_warehouse; d_id++) {
             for (uint32_t c_id = 1; c_id <= num_customer_per_district; c_id++) {
@@ -282,40 +245,34 @@ void TPCC::PopulateCustomerAndHistoryTable(unsigned long seed) {
             }
         }
     }
-    int fd0 = rm_manager->get_diskmanager()->open_file(bench_name + "_customer");
-    rm_manager->get_diskmanager()->write_page(fd0, RM_FILE_HDR_PAGE, (char *)&table_file0->file_hdr_, sizeof(table_file0->file_hdr_));
-    rm_manager->get_diskmanager()->close_file(fd0);
-    int fd1 = rm_manager->get_diskmanager()->open_file(bench_name + "_customerindex");
-    rm_manager->get_diskmanager()->write_page(fd1, RM_FILE_HDR_PAGE, (char *)&table_file1->file_hdr_, sizeof(table_file1->file_hdr_));
-    rm_manager->get_diskmanager()->close_file(fd1);
-    int fd2 = rm_manager->get_diskmanager()->open_file(bench_name + "_customerhistory");
-    rm_manager->get_diskmanager()->write_page(fd2, RM_FILE_HDR_PAGE, (char *)&table_file2->file_hdr_, sizeof(table_file2->file_hdr_));
-    rm_manager->get_diskmanager()->close_file(fd2);
     indexfile0.close();
     indexfile1.close();
     indexfile2.close();
+    rm_manager->close_file(table_file0.get());
+    rm_manager->close_file(table_file1.get());
+    rm_manager->close_file(table_file2.get());
     // printf("total_customer_records_inserted = %d, total_customer_records_examined = %d\n", total_customer_records_inserted, total_customer_records_examined);
     // printf("total_customer_index_records_inserted = %d, total_customer_index_records_examined = %d\n", total_customer_index_records_inserted, total_customer_index_records_examined);
     // printf("total_history_records_inserted = %d, total_history_records_examined = %d\n", total_history_records_inserted, total_history_records_examined);
 }
 
 void TPCC::PopulateOrderNewOrderAndOrderLineTable(unsigned long seed) {
-    rm_manager->create_file(bench_name + "_order", sizeof(DataItem));
+    rm_manager->create_file(bench_name + "_order", sizeof(DataItem) + sizeof(tpcc_order_val_t));
     std::unique_ptr<RmFileHandle> table_file0 = rm_manager->open_file(bench_name + "_order");
     std::ofstream indexfile0;
     indexfile0.open(bench_name + "_order_index.txt");
 
-    rm_manager->create_file(bench_name + "_orderindex", sizeof(DataItem));
+    rm_manager->create_file(bench_name + "_orderindex", sizeof(DataItem) + sizeof(tpcc_order_index_val_t));
     std::unique_ptr<RmFileHandle> table_file1 = rm_manager->open_file(bench_name + "_orderindex");
     std::ofstream indexfile1;
     indexfile1.open(bench_name + "_orderindex_index.txt");
 
-    rm_manager->create_file(bench_name + "_ordernew", sizeof(DataItem));
+    rm_manager->create_file(bench_name + "_ordernew", sizeof(DataItem) + sizeof(tpcc_new_order_val_t));
     std::unique_ptr<RmFileHandle> table_file2 = rm_manager->open_file(bench_name + "_ordernew");
     std::ofstream indexfile2;
     indexfile2.open(bench_name + "_ordernew_index.txt");
 
-    rm_manager->create_file(bench_name + "_orderline", sizeof(DataItem));
+    rm_manager->create_file(bench_name + "_orderline", sizeof(DataItem) + sizeof(tpcc_order_line_val_t));
     std::unique_ptr<RmFileHandle> table_file3 = rm_manager->open_file(bench_name + "_orderline");
     std::ofstream indexfile3;
     indexfile3.open(bench_name + "_orderline_index.txt");
@@ -438,26 +395,18 @@ void TPCC::PopulateOrderNewOrderAndOrderLineTable(unsigned long seed) {
             }
         }
     }
-    int fd0 = rm_manager->get_diskmanager()->open_file(bench_name + "_order");
-    rm_manager->get_diskmanager()->write_page(fd0, RM_FILE_HDR_PAGE, (char *)&table_file0->file_hdr_, sizeof(table_file0->file_hdr_));
-    rm_manager->get_diskmanager()->close_file(fd0);
-    int fd1 = rm_manager->get_diskmanager()->open_file(bench_name + "_orderindex");
-    rm_manager->get_diskmanager()->write_page(fd1, RM_FILE_HDR_PAGE, (char *)&table_file1->file_hdr_, sizeof(table_file1->file_hdr_));
-    rm_manager->get_diskmanager()->close_file(fd1);
-    int fd2 = rm_manager->get_diskmanager()->open_file(bench_name + "_ordernew");
-    rm_manager->get_diskmanager()->write_page(fd2, RM_FILE_HDR_PAGE, (char *)&table_file2->file_hdr_, sizeof(table_file2->file_hdr_));
-    rm_manager->get_diskmanager()->close_file(fd2);
-    int fd3 = rm_manager->get_diskmanager()->open_file(bench_name + "_orderline");
-    rm_manager->get_diskmanager()->write_page(fd3, RM_FILE_HDR_PAGE, (char *)&table_file3->file_hdr_, sizeof(table_file3->file_hdr_));
-    rm_manager->get_diskmanager()->close_file(fd3);
     indexfile0.close();
     indexfile1.close();
     indexfile2.close();
     indexfile3.close();
+    rm_manager->close_file(table_file0.get());
+    rm_manager->close_file(table_file1.get());
+    rm_manager->close_file(table_file2.get());
+    rm_manager->close_file(table_file3.get());
 }
 
 void TPCC::PopulateItemTable(unsigned long seed) {
-    rm_manager->create_file(bench_name + "_item", sizeof(DataItem));
+    rm_manager->create_file(bench_name + "_item", sizeof(DataItem) + sizeof(tpcc_item_val_t));
     std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(bench_name + "_item");
     std::ofstream indexfile;
     indexfile.open(bench_name + "_item_index.txt");
@@ -498,15 +447,13 @@ void TPCC::PopulateItemTable(unsigned long seed) {
         total_item_records_examined++;
         // printf("total_item_records_inserted = %d, total_item_records_examined = %d\n", total_item_records_inserted, total_item_records_examined);
     }
-    int fd = rm_manager->get_diskmanager()->open_file(bench_name + "_item");
-    rm_manager->get_diskmanager()->write_page(fd, RM_FILE_HDR_PAGE, (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));
-    rm_manager->get_diskmanager()->close_file(fd);
     indexfile.close();
+    rm_manager->close_file(table_file.get());
     // printf("total_item_records_inserted = %d, total_item_records_examined = %d\n", total_item_records_inserted, total_item_records_examined);
 }
 
 void TPCC::PopulateStockTable(unsigned long seed) {
-    rm_manager->create_file(bench_name + "_stock", sizeof(DataItem));
+    rm_manager->create_file(bench_name + "_stock", sizeof(DataItem) + sizeof(tpcc_stock_val_t));
     std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(bench_name + "_stock");
     std::ofstream indexfile;
     indexfile.open(bench_name + "_stock_index.txt");
@@ -545,10 +492,8 @@ void TPCC::PopulateStockTable(unsigned long seed) {
             // printf("total_stock_records_inserted = %d, total_stock_records_examined = %d\n", total_stock_records_inserted, total_stock_records_examined);
         }
     }
-    int fd = rm_manager->get_diskmanager()->open_file(bench_name + "_stock");
-    rm_manager->get_diskmanager()->write_page(fd, RM_FILE_HDR_PAGE, (char *)&table_file->file_hdr_, sizeof(table_file->file_hdr_));
-    rm_manager->get_diskmanager()->close_file(fd);
     indexfile.close();
+    rm_manager->close_file(table_file.get());
     // printf("total_stock_records_inserted = %d, total_stock_records_examined = %d\n", total_stock_records_inserted, total_stock_records_examined);
 }
 
@@ -559,9 +504,8 @@ int TPCC::LoadRecord(RmFileHandle* file_handle,
                      table_id_t table_id,
                      std::ofstream& indexfile,
                      bool is_next_page) {
-    assert(val_size <= MAX_ITEM_SIZE);
     /* Insert into HashStore */
-    DataItem item_to_be_inserted(table_id, val_size, item_key, (uint8_t*)val_ptr);
+    DataItem item_to_be_inserted(table_id, val_size , (uint8_t*)val_ptr);
     char* item_char = (char*)malloc(item_to_be_inserted.GetSerializeSize());
     item_to_be_inserted.Serialize(item_char);
     Rid rid = INDEX_NOT_FOUND;
@@ -573,6 +517,10 @@ int TPCC::LoadRecord(RmFileHandle* file_handle,
     // record index
     indexfile << item_key << " " << rid.page_no_ << " " << rid.slot_no_ << std::endl;
     index_cache->Insert(table_id,item_key,rid);
+
+    bl_indexes[table_id]->insert_entry(&item_key , rid);
+    // bl_indexes[table_id]->write_file_hdr_to_page();
+
     free(item_char);
     return 1;
 }
@@ -582,11 +530,140 @@ DataItem* TPCC::GetRecord(RmFileHandle* file_handle,
                           table_id_t table_id) {
     /* get from HashStore */
     Rid rid = index_cache->Search(table_id,item_key);
+    std::vector<Rid> results;
+    
     if(rid == INDEX_NOT_FOUND) {
         return nullptr;
     }
-    DataItem* data_item;
+    
     auto record = file_handle->get_record(rid, nullptr);
-    memcpy(data_item,record.get()->value_,record.get()->value_size_);
+    DataItem* data_item = (DataItem*)malloc(record->value_size_);
+    memcpy(data_item, record->value_, record->value_size_);
     return data_item;
+}
+
+void TPCC::VerifyData() {
+    // std::cout << "Verifying TPCC Data...\n";
+
+    // 1. Verify Item Table
+    {
+        std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(bench_name + "_item");
+        // Verify File Header
+        assert(table_file->get_file_hdr().record_size_ == sizeof(DataItem) + sizeof(tpcc_item_val_t));
+        assert(table_file->get_file_hdr().num_pages_ >= 1);
+        // std::cout << "Item Table Header Verified\n";
+
+        for (int64_t i_id = 1; i_id <= num_item; i_id++) {
+            tpcc_item_key_t item_key;
+            item_key.i_id = i_id;
+            
+            DataItem* data_item = GetRecord(table_file.get(), item_key.item_key, (table_id_t)TPCCTableType::kItemTable);
+            if (data_item == nullptr) {
+                 std::cout << "Item Key " << i_id << " not found\n";
+                 assert(false);
+            }
+            
+            // Check size
+            if (data_item->value_size == sizeof(tpcc_item_val_t)) {
+                assert(data_item->lock == 0);
+                data_item->value = (uint8_t*)((char*)data_item + sizeof(DataItem));
+                tpcc_item_val_t* val = reinterpret_cast<tpcc_item_val_t*>(data_item->value);
+                assert(val->debug_magic == tpcc_add_magic);
+            } else {
+                assert(false);
+            }
+            free(data_item);
+        }
+        // std::cout << "Item Table Verified\n";
+        rm_manager->close_file(table_file.get());
+    }
+
+    // 2. Verify Warehouse Table
+    {
+        std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(bench_name + "_warehouse");
+        // Verify File Header
+        assert(table_file->get_file_hdr().record_size_ == sizeof(DataItem) + sizeof(tpcc_warehouse_val_t));
+        assert(table_file->get_file_hdr().num_pages_ >= 1);
+        // std::cout << "Warehouse Table Header Verified\n";
+
+        for (uint32_t w_id = 1; w_id <= num_warehouse; w_id++) {
+            tpcc_warehouse_key_t warehouse_key;
+            warehouse_key.w_id = w_id;
+            
+            DataItem* data_item = GetRecord(table_file.get(), warehouse_key.item_key, (table_id_t)TPCCTableType::kWarehouseTable);
+            assert(data_item != nullptr);
+            
+             if (data_item->value_size == sizeof(tpcc_warehouse_val_t)) {
+                assert(data_item->lock == 0);
+                data_item->value = (uint8_t*)((char*)data_item + sizeof(DataItem));
+                tpcc_warehouse_val_t* val = reinterpret_cast<tpcc_warehouse_val_t*>(data_item->value);
+                assert(strcmp(val->w_zip, "123456789") == 0);
+            } else {
+                assert(false);
+            }
+            free(data_item);
+        }
+        // std::cout << "Warehouse Table Verified\n";
+        rm_manager->close_file(table_file.get());
+    }
+
+    // 3. Verify Stock Table
+    {
+        std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(bench_name + "_stock");
+        // Verify File Header
+        assert(table_file->get_file_hdr().record_size_ == sizeof(DataItem) + sizeof(tpcc_stock_val_t));
+        assert(table_file->get_file_hdr().num_pages_ >= 1);
+
+        for (uint32_t w_id = 1; w_id <= num_warehouse; w_id++) {
+             for (uint32_t i_id = 1; i_id <= num_item; i_id++) {
+                tpcc_stock_key_t stock_key;
+                stock_key.s_id = MakeStockKey(w_id, i_id);
+                
+                DataItem* data_item = GetRecord(table_file.get(), stock_key.item_key, (table_id_t)TPCCTableType::kStockTable);
+                assert(data_item != nullptr);
+                
+                if (data_item->value_size == sizeof(tpcc_stock_val_t)) {
+                    assert(data_item->lock == 0);
+                    data_item->value = (uint8_t*)((char*)data_item + sizeof(DataItem));
+                    tpcc_stock_val_t* val = reinterpret_cast<tpcc_stock_val_t*>(data_item->value);
+                    assert(val->debug_magic == tpcc_add_magic);
+                } else {
+                    assert(false);
+                }
+                free(data_item);
+             }
+        }
+        rm_manager->close_file(table_file.get());
+    }
+    
+    // 4. Verify District Table
+    {
+        std::unique_ptr<RmFileHandle> table_file = rm_manager->open_file(bench_name + "_district");
+        // Verify File Header
+        assert(table_file->get_file_hdr().record_size_ == sizeof(DataItem) + sizeof(tpcc_district_val_t));
+        assert(table_file->get_file_hdr().num_pages_ >= 1);
+
+        for (uint32_t w_id = 1; w_id <= num_warehouse; w_id++) {
+            for (uint32_t d_id = 1; d_id <= num_district_per_warehouse; d_id++) {
+                tpcc_district_key_t district_key;
+                district_key.d_id = MakeDistrictKey(w_id, d_id);
+                
+                DataItem* data_item = GetRecord(table_file.get(), district_key.item_key, (table_id_t)TPCCTableType::kDistrictTable);
+                assert(data_item != nullptr);
+                
+                if (data_item->value_size == sizeof(tpcc_district_val_t)) {
+                    assert(data_item->lock == 0);
+                    data_item->value = (uint8_t*)((char*)data_item + sizeof(DataItem));
+                    tpcc_district_val_t* val = reinterpret_cast<tpcc_district_val_t*>(data_item->value);
+                    assert(strcmp(val->d_zip, "123456789") == 0);
+                } else {
+                    assert(false);
+                }
+                free(data_item);
+            }
+        }
+         rm_manager->close_file(table_file.get());
+    }
+
+    std::cout << "TPCC Data Verification Completed Successfully.\n";
 }

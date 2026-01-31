@@ -5,6 +5,7 @@
 
 #include <map>
 #include <unordered_map>
+#include "vector"
 
 #include "base/page.h"
 #include "common.h"

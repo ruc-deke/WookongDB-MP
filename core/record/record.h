@@ -6,7 +6,9 @@
 
 class RmFileHdr {
 public:
-    int record_size_;
+    typedef std::shared_ptr<RmFileHdr> ptr;
+    
+    int record_size_;           // 整个数据项大小，值为实际的元组数据大小 + 元组参数(lock,version 等)
     int num_pages_;
     int num_records_per_page_;
     int first_free_page_no_;
@@ -17,6 +19,8 @@ class RmPageHdr {
 public:
     int next_free_page_no_;
     int num_records_;
+    LLSN LLSN_;// 新增LLSN字段
+    LLSN pre_LLSN_;// 记录更新前的 LLSN
 };
 
 class RmRecord {

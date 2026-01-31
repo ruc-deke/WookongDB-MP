@@ -11,7 +11,7 @@ include_directories(dtx)
 include_directories(concurrency)
 
 set(BufferPool_SRC 
-        remote_bufferpool/remote_bufferpool.pb.cc)
+        )
 
 set(PageTable_SRC 
         remote_page_table/remote_page_table.pb.cc
@@ -30,22 +30,45 @@ set(DTX_SRC
         dtx/dtx.cc
         dtx/dtx_exe.cc
         dtx/dtx_log.cc)
+set(INDEX_SRC
+        index/index_manager.cc
+        index/bp_tree/blink/blink.cc
+)
+
+set(FIBER_SRC
+        fiber/fiber.cc
+        fiber/scheduler.cc
+        fiber/thread.cc
+)
+set(FSM_SRC
+        storage/fsm_tree/s_fsm_tree.cc
+        fsm/fsm_tree.cc)
+
+
 
 add_library(core STATIC
         ${BufferPool_SRC}
         ${PageTable_SRC}
         ${ComputeNode_SRC}
         ${CONNECTION_SRC}
-        ${DTX_SRC})
+        ${DTX_SRC}
+        ${INDEX_SRC}
+        ${FIBER_SRC}
+        ${FSM_SRC}
+)
 
-target_link_libraries(core boost_coroutine boost_context boost_system)
+target_link_libraries(core boost_coroutine boost_context boost_system ${BRPC_LIB})
 
 set(Storage_SRC
         storage/disk_manager.cc
         storage/log_manager.cc
         storage/logreplay.cc
         storage/storage_rpc.cc
-        storage/storage_service.pb.cc)
+        storage/sm_manager.cc
+        storage/storage_service.pb.cc
+        storage/blink_tree/blink_tree.cc    
+        storage/fsm_tree/s_fsm_tree.cc
+)
 
 add_library(storage STATIC
         ${Storage_SRC})
@@ -57,11 +80,10 @@ set(Record_SRC
 
 set(StorageBuffer_SRC
         storage/buffer/storage_bufferpool.cc
-        storage/buffer/replacer/lru_replacer.cc)
+        storage/buffer/replacer/lru_replacer.cc
+        )
 
 add_library(load_table STATIC
         ${Record_SRC}
         ${StorageBuffer_SRC}
         ${DTX_SRC})
-
-add_subdirectory(test)

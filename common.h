@@ -1,6 +1,13 @@
 #pragma once
 #include <cstdint> 
 #include <time.h>
+#include "vector"
+#include "memory"
+#include "cstring"
+#include "map"
+#include "string"
+#include "assert.h"
+
 
 #define ALWAYS_INLINE inline __attribute__((always_inline))
 
@@ -25,6 +32,7 @@ using t_id_t = uint32_t;      // Thread id type
 using coro_id_t = int;        // Coroutine id type
 using offset_t = int64_t;     // Offset type. 
 using timestamp_t = uint64_t; // Timestamp type
+using LLSN = uint64_t;
 
 // Indicating that memory store metas have been transmitted
 const uint64_t MEM_STORE_META_END = 0xE0FF0E0F;
@@ -35,6 +43,8 @@ const uint64_t MEM_STORE_META_END = 0xE0FF0E0F;
 // for log
 #define LOG_REPLAY_BUFFER_SIZE  (10 * 4096)                    // size of a log buffer in byte
 #define RM_BUFFER_POOL_SIZE 65536 // 256MB
+
+static const std::string DB_META_NAME = "db.meta";
 
 // for batch index prefetch
 #define BATCH_INDEX_PREFETCH_SIZE 1024
@@ -49,7 +59,7 @@ const uint64_t MEM_STORE_META_END = 0xE0FF0E0F;
 #define INVALID_FRAME_ID -1
 #define INVALID_PAGE_ID -1
 #define INVALID_TABLE_ID -1
-#define INVALID_LSN -1
+#define INVALID_LSN 0
 #define INVALID_TXN_ID -1
 #define INVALID_NODE_ID -1
 #define INVALID_BATCH_ID 0
@@ -61,9 +71,12 @@ const uint64_t MEM_STORE_META_END = 0xE0FF0E0F;
 #define OFFSET_NUM_RECORDS 4
 #define OFFSET_NEXT_FREE_PAGE_NO 0
 #define OFFSET_BITMAP 8
+#define OFFSET_FILE_HDR 24
 
 static constexpr uint64_t UNLOCKED = 0;
 static constexpr uint64_t EXCLUSIVE_LOCKED = 0xFF00000000000000;
+static constexpr uint64_t INSERT_LOCKED = 0xFFF0000000000000;     // BLink 用，插入锁
+static constexpr uint64_t DELETE_LOCKED = 0xFFFF000000000000;     // BLink 用，删除锁
 static constexpr uint64_t MASKED_SHARED_LOCKS = 0xFF00000000000000;
 static constexpr uint64_t SHARED_UNLOCK_TO_BE_ADDED = 0xFFFFFFFFFFFFFFFF;
 
@@ -83,3 +96,20 @@ enum TXStatus : int {
   TX_ABORT,     // Aborted transaction
   TX_VAL_NOTFOUND // Value not found
 };
+
+enum ColType{
+    TYPE_INT = 0,
+    TYPE_FLOAT = 1,
+    TYPE_STRING = 2,
+    TYPE_ITEMKEY = 3,   // 主键的类型，指定为 uint64_t
+};
+
+// 目前只支持 B+ 树索引
+enum class IndexType{
+    BTREE_INDEX,
+    HASH_INDEX,
+    UNKNOW_INDEX
+};
+
+
+

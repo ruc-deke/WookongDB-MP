@@ -11,26 +11,34 @@
 
 #include "util/json_config.h"
 #include "util/bitmap.h"
+#include "storage/sm_manager.h"
 
-// All servers need to load data
 void LoadData(node_id_t machine_id,
                       node_id_t machine_num,  // number of memory nodes
                       std::string& workload,
                       RmManager* rm_manager) {
-  /************************************* Load Data ***************************************/
-  // LOG(INFO) << "Start loading database data...";
-  if (workload == "SmallBank") {
+  std::cout << "Begin Init Data...\n";
+  if (workload == "smallbank") {
     SmallBank* smallbank_server = new SmallBank(rm_manager);
     smallbank_server->LoadTable(machine_id, machine_num);
-  } else if (workload == "TPCC") {
+
+    // rm_manager->get_bufferPoolManager()->clear_all_pages();
+    smallbank_server->VerifyData();
+  } else if (workload == "tpcc") {
       TPCC* tpcc_server = new TPCC(rm_manager);
       tpcc_server->LoadTable(machine_id, machine_num);
-  }
-  else{
+      tpcc_server->VerifyData();
+  } else if (workload == "ycsb"){
+      std::string config_path = "../../config/ycsb_config.json";
+      auto config = JsonConfig::load_file(config_path);
+      int record_cnt = config.get("ycsb").get("num_record").get_int64();
+      YCSB *ycsb_server = new YCSB(rm_manager , record_cnt , -1 , 0 , std::vector<int>{});
+      ycsb_server->LoadTable();
+      ycsb_server->VerifyData();
+  } else{
     LOG(ERROR) << "Unsupported workload: " << workload;
     assert(false);
   }
-  // LOG(INFO) << "Loading table successfully!";
 }
 
 void Server::SendMeta(node_id_t machine_id, size_t compute_node_num, std::string workload) {
@@ -51,62 +59,105 @@ void Server::SendMeta(node_id_t machine_id, size_t compute_node_num, std::string
 void Server::PrepareStorageMeta(node_id_t machine_id, std::string workload, char** storage_meta_buffer, size_t& total_meta_size) {
   // Get LockTable meta
   int table_num;
-  if(workload == "SmallBank") {
-    table_num = 2;
-  }else if(workload == "TPCC") {
-    table_num = 11;
-  } else {
-    LOG(ERROR) << "Unsupported workload: " << workload;
+
+  // 我们项目里，每个表的 B+ 树和 FSM 都视为一个单独的表
+  // 所以这里 table_num 是物理上的表数量，用户看到的数量是 table_num / 3
+  // 也就是 smallbank 两张，saving 和 checking，tpcc 11 张，ycsb 1 张 user_table
+  if(workload == "smallbank") {
+    table_num = 6;
+  }else if(workload == "tpcc") {
+    table_num = 33;
+  } else if (workload == "ycsb"){
+    table_num = 3;
+  }else {
     assert(false);
   }
   
-  int* max_page_num_per_table = new int[table_num];
+  int* init_page_num_per_table = new int[table_num];
   int record_per_page;
   int storage_meta_len = sizeof(int) + table_num * sizeof(int) + sizeof(int);
   char* storage_meta = new char[storage_meta_len];
 
-  if(workload == "SmallBank") {
-    // SmallBank::LoadTable 按照此函数中的顺序创建表
-    std::unique_ptr<RmFileHandle> table_file = rm_manager_->open_file("smallbank_savings");
-    std::unique_ptr<RmFileHandle> table_file2 = rm_manager_->open_file("smallbank_checking");
-    max_page_num_per_table[0] = table_file->get_file_hdr().num_pages_;
-    max_page_num_per_table[1] = table_file2->get_file_hdr().num_pages_;
-    record_per_page = table_file->get_file_hdr().num_records_per_page_;
+  if(workload == "smallbank") {
+    std::vector<std::string> sb_tables = {"smallbank_savings", "smallbank_checking"};
+    for(int i = 0; i < 2; ++i) {
+        // 1. Data Table (ID: i)
+        std::unique_ptr<RmFileHandle> table_file = rm_manager_->open_file(sb_tables[i]);
+        init_page_num_per_table[i] = table_file->get_file_hdr().num_pages_;
+        // std::cout << "File Size = " << max_page_num_per_table[i] << "\n";
+        if(i == 0) record_per_page = table_file->get_file_hdr().num_records_per_page_;
+
+        // 2. B-Link Tree (ID: i + 4)
+        std::string bl_name = sb_tables[i] + "_bl";
+        int bl_size = rm_manager_->get_diskmanager()->get_file_size(bl_name);
+        init_page_num_per_table[i + 2] = (bl_size == -1) ? 0 : (bl_size / PAGE_SIZE);
+
+        // 3. FSM
+        std::string fsm_name = sb_tables[i] + "_fsm";
+        // int fsm_size = rm_manager_->get_diskmanager()->get_file_size(fsm_name);
+        // max_page_num_per_table[i + 4] = (fsm_size == -1) ? 0 : (fsm_size / PAGE_SIZE);
+    }
 
     // Fill storage meta
     memcpy(storage_meta, &table_num, sizeof(int));
-    memcpy(storage_meta + sizeof(int), max_page_num_per_table, table_num * sizeof(int));
+    memcpy(storage_meta + sizeof(int), init_page_num_per_table, table_num * sizeof(int));
     memcpy(storage_meta + sizeof(int) + table_num * sizeof(int), &record_per_page, sizeof(int));
-  }else if(workload == "TPCC") {
-      std::unique_ptr<RmFileHandle> table_file = rm_manager_->open_file("TPCC_warehouse");
-      std::unique_ptr<RmFileHandle> table_file2 = rm_manager_->open_file("TPCC_district");
-      std::unique_ptr<RmFileHandle> table_file3 = rm_manager_->open_file("TPCC_customer");
-      std::unique_ptr<RmFileHandle> table_file4 = rm_manager_->open_file("TPCC_customerhistory");
-      std::unique_ptr<RmFileHandle> table_file5 = rm_manager_->open_file("TPCC_ordernew");
-      std::unique_ptr<RmFileHandle> table_file6 = rm_manager_->open_file("TPCC_order");
-      std::unique_ptr<RmFileHandle> table_file7 = rm_manager_->open_file("TPCC_orderline");
-      std::unique_ptr<RmFileHandle> table_file8 = rm_manager_->open_file("TPCC_item");
-      std::unique_ptr<RmFileHandle> table_file9 = rm_manager_->open_file("TPCC_stock");
-      std::unique_ptr<RmFileHandle> table_file10 = rm_manager_->open_file("TPCC_customerindex");
-      std::unique_ptr<RmFileHandle> table_file11 = rm_manager_->open_file("TPCC_orderindex");
 
-      max_page_num_per_table[0] = table_file->get_file_hdr().num_pages_;
-      max_page_num_per_table[1] = table_file2->get_file_hdr().num_pages_;
-      max_page_num_per_table[2] = table_file3->get_file_hdr().num_pages_;
-      max_page_num_per_table[3] = table_file4->get_file_hdr().num_pages_;
-      max_page_num_per_table[4] = table_file5->get_file_hdr().num_pages_;
-      max_page_num_per_table[5] = table_file6->get_file_hdr().num_pages_;
-      max_page_num_per_table[6] = table_file7->get_file_hdr().num_pages_;
-      max_page_num_per_table[7] = table_file8->get_file_hdr().num_pages_;
-      max_page_num_per_table[8] = table_file9->get_file_hdr().num_pages_;
-      max_page_num_per_table[9] = table_file10->get_file_hdr().num_pages_;
-      max_page_num_per_table[10] = table_file11->get_file_hdr().num_pages_;
-      record_per_page = table_file->get_file_hdr().num_records_per_page_;
+  }else if(workload == "tpcc") {
+      std::vector<std::string> tpcc_tables = {
+        "tpcc_warehouse", "tpcc_district", "tpcc_customer", "tpcc_customerhistory",
+        "tpcc_ordernew", "tpcc_order", "tpcc_orderline", "tpcc_item",
+        "tpcc_stock", "tpcc_customerindex", "tpcc_orderindex"
+      };
+
+      for(int i = 0; i < 11; ++i) {
+          // 1. Data Table (ID: i)
+          std::unique_ptr<RmFileHandle> table_file = rm_manager_->open_file(tpcc_tables[i]);
+          init_page_num_per_table[i] = table_file->get_file_hdr().num_pages_;
+          if(i == 0) record_per_page = table_file->get_file_hdr().num_records_per_page_;
+
+          // 2. B-Link Tree (ID: i + 22)
+          std::string bl_name = tpcc_tables[i] + "_bl";
+          int bl_size = rm_manager_->get_diskmanager()->get_file_size(bl_name);
+          init_page_num_per_table[i + 11] = (bl_size == -1) ? 0 : (bl_size / PAGE_SIZE);
+
+          // std::cout << "Table Init Page Num = " << init_page_num_per_table[i]
+          //           << " BLink Init Page Num = " << init_page_num_per_table[i + 11]
+          //           << " FSM "
+          //           << " \n";
+
+          // 3. FSM
+          std::string fsm_name = tpcc_tables[i] + "_fsm";
+          // int fsm_size = rm_manager_->get_diskmanager()->get_file_size(fsm_name);
+          // max_page_num_per_table[i + 22] = (fsm_size == -1) ? 0 : (fsm_size / PAGE_SIZE);
+      }
 
       // Fill storage meta
       memcpy(storage_meta, &table_num, sizeof(int));
-      memcpy(storage_meta + sizeof(int), max_page_num_per_table, table_num * sizeof(int));
+      memcpy(storage_meta + sizeof(int), init_page_num_per_table, table_num * sizeof(int));
       memcpy(storage_meta + sizeof(int) + table_num * sizeof(int), &record_per_page, sizeof(int));
+  } else if (workload == "ycsb"){
+    std::string ycsb_table = "ycsb_user_table";
+    for (int i = 0 ; i < 1 ; i++){
+        std::unique_ptr<RmFileHandle> table_file = rm_manager_->open_file(ycsb_table);
+        init_page_num_per_table[i] = table_file->get_file_hdr().num_pages_;
+        if(i == 0) record_per_page = table_file->get_file_hdr().num_records_per_page_;
+
+        // 2. B-Link Tree (ID: i + 22)
+        std::string bl_name = ycsb_table + "_bl";
+        int bl_size = rm_manager_->get_diskmanager()->get_file_size(bl_name);
+        init_page_num_per_table[i + 1] = (bl_size == -1) ? 0 : (bl_size / PAGE_SIZE);
+        
+        // std::cout << "Init Page Num = " << init_page_num_per_table[i] << " " << "Init BLink = " << init_page_num_per_table[i + 1] << "\n";
+        // 3. FSM
+        std::string fsm_name = ycsb_table + "fsm";
+        // int fsm_size = rm_manager_->get_diskmanager()->get_file_size(fsm_name);
+        // max_page_num_per_table[i + 22] = (fsm_size == -1) ? 0 : (fsm_size / PAGE_SIZE);
+        init_page_num_per_table[i + 2] = 0;
+    }
+    memcpy(storage_meta, &table_num, sizeof(int));
+    memcpy(storage_meta + sizeof(int), init_page_num_per_table, table_num * sizeof(int));
+    memcpy(storage_meta + sizeof(int) + table_num * sizeof(int), &record_per_page, sizeof(int));
   } else {
     LOG(ERROR) << "Unsupported workload: " << workload;
     assert(false);
@@ -186,6 +237,8 @@ void Server::SendStorageMeta(char* hash_meta_buffer, size_t& total_meta_size) {
   if (strcmp(recv_buf, "[ACK]hash_meta_received_from_client") != 0) {
     std::string ack(recv_buf);
     LOG(ERROR) << "Client receives hash meta error. Received ack is: " << ack;
+  } else {
+    std::cout << "Connect Success" << std::endl;
   }
 
   free(recv_buf);
@@ -215,10 +268,36 @@ bool Server::Run() {
 }
 
 int main(int argc, char* argv[]) {
+    // 默认以 SQL 交互模式启动
+    std::string mode;
+    if (argc == 1){
+      std::cerr << "Please Input Mode\n";
+      std::cerr << "Mode : sql , smallbank , tpcc , ycsb\n";
+      std::cerr << "Example : ./storage_pool sql\n";
+      exit(-1);
+    } else if (argc > 2){
+      std::cerr << "Error\n";
+      exit(-1);
+    }
+
+    mode = std::string(argv[1]);
+    if (mode != "smallbank" && mode != "tpcc" && mode != "ycsb" && mode != "sql"){
+      std::cerr << "Invalid Mode\n";
+      std::cerr << "Mode : sql , smallbank , tpcc , ycsb\n";
+      exit(-1);
+    }
+
+    std::string log_path = "./storageserver.log" + std::to_string(getpid()); // 设置日志路径
+
+    if (std::ifstream(log_path)) { std::remove(log_path.c_str()); }
+    ::logging::LoggingSettings log_setting;  // 创建LoggingSetting对象进行设置
+    log_setting.log_file = log_path.c_str(); // 设置日志路径
+    log_setting.logging_dest = logging::LOG_TO_FILE; // 设置日志写到文件，不写的话不生效
+    ::logging::InitLogging(log_setting);     // 应用日志设置
+
     // Configure of this server
     std::string config_filepath = "../../config/storage_node_config.json";
     auto json_config = JsonConfig::load_file(config_filepath);
-
     auto local_node = json_config.get("local_storage_node");
     node_id_t machine_num = (node_id_t)local_node.get("machine_num").get_int64();
     node_id_t machine_id = (node_id_t)local_node.get("machine_id").get_int64();
@@ -226,11 +305,10 @@ int main(int argc, char* argv[]) {
     int local_rpc_port = (int)local_node.get("local_rpc_port").get_int64();
     int local_meta_port = (int)local_node.get("local_meta_port").get_int64();
     bool use_rdma = (bool)local_node.get("use_rdma").get_bool();
-    std::string workload = local_node.get("workload").get_str();
-
     auto compute_nodes = json_config.get("remote_compute_nodes");
     auto compute_node_ips = compute_nodes.get("compute_node_ips");  // Array
     size_t compute_node_num = compute_node_ips.size();
+
     std::vector<std::string> compute_ip_list;
     std::vector<int> compute_ports_list;
     for(size_t i=0; i<compute_node_ips.size(); i++){
@@ -238,22 +316,27 @@ int main(int argc, char* argv[]) {
       compute_ports_list.push_back(compute_nodes.get("compute_node_ports").get(i).get_int64());
     }
 
-    // 在这里开始构造disk_manager, log_manager, server
     auto disk_manager = std::make_shared<DiskManager>();
-    auto log_replay = std::make_shared<LogReplay>(disk_manager.get()); 
-    auto log_manager = std::make_shared<LogManager>(disk_manager.get(), log_replay.get());
-    
-    // Init table in disk
+
     auto buffer_mgr = std::make_shared<StorageBufferPoolManager>(RM_BUFFER_POOL_SIZE, disk_manager.get());
     auto rm_manager = std::make_shared<RmManager>(disk_manager.get(), buffer_mgr.get());
-    LoadData(machine_id, machine_num, workload, rm_manager.get());
-    // std::unique_ptr<RmFileHandle> table_file1 = rm_manager->open_file("smallbank_savings");
-    buffer_mgr->flush_all_pages();
-    // std::unique_ptr<RmFileHandle> table_file2 = rm_manager->open_file("smallbank_savings");
 
-    auto server = std::make_shared<Server>(machine_id, local_rpc_port, local_meta_port, use_rdma, 
-      compute_node_num, compute_ip_list, compute_ports_list,
-      disk_manager.get(), log_manager.get(), rm_manager.get(), workload);
+    SmManager *sm_manager = new SmManager(rm_manager.get() , rm_manager->get_bufferPoolManager());
+
+    auto log_replay = std::make_shared<LogReplay>(disk_manager.get() , sm_manager , mode); 
+    auto log_manager = std::make_shared<LogManager>(disk_manager.get(), log_replay.get());
+
+    if (mode == "sql"){
+      auto server = std::make_shared<Server>(machine_id, local_rpc_port, local_meta_port, use_rdma, 
+                      compute_node_num, compute_ip_list, compute_ports_list,
+                      disk_manager.get(), log_manager.get(), rm_manager.get(), sm_manager);
+    } else {
+      // 如果是负载模式，那就硬加载数据到存储里
+      LoadData(machine_id, machine_num, mode, rm_manager.get());
+      auto server = std::make_shared<Server>(machine_id, local_rpc_port, local_meta_port, use_rdma, 
+                      compute_node_num, compute_ip_list, compute_ports_list,
+                      disk_manager.get(), log_manager.get(), rm_manager.get(), mode);
+    }
     
     return 0;
 }

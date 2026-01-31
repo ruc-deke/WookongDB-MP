@@ -64,6 +64,7 @@ class Page {
     friend class StorageBufferPoolManager;
     friend class BufferFusion;
     friend class BufferPool;
+    friend class ComputeServer;
    public:
     
     Page() { reset_memory(); }
@@ -75,7 +76,9 @@ class Page {
     inline char *get_data() { return data_; }
 
     bool is_dirty() const { return is_dirty_; }
-    void set_dirty(bool d) {is_dirty_ = d;}
+    void set_dirty(bool val){
+        is_dirty_ = val;
+    }
 
    private:
     void reset_memory() { memset(data_, 0, PAGE_SIZE); }  // 将data_的PAGE_SIZE个字节填充为0

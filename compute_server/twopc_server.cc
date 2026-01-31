@@ -1,4 +1,5 @@
 #include "server.h"
+#include "workload/ycsb/ycsb_db.h"
 
 namespace twopc_service{
     void TwoPCServiceImpl::GetDataItem(::google::protobuf::RpcController* controller,
@@ -12,32 +13,26 @@ namespace twopc_service{
         int slot_id = request->item_id().slot_id();
         bool lock = request->item_id().lock_data();
 
+        // S 锁
         if(!lock){
             Page* page = server->local_fetch_s_page(table_id, page_id);
             char* data = page->get_data();
             response->set_data(data, PAGE_SIZE);
-            // char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-            // char *slots = bitmap + server->get_node()->getMetaManager()->GetTableMeta(table_id).bitmap_size_;
-            // char* tuple = slots + slot_id * (sizeof(DataItem) + sizeof(itemkey_t));
-            // char* ret = tuple + sizeof(itemkey_t);
-            // response->set_data(ret, sizeof(DataItem));
             server->local_release_s_page(table_id, page_id);
         }else{
-            // // LOG(INFO) << "Node " << server->get_node()->getNodeID() << " lock data item " << table_id << " " << page_id << " " << slot_id;
             Page* page = server->local_fetch_x_page(table_id, page_id);
             char* data = page->get_data();
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-            char *slots = bitmap + server->get_node()->getMetaManager()->GetTableMeta(table_id).bitmap_size_;
-            char* tuple = slots + slot_id * (sizeof(DataItem) + sizeof(itemkey_t));
-            // lock the data
+            RmFileHdr::ptr file_hdr = server->get_file_hdr_cached(table_id);
+            char *slots = bitmap + file_hdr->bitmap_size_;
+            char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
+
+            // 需要给这个元组加上排他锁
             DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
             if(item->lock == UNLOCKED){
                 item->lock = EXCLUSIVE_LOCKED;
-                // char* ret = tuple + sizeof(itemkey_t);
                 response->set_data(data, PAGE_SIZE);
-                // response->set_data(ret, sizeof(DataItem));
-            }
-            else {
+            } else {
                 // abort
                 response->set_abort(true);
             }
@@ -45,7 +40,7 @@ namespace twopc_service{
         }
 
         // 添加模拟延迟
-        usleep(NetworkLatency); // 100us
+        if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
         return;
     };
 
@@ -59,22 +54,24 @@ namespace twopc_service{
         table_id_t table_id = request->item_id().table_id();
         page_id_t page_id = request->item_id().page_no();
         int slot_id = request->item_id().slot_id();
-        assert(request->data().size() == MAX_ITEM_SIZE);
+        RmFileHdr::ptr file_hdr = server->get_file_hdr_cached(table_id);
+        assert(request->data().size() == file_hdr->record_size_);
         char* write_remote_data = (char*)request->data().c_str();
 
         Page* page = server->local_fetch_x_page(table_id, page_id);
         char* data = page->get_data();
         char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-        char *slots = bitmap + server->get_node()->getMetaManager()->GetTableMeta(table_id).bitmap_size_;
-        char* tuple = slots + slot_id * (sizeof(DataItem) + sizeof(itemkey_t));
+        char *slots = bitmap + file_hdr->bitmap_size_;
+        char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
         DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
         assert(item->lock == EXCLUSIVE_LOCKED);
-        memcpy(item->value, write_remote_data, MAX_ITEM_SIZE);
+        // Fix: Use correct pointer arithmetic and offsets. Skip header.
+        memcpy((char*)item + sizeof(DataItem), write_remote_data + sizeof(DataItem), file_hdr->record_size_ - sizeof(DataItem));
         item->lock = UNLOCKED;
         server->local_release_x_page(table_id, page_id);
 
         // 添加模拟延迟
-        usleep(NetworkLatency); // 100us
+        if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
         return;
     };
 
@@ -103,7 +100,7 @@ namespace twopc_service{
         response->set_ok(true);
 
         // 添加模拟延迟
-        usleep(NetworkLatency); // 100us
+        if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
     };
 
     void add_milliseconds(struct timespec& ts, long long ms) {
@@ -129,28 +126,34 @@ namespace twopc_service{
 
         int item_size = request->item_id_size();
         assert(item_size == request->data_size());
-        for(int i=0; i<item_size; i++){
+        for(int i = 0; i < item_size; i++){
             table_id_t table_id = request->item_id(i).table_id();
             page_id_t page_id = request->item_id(i).page_no();
             int slot_id = request->item_id(i).slot_id();
             char* write_remote_data = (char*)request->data(i).c_str();
-
-            // // LOG(INFO) << "Node " << server->get_node()->getNodeID() << " release data item " << table_id << " " << page_id << " " << slot_id;
             
             Page* page = server->local_fetch_x_page(table_id, page_id);
             char* data = page->get_data();
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-            char *slots = bitmap + server->get_node()->getMetaManager()->GetTableMeta(table_id).bitmap_size_;
-            char* tuple = slots + slot_id * (sizeof(DataItem) + sizeof(itemkey_t));
+            RmFileHdr::ptr file_hdr = server->get_file_hdr_cached(table_id);
+            char *slots = bitmap + file_hdr->bitmap_size_;
+            char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
             DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
             assert(item->lock == EXCLUSIVE_LOCKED);
-            memcpy(item->value, write_remote_data, MAX_ITEM_SIZE);
+            // Fix: Use correct pointer arithmetic. request->data() contains ONLY value.
+            memcpy((char*)item + sizeof(DataItem) , write_remote_data , file_hdr->record_size_ - sizeof(DataItem));
+
+            // memcpy(item->value, write_remote_data, file_hdr->record_size_);
             item->lock = UNLOCKED;
             server->local_release_x_page(table_id, page_id);
         }
 
-        TxnLog txn_log;
+        // 将日志写入共享log_records
         BatchEndLogRecord* commit_log = new BatchEndLogRecord(tx_id, server->get_node()->getNodeID(), tx_id);
+        server->AddToLog(commit_log);  // 写入节点共享的log_records
+        
+        // 为了立即发送日志，仍然使用局部TxnLog来序列化
+        TxnLog txn_log;
         txn_log.logs.push_back(commit_log);
         txn_log.batch_id_ = tx_id;
         log_request.set_log(txn_log.get_log_string());
@@ -161,7 +164,7 @@ namespace twopc_service{
         response->set_latency_commit(0);
 
         // 添加模拟延迟
-        usleep(NetworkLatency); // 100us
+        if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
     };
 
     void TwoPCServiceImpl::Abort(::google::protobuf::RpcController* controller,
@@ -174,9 +177,14 @@ namespace twopc_service{
         storage_service::LogWriteRequest log_request;
         storage_service::LogWriteResponse log_response;
         uint64_t tx_id = request->transaction_id();
+        
+        // 将日志写入共享log_records
+        BatchEndLogRecord* abort_log = new BatchEndLogRecord(tx_id, server->get_node()->getNodeID(), tx_id);
+        server->AddToLog(abort_log);  // 写入节点共享的log_records
+        
+        // 为了立即发送日志，仍然使用局部TxnLog来序列化
         TxnLog txn_log;
-        BatchEndLogRecord* prepare_log = new BatchEndLogRecord(tx_id, server->get_node()->getNodeID(), tx_id);
-        txn_log.logs.push_back(prepare_log);
+        txn_log.logs.push_back(abort_log);
         txn_log.batch_id_ = tx_id;
         log_request.set_log(txn_log.get_log_string());
 
@@ -197,8 +205,10 @@ namespace twopc_service{
             Page* page = server->local_fetch_x_page(table_id, page_id);
             char* data = page->get_data();
             char *bitmap = data + sizeof(RmPageHdr) + OFFSET_PAGE_HDR;
-            char *slots = bitmap + server->get_node()->getMetaManager()->GetTableMeta(table_id).bitmap_size_;
-            char* tuple = slots + slot_id * (sizeof(DataItem) + sizeof(itemkey_t));
+            
+            RmFileHdr::ptr file_hdr = server->get_file_hdr_cached(table_id);
+            char *slots = bitmap + file_hdr->bitmap_size_;
+            char* tuple = slots + slot_id * (file_hdr->record_size_ + sizeof(itemkey_t));
             DataItem* item =  reinterpret_cast<DataItem*>(tuple + sizeof(itemkey_t));
             assert(item->lock == EXCLUSIVE_LOCKED);
             item->lock = UNLOCKED;
@@ -206,28 +216,60 @@ namespace twopc_service{
         }
 
         // 添加模拟延迟
-        usleep(NetworkLatency); // 100us
+        if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
     };
 };
 
+static std::atomic<int> fetch_cnt{0};
+
 Page* ComputeServer::local_fetch_s_page(table_id_t table_id, page_id_t page_id){
-    Page* page = node_->local_buffer_pools[table_id]->fetch_page(page_id);
+    int k1 = fetch_cnt.fetch_add(1);
+    if (k1 % 10000 == 0){
+        std::cout << k1 << "\n";
+    }
+    assert(is_partitioned_page(table_id , page_id , node_->getNodeID()));
     node_->local_page_lock_tables[table_id]->GetLock(page_id)->LockShared();
+    Page* page = node_->getBufferPoolByIndex(table_id)->try_fetch_page(page_id);
+    if (page == nullptr){
+        std::string data = rpc_fetch_page_from_storage(table_id , page_id , true);
+        page = put_page_into_buffer(table_id , page_id , data.c_str() , SYSTEM_MODE);
+    }
+    node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
+    assert(page);
+    assert(page->get_page_id().page_no == page_id && page->get_page_id().table_id == table_id);
     return page;
 }
 
 Page* ComputeServer::local_fetch_x_page(table_id_t table_id, page_id_t page_id){
-    Page* page = node_->local_buffer_pools[table_id]->fetch_page(page_id);
+    int k1 = fetch_cnt.fetch_add(1);
+    if (k1 % 10000 == 0){
+        std::cout << k1 << "\n";
+    }
+    assert(is_partitioned_page(table_id , page_id , node_->getNodeID()));
     node_->local_page_lock_tables[table_id]->GetLock(page_id)->LockExclusive();
+    Page* page = node_->local_buffer_pools[table_id]->try_fetch_page(page_id);
+    if (page == nullptr){
+        std::string data = rpc_fetch_page_from_storage(table_id , page_id , true);
+        page = put_page_into_buffer(table_id , page_id , data.c_str() , SYSTEM_MODE);
+    }
+    node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
+    assert(page);
+    assert(page->get_page_id().page_no == page_id && page->get_page_id().table_id == table_id);
     return page;
 }
 
 void ComputeServer::local_release_s_page(table_id_t table_id, page_id_t page_id){
-    node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockShared();
+    int lock = node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockShared();
+    if (lock == 0){
+        node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
+    }
+    node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
     return;
 }
 
 void ComputeServer::local_release_x_page(table_id_t table_id, page_id_t page_id){
     node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockExclusive();
+    node_->getBufferPoolByIndex(table_id)->unpin_page(page_id);
+    node_->local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
     return;
 }

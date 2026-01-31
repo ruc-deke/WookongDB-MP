@@ -4,14 +4,16 @@
 // 这个文件用于实现远程的分区锁表，通过brpc实现，在无rdma环境下适用
 #pragma once
 #include "config.h"
-#include "global_partition_lock.h"
-#include "global_page_lock_table.h"
-#include "global_valid_table.h"
+#include "GPLM/global_partition_lock.h"
+#include "GPLM/global_page_lock_table.h"
+#include "GPLM/global_valid_table.h"
 #include <butil/logging.h> 
 #include <brpc/server.h>
 #include <gflags/gflags.h>
+#include <iomanip>
 
 #include "remote_partition_table.pb.h"
+#include <unistd.h>
 
 namespace partition_table_service{
 class PartitionTableImpl : public PartitionTableService {
@@ -19,10 +21,14 @@ class PartitionTableImpl : public PartitionTableService {
     PartitionTableImpl(std::vector<GlobalLockTable*>* page_lock_table_list, std::vector<GlobalValidTable*>* page_valid_table_list)
         :page_lock_table_list_(page_lock_table_list), page_valid_table_list_(page_valid_table_list){
             compute_epoch = new int[ComputeNodeCount]();
+            compute_epoch_hot = new int[ComputeNodeCount]();
             compute_finish = new bool[ComputeNodeCount]();
+            compute_finish_hot = new bool[ComputeNodeCount]();
             for(int i=0; i<ComputeNodeCount; i++){
                 compute_epoch[i] = 0;
+                compute_epoch_hot[i] = 0;
                 compute_finish[i] = false;
+                compute_finish_hot[i] = false;
             }
         };
 
@@ -42,7 +48,7 @@ class PartitionTableImpl : public PartitionTableService {
                 // // LOG(INFO) << "node: " << node_id << " Lock Shared partition " << par_id << " in remote partition table";
 
                 // 添加模拟延迟
-                // usleep(NetworkLatency); // 100us
+                // if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
                 return;
             }
 
@@ -59,7 +65,7 @@ class PartitionTableImpl : public PartitionTableService {
 
                 // // LOG(INFO) << "node: " << node_id << " Unlock Shared partition " << par_id << " in remote partition table";
                 // 添加模拟延迟
-                // usleep(NetworkLatency); // 100us
+                // if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
                 m.lock();
                 auto epoch_par_tps = request->par_tps();
                 auto epoch_global_tps = request->global_tps();
@@ -70,20 +76,195 @@ class PartitionTableImpl : public PartitionTableService {
                 return;
             }
 
+    virtual void TsParXLock(::google::protobuf::RpcController* controller,
+                        const ::partition_table_service::TsParXLockRequest* request,
+                        ::partition_table_service::TsParXLockResponse* response,
+                        ::google::protobuf::Closure* done){
+        brpc::ClosureGuard done_guard(done);
+        bool need_update_epoch = true;
+        node_id_t node_id = request->node_id();
+        partition_id_t partition_id = request->partition_id().partition_no();
+        
+        while (true){
+            global_epoch_mutex.lock();
+            assert(global_epoch_cnt >= compute_epoch[node_id]);
+            // 说明 global_epoch_cnt 变了，可以推进阶段了
+            if (compute_epoch[node_id] < global_epoch_cnt){
+                compute_epoch[node_id]++;
+                assert(compute_epoch[node_id] == global_epoch_cnt);
+                compute_finish[node_id] = false;
+                global_epoch_mutex.unlock();
+                break;
+            }else {
+                global_epoch_mutex.unlock();
+                usleep(10);
+                continue;
+            }
+        }
+        
+        // page_lock_table_list_->at(0)->GetPartitionLock(partition_id)->LockExclusive(node_id);
+        
+        // 增加获取页面位置信息的逻辑
+        if(request->table_id_size() > 0) {
+            assert(request->table_id_size() == request->start_page_no_size());
+            for(int i = 0; i < request->table_id_size(); i++){
+                table_id_t table_id = request->table_id(i);
+                page_id_t start_page_id = request->start_page_no(i);
+                page_id_t end_page_id = request->end_page_no(i);
 
+                for(int page_id = start_page_id; page_id <= end_page_id; page_id++){
+                    node_id_t newest_node = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid_NoBlock(node_id);
+                    if(newest_node != -1){
+                        response->add_table_id(table_id);
+                        response->add_invalid_page_no(page_id);
+                        response->add_newest_node_id(newest_node);
+                    }
+                }
+            }
+        }
+        
+        return ;
+    }
+
+    virtual void TsHotParXLock(::google::protobuf::RpcController* controller,
+            const ::partition_table_service::TsHotParXLockRequest* request,
+            ::partition_table_service::TsHotParXLockResponse* response,
+            ::google::protobuf::Closure* done){
+        brpc::ClosureGuard done_guard(done);
+        bool need_update_epoch = true;
+        node_id_t node_id = request->node_id();
+        partition_id_t partition_id = request->partition_id().partition_no();
+
+
+        // std::cout << "TsHotParXLock node_id = " << node_id << "\n";
+
+        while (true){
+            global_epoch_mutex_hot.lock();
+            assert(global_epoch_cnt_hot >= compute_epoch_hot[node_id]);
+            // 说明 global_epoch_cnt 变了，可以推进阶段了
+            if (compute_epoch_hot[node_id] < global_epoch_cnt_hot){
+                compute_epoch_hot[node_id]++;
+                assert(compute_epoch_hot[node_id] == global_epoch_cnt_hot);
+                compute_finish_hot[node_id] = false;
+                global_epoch_mutex_hot.unlock();
+                break;
+            }else {
+                assert(compute_epoch_hot[node_id] == global_epoch_cnt_hot);
+                global_epoch_mutex_hot.unlock();
+                usleep(10);
+                continue;
+            }
+        }
+
+        if(request->table_id_size() > 0) {
+            assert(request->table_id_size() == request->start_page_no_size());
+            for(int i = 0; i < request->table_id_size(); i++){
+                table_id_t table_id = request->table_id(i);
+                page_id_t start_page_id = request->start_page_no(i);
+                page_id_t end_page_id = request->end_page_no(i);
+
+                for(int page_id = start_page_id; page_id <= end_page_id; page_id++){
+                    node_id_t newest_node = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid_NoBlock(node_id);
+                    assert(newest_node != node_id);
+                    if(newest_node != -1){
+                        response->add_table_id(table_id);
+                        response->add_invalid_page_no(page_id);
+                        response->add_newest_node_id(newest_node);
+                    }
+                }
+            }
+        }
+
+        // std::cout << "TsHotParXLock End Node Id = " << node_id << "\n";
+    }
+
+    virtual void TsParXUnlock(::google::protobuf::RpcController* controller,
+                        const ::partition_table_service::TsParXUnlockRequest* request,
+                        ::partition_table_service::TsParXUnlockResponse* response,
+                        ::google::protobuf::Closure* done){
+
+        brpc::ClosureGuard done_guard(done);    
+        partition_id_t par_id = request->partition_id().partition_no();
+        node_id_t node_id = request->node_id();
+        // page_lock_table_list_->at(0)->GetPartitionLock(par_id)->UnlockExclusive(node_id);
+
+        for(int i=0; i<request->page_id_size(); i++){
+            page_id_t page_id = request->page_id(i).page_no();
+            table_id_t table_id = request->page_id(i).table_id();
+            page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->UpdateValid(node_id);
+        }
+
+        {
+            global_epoch_mutex.lock();
+            compute_finish[node_id] = true;
+            bool need_to_update = true;
+            for (int i = 0 ; i < ComputeNodeCount ; i++){
+                if (compute_epoch[i] <= global_epoch_cnt && compute_finish[i] == false){
+                    need_to_update = false;
+                    break;
+                }
+            }
+            if (need_to_update){
+                global_epoch_cnt++;
+            }
+            global_epoch_mutex.unlock();
+        }
+
+        return;
+    }
+
+    virtual void TsHotParXUnlock(::google::protobuf::RpcController* controller,
+                        const ::partition_table_service::TsHotParXUnlockRequest* request,
+                        ::partition_table_service::TsHotParXUnlockResponse* response,
+                        ::google::protobuf::Closure* done){
+        brpc::ClosureGuard done_guard(done);    
+        partition_id_t par_id = request->partition_id().partition_no();
+        node_id_t node_id = request->node_id();
+
+        for(int i=0; i<request->page_id_size(); i++){
+            page_id_t page_id = request->page_id(i).page_no();
+            table_id_t table_id = request->page_id(i).table_id();
+            page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->UpdateValid(node_id);
+        }
+
+        {
+            global_epoch_mutex_hot.lock();
+            compute_finish_hot[node_id] = true;
+            bool need_to_update = true;
+            for (int i = 0 ; i < ComputeNodeCount ; i++){
+                if (compute_epoch_hot[i] <= global_epoch_cnt_hot && compute_finish_hot[i] == false){
+                    need_to_update = false;
+                    break;
+                }
+            }
+            if (need_to_update){
+                global_epoch_cnt_hot++;
+                std::cout << "Update Epoch Hot, now epoch = " << global_epoch_cnt_hot << " node_id = " << node_id << "\n";
+            }
+            global_epoch_mutex_hot.unlock();
+        }
+
+
+
+        return;
+    }
+
+    // 把一整个分区给锁住
     virtual void ParXLock(::google::protobuf::RpcController* controller,
                         const ::partition_table_service::ParXLockRequest* request,
                         ::partition_table_service::ParXLockResponse* response,
                         ::google::protobuf::Closure* done){
 
                 brpc::ClosureGuard done_guard(done);
-                // // LOG(INFO) << "Receive ParXLock request from node:" << request->node_id() << " Par" << request->partition_id().partition_no();
                 bool update = true;
                 while(true){
                     global_epoch_mutex.lock();
                     assert(global_epoch_cnt <= compute_epoch[request->node_id()]);
+                    // global_epoch_cnt 应该是轮次的意思，代表了当前进入第几个轮次了
                     if(compute_epoch[request->node_id()] == global_epoch_cnt){
                         compute_epoch[request->node_id()]++;
+
+                        // 如果还有节点没有结束这个时间片，那就先不让 global_epoch_cnt 推进
                         for(int i=0; i<ComputeNodeCount; i++){
                             if(compute_epoch[i] <= global_epoch_cnt && compute_finish[i] == false){
                                 update = false;
@@ -103,6 +284,7 @@ class PartitionTableImpl : public PartitionTableService {
                     }
                 }
 
+                // 给一整个分区加上写锁
                 partition_id_t par_id = request->partition_id().partition_no();
                 node_id_t node_id = request->node_id();
                 page_lock_table_list_->at(0)->GetPartitionLock(par_id)->LockExclusive(node_id);
@@ -130,7 +312,7 @@ class PartitionTableImpl : public PartitionTableService {
                 response->set_global_time(global_phase_time);
                 response->set_partition_time(partition_phase_time);
                 // 添加模拟延迟
-                // usleep(NetworkLatency); // 100us
+                // if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
                 return;
             }
 
@@ -149,7 +331,7 @@ class PartitionTableImpl : public PartitionTableService {
                 // // LOG(INFO) << "node: " << node_id << " Unlock Exclusive partition " << par_id << " in remote partition table";
                 
                 // 添加模拟延迟
-                // usleep(NetworkLatency); // 100us
+                // if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
                 return;
             }
     
@@ -179,6 +361,20 @@ class PartitionTableImpl : public PartitionTableService {
                     page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->ReleasePage(node_id);
                 }
             }
+
+    virtual void TsInvalidPages(::google::protobuf::RpcController* controller,
+                       const ::partition_table_service::TsInvalidPagesRequest* request,
+                       ::partition_table_service::TsInvalidPagesResponse* response,
+                       ::google::protobuf::Closure* done){
+
+            brpc::ClosureGuard done_guard(done);
+            node_id_t node_id = request->node_id();
+            for(int i=0; i<request->page_id_size(); i++){
+                page_id_t page_id = request->page_id(i).page_no();
+                table_id_t table_id = request->page_id(i).table_id();
+                page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->UpdateValid(node_id);
+            }
+        }
             
     virtual void GetInvalid(::google::protobuf::RpcController* controller,
                        const ::partition_table_service::GetInvalidRequest* request,
@@ -204,6 +400,37 @@ class PartitionTableImpl : public PartitionTableService {
                 }
                 return;
             }
+
+    virtual void TsGetPageLocate(::google::protobuf::RpcController* controller,
+                       const ::partition_table_service::TsGetPageLocateRequest* request,
+                       ::partition_table_service::TsGetPageLocateResponse* response,
+                       ::google::protobuf::Closure* done){
+        auto ts_begin_time = std::chrono::high_resolution_clock::now();
+       
+        brpc::ClosureGuard done_guard(done);
+        node_id_t node_id = request->node_id();
+        assert(request->table_id_size() == request->start_page_no_size());
+        for(int i = 0; i < request->table_id_size(); i++){
+            table_id_t table_id = request->table_id(i);
+            page_id_t start_page_id = request->start_page_no(i);
+            page_id_t end_page_id = request->end_page_no(i);
+
+            for(int page_id = start_page_id; page_id <= end_page_id; page_id++){
+                // 这里的 GetValid() 不像 lazy_release 那样，会把自己也设置成 true，只拿到有效性信息
+                // 真正去修改修改被拿页面的有效性信息是在阶段结束之后
+                node_id_t newest_node = page_valid_table_list_->at(table_id)->GetValidInfo(page_id)->GetValid(node_id);
+                if(newest_node != -1){
+                    response->add_table_id(table_id);
+                    response->add_invalid_page_no(page_id);
+                    response->add_newest_node_id(newest_node);
+                }
+            }
+        }
+        auto ts_end_time = std::chrono::high_resolution_clock::now();
+        auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(ts_end_time - ts_begin_time).count();
+        std::cout << std::fixed << std::setprecision(3) << "Cost : " << (duration_us / 1000.0) << "ms\n";
+        return;
+    }
     
     virtual void SendCorssRation(::google::protobuf::RpcController* controller,
                        const ::partition_table_service::SendCrossRatioRequest* request,
@@ -220,32 +447,58 @@ class PartitionTableImpl : public PartitionTableService {
                        ::partition_table_service::SendFinishResponse* response,
                        ::google::protobuf::Closure* done){
 
-                brpc::ClosureGuard done_guard(done);
-                // LOG(INFO) << "Receive finish request from node:" << request->node_id();
-                global_epoch_mutex.lock();
-                compute_finish[request->node_id()] = true;
-                bool update = true;
-                for(int i=0; i<ComputeNodeCount; i++){
-                    if(compute_epoch[i] <= global_epoch_cnt && compute_finish[i] == false){
-                        update = false;
-                        break;
-                    }
-                }
-                if(update){
-                    // LOG(INFO) << "Update global epoch" << global_epoch_cnt + 1;
-                    global_epoch_cnt++;
-                }
-                global_epoch_mutex.unlock();
+        brpc::ClosureGuard done_guard(done);
+        // LOG(INFO) << "Receive finish request from node:" << request->node_id();
+        global_epoch_mutex.lock();
+        compute_finish[request->node_id()] = true;
+        bool update = true;
+        for(int i=0; i<ComputeNodeCount; i++){
+            if(compute_epoch[i] <= global_epoch_cnt && compute_finish[i] == false){
+                update = false;
+                break;
             }
+        }
+        if(update){
+            std::cout << "Epoll = " << global_epoch_cnt << "\n";
+            // LOG(INFO) << "Update global epoch" << global_epoch_cnt + 1;
+            global_epoch_cnt++;
+        }
+        global_epoch_mutex.unlock();
+    }
+
+    virtual void TsSendFinish(::google::protobuf::RpcController* controller,
+                       const ::partition_table_service::TsSendFinishRequest* request,
+                       ::partition_table_service::TsSendFinishResponse* response,
+                       ::google::protobuf::Closure* done){
+        brpc::ClosureGuard done_guard(done);
+        node_id_t node_id = request->node_id();
+        // LOG(INFO) << "Receive Finish From Node : " << node_id;
+        global_epoch_mutex.lock();
+        bool need_to_update = true;
+        for (int i = 0 ; i < ComputeNodeCount ; i++){
+            if (compute_epoch[i] <= global_epoch_cnt && compute_finish[i] == false){
+                need_to_update = false;
+                break;
+            }
+        }
+        if (need_to_update){
+            global_epoch_cnt++;
+        }
+        global_epoch_mutex.unlock();    
+    }
 
     private:
     std::vector<GlobalLockTable*>* page_lock_table_list_;
     std::vector<GlobalValidTable*>* page_valid_table_list_;
 
     bthread::Mutex global_epoch_mutex;
-    int global_epoch_cnt = 0;
+    bthread::Mutex global_epoch_mutex_hot;
+    int global_epoch_cnt = 1;
+    int global_epoch_cnt_hot = 1;
     int* compute_epoch;
+    int *compute_epoch_hot;
     bool* compute_finish;
+    bool *compute_finish_hot;
 
     double cross_ratio = 0;
     int global_phase_time = EpochTime * cross_ratio;  // ms

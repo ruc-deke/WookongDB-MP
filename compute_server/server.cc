@@ -1,6 +1,10 @@
 #include "server.h"
+#include "config.h"
+#include <unistd.h>
 #include <vector>
 #include <utility>
+
+#include "sql_executor/parser/parser_defs.h"
 
 int socket_start_client(std::string ip, int port){
     // 创建套接字
@@ -37,7 +41,7 @@ int socket_start_client(std::string ip, int port){
     buffer[9] = '\0';
     assert(strcmp(buffer, "SYN-BEGIN") == 0);
 
-    std::cout << "Remote server has build brpc channel with compute nodes" << std::endl;
+    // std::cout << "Remote server has build brpc channel with compute nodes" << std::endl;
 
     // 关闭套接字
     close(clientSocket);
@@ -80,7 +84,7 @@ int socket_finish_client(std::string ip, int port){
     buffer[10] = '\0';
     assert(strcmp(buffer, "SYN-FINISH") == 0);
 
-    std::cout << "Remote server has build brpc channel with compute nodes" << std::endl;
+    // std::cout << "Remote server has build brpc channel with compute nodes" << std::endl;
 
 
     // 关闭套接字
@@ -90,7 +94,7 @@ int socket_finish_client(std::string ip, int port){
 }
 
 namespace compute_node_service{
-// Lock Fusion 调用的，要求本节点推送数据
+// Lock Fusion 调用的，要求本节点推送数据               
 void ComputeNodeServiceImpl::NotifyPushPage(::google::protobuf::RpcController* controller,
                        const ::compute_node_service::NotifyPushPageRequest* request,
                        ::compute_node_service::NotifyPushPageResponse* response,
@@ -102,13 +106,18 @@ void ComputeNodeServiceImpl::NotifyPushPage(::google::protobuf::RpcController* c
     node_id_t src_node_id = request->src_node_id();
     assert(src_node_id == this->server->get_node()->getNodeID());
 
-    Page* page = server->get_node()->getBufferPoolByIndex(table_id)->fetch_page(page_id);
+    // LOG(INFO) << "NotifyPushPage , table_id = " << table_id << " page_id = " << page_id;
+    int try_cnt = 0;
+    // 这里是一个边界条件：我目前持有所有权，但是还在存储里面拿，此时另外一个 S 锁进来了，通知我把页面推送给它
+    // 因此在这里等待，节点把页面从存储拿上来以后，再推送给目标节点
+    while (!server->get_node()->getBufferPoolByIndex(table_id)->is_in_bufferPool(page_id)){
+        usleep(50);
+    }
+    // Page* page = server->get_node()->getBufferPoolByIndex(table_id)->fetch_page(page_id);
     int dest_node_id_size = request->dest_node_ids_size();
     assert(dest_node_id_size != 0);
     // std::cout << "Server Receive Push Page command, table_id = " << table_id << " page_id = " << page_id <<  " dest node : " << request->dest_node_ids(0) << "\n";
 
-    assert(server->get_node()->getBufferPoolByIndex(table_id)->getPendingCounts(page_id) == 0);
-    assert(server->get_node()->getBufferPoolByIndex(table_id)->getShouldReleaseBuffer(page_id) == false);
     // assert(server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->getIsNamedToPush() == false);
     // 能走到这里的，一定是已经被指定 PushPage 了
 
@@ -122,29 +131,11 @@ void ComputeNodeServiceImpl::NotifyPushPage(::google::protobuf::RpcController* c
         // if (dest_node == src_node_id) { continue; }
         assert(dest_node != src_node_id);
 
-        compute_node_service::PushPageRequest push_request;
-        compute_node_service::PushPageResponse* push_response = new compute_node_service::PushPageResponse();
-        compute_node_service::PageID* page_id_pb = new compute_node_service::PageID();
-        page_id_pb->set_page_no(page_id);
-        page_id_pb->set_table_id(table_id);
-        push_request.set_allocated_page_id(page_id_pb);
-        push_request.set_page_data(page->get_data(), PAGE_SIZE);
-        push_request.set_src_node_id(server->get_node()->getNodeID());
-        push_request.set_dest_node_id(dest_node);
-
-        brpc::Controller* push_cntl = new brpc::Controller();
-        compute_node_service::ComputeNodeService_Stub compute_node_stub(server->get_compute_channel() + dest_node);
-        compute_node_stub.PushPage(push_cntl, &push_request, push_response,
-            brpc::NewCallback(ComputeServer::PushPageRPCDone, push_response, push_cntl, table_id, page_id, server));
+        server->PushPageToOther(table_id, page_id, dest_node);
     }
 }
 
-// 只有一个地方会调用这个，就是 SetComputeNodePending，这个函数是解锁的时候调用的
-/*
-    找到真正的问题了：在 SetComputeNodePending 里，设置如果下一轮有自己的话，那就把 dest_node_id 设置为 false
-    但是虽然在 SetComputeNodePending 里下一轮获得锁的节点只有一个，但是在 LRPAnyUnlock 里面的 TransferControl 下一轮获得锁的节点可能有很多个
-    这就存在问题了，在 SetComputeNodePending 假设下一轮没有锁，这里缓冲区计数没有 +1，但是在 NotifyPushPage 按照下一轮多个节点获取锁来处理，缓冲区又给他 -1，自然提前释放锁了，然后 unpin 就找不到页面了
-*/
+
 void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controller,
                        const ::compute_node_service::PendingRequest* request,
                        ::compute_node_service::PendingResponse* response,
@@ -159,8 +150,8 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
     assert(dest_node_id != server->get_node()->getNodeID());
     // LOG(INFO) << "Receive Pending , table_id = " << table_id << " page_id = " << page_id << " dest_node_id = " << dest_node_id ;
 
-    // LJTag2
     int unlock_remote = server->get_node()->PendingPage(page_id, xpending, table_id);
+
     assert(server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->getDestNodeIDNoBlock() == INVALID_NODE_ID);
 
     if(unlock_remote > 0){
@@ -169,9 +160,6 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
         assert(unlock_remote != 3);
         if(unlock_remote != 3){
             // LOG(INFO) << "Pending Release , table_id = " << table_id << " page_id = " << page_id << " dest_node_id = " << dest_node_id;
-            // 这个 pin 一下，减少页面换出的时候，选中本页面的可能(但是不能完全排除)
-            // server->get_node()->getBufferPoolByIndex(table_id)->pin_page(page_id);
-            // std::cout << "Got Here3\n";
 
             // 如果锁已经用完了，那就先向下一轮获得锁的某个节点发送一次 Push 数据
             if (dest_node_id != -1){
@@ -187,11 +175,10 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
                 4. LRPAnyUnlock 把锁给了另外一个节点，由于请求队列里还有我，所以同时会给另外一个节点发Pending，同时告诉它需要向我Push数据
                 5. 另外一个节点跑完后，把数据页推给了我，关键点来了，此时我第3步的Pending还没跑完，最后我把这个数据页给扔了，就导致这里找不到数据页
             */
-            // 不需要在这里写回存储，因为走到这里一定会发生所有权的转移
             // LOG(INFO) << "Pending Release Page , table_id = " << table_id << " page_id = " << page_id;
             server->get_node()->getBufferPoolByIndex(table_id)->releaseBufferPage(table_id , page_id);
 
-            brpc::Channel* page_table_channel =  server->get_compute_channel() + server->get_node_id_by_page_id(table_id, page_id);
+            brpc::Channel* page_table_channel =  server->get_compute_channel() + server->get_node_id_by_page_id(table_id , page_id);
             page_table_service::PageTableService_Stub pagetable_stub(page_table_channel);
             page_table_service::PAnyUnLockRequest unlock_request;
             page_table_service::PAnyUnLockResponse* unlock_response = new page_table_service::PAnyUnLockResponse();
@@ -211,16 +198,13 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
                 LOG(ERROR) << "Fail to unlock page " << page_id << " in remote page table";
             }
             //! unlock remote ok and unlatch local
-            if(SYSTEM_MODE == 1){
-                server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->UnlockRemoteOK();
-            }else{
-                assert(false);
-            }
+            server->get_node()->getLazyPageLockTable(table_id)->GetLock(page_id)->UnlockRemoteOK();
             // delete response;
             delete unlock_response;
         }
     }else {
-        // TODO：其实在这里可以优化下，如果是读锁的话，在这里直接把页面推过去就行，写锁延迟到 lazy_release 的时候推
+        // 之前有个想法，如果是读锁，可以直接把页面给推出去，不需要等到 release 的时候，但是发现不行，原因是就算有所有权，页面也不一定在内存里，可能正在淘汰页面，或者正在从存储拿
+        // 所以这里只能先标记一下需要向谁推送页面，然后等到 lazy_release 的时候，再把页面给推出去
         // LOG(INFO) << "Pending Wait Lock Release , table_id = " << table_id << " page_id = " << page_id;
         if (dest_node_id != INVALID_NODE_ID){
             // 保存下来，等到 lazy_release 的时候再 Push
@@ -231,8 +215,53 @@ void ComputeNodeServiceImpl::Pending(::google::protobuf::RpcController* controll
     }
 
     // 添加模拟延迟
-    usleep(NetworkLatency); // 100us
+    // if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
     return;
+}
+
+void ComputeNodeServiceImpl::NotifyCreateTable(::google::protobuf::RpcController* controller,
+                       const ::compute_node_service::NotifyCreateTableRequest* request,
+                       ::compute_node_service::NotifyCreateTableResponse* response,
+                       ::google::protobuf::Closure* done){
+    brpc::ClosureGuard done_guard(done);
+    std::string tab_name = request->tab_name();
+    if (server->table_exist(tab_name)){
+        return ;
+    }
+}
+
+void ComputeNodeServiceImpl::NotifyDropTable(::google::protobuf::RpcController* controller,
+                       const ::compute_node_service::NotifyDropTableRequest* request,
+                       ::compute_node_service::NotifyDropTableResponse* response,
+                       ::google::protobuf::Closure* done){
+    brpc::ClosureGuard done_guard(done);
+    std::string tab_name = request->tab_name();
+    if (server->tryDropTable(tab_name)){
+        response->set_ok(true);
+    }else{
+        response->set_ok(false);
+    }
+
+    return ;
+}
+
+void ComputeNodeServiceImpl::quitDropTable(::google::protobuf::RpcController* controller,
+                       const ::compute_node_service::quitDropTableRequest* request,
+                       ::compute_node_service::quitDropTableResponse* response,
+                       ::google::protobuf::Closure* done){
+    brpc::ClosureGuard done_guard(done);
+    std::string tab_name = request->tab_name();
+    server->NotifyDropTableOver();
+}
+
+void ComputeNodeServiceImpl::ClearTable(::google::protobuf::RpcController* controller,
+                       const ::compute_node_service::ClearTableRequest* request,
+                       ::compute_node_service::ClearTableResponse* response,
+                       ::google::protobuf::Closure* done){
+    brpc::ClosureGuard done_guard(done);
+    table_id_t table_id = request->table_id();
+    server->clearTable(table_id);
+    server->NotifyDropTableOver();
 }
 
 void ComputeNodeServiceImpl::GetPage(::google::protobuf::RpcController* controller,
@@ -242,23 +271,18 @@ void ComputeNodeServiceImpl::GetPage(::google::protobuf::RpcController* controll
 
         brpc::ClosureGuard done_guard(done);
         page_id_t page_id = request->page_id().page_no();
-        // Page* page = server->get_node()->getBufferPool()->GetPage(page_id);
+
         table_id_t table_id = request->page_id().table_id();
-        // 这里要用 string，因为
-        std::string data = server->get_node()->fetch_page_special(table_id , page_id);
-        if (data == ""){
+        std::string data = server->get_node()->try_fetch_page_ret_string(table_id , page_id);
+        if (data.size() == 0){
             response->set_need_to_storage(true);
             return;
         }
-        // auto pid = page->get_page_id();
-        // assert(pid.page_no == page_id);
-        // assert(pid.table_id == table_id);
-        assert(data.size() == PAGE_SIZE);
-        response->set_need_to_storage(false);
-        response->set_page_data(data.c_str(), PAGE_SIZE);
 
-        // 添加模拟延迟
-        usleep(NetworkLatency); // 100us
+        response->set_need_to_storage(false);
+        response->set_page_data(data.c_str() , PAGE_SIZE);
+
+        // if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
         return;
     }
 
@@ -280,12 +304,12 @@ void ComputeNodeServiceImpl::PushPage(::google::protobuf::RpcController* control
         // LOG(INFO) << "Receive Page , src_node_id = " << src_node_id << " table_id = " << table_id << " page_id = " << page_id;
         
         // std::cout << "Receive Pushed Data From : " << src_node_id << " table_id = " << table_id << " page_id = " << page_id << "\n";
-        server->put_page_into_local_buffer(table_id , page_id , request->page_data().c_str());
+        server->put_page_into_buffer(table_id , page_id , request->page_data().c_str() , 1 , true);
 
         server->get_node()->NotifyPushPageSuccess(table_id, page_id);
         
         // 添加模拟延迟
-        usleep(NetworkLatency); // 100us
+        if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
         return;
     }
 
@@ -322,6 +346,25 @@ void ComputeNodeServiceImpl::TransferDTX(::google::protobuf::RpcController* cont
         brpc::ClosureGuard done_guard(done);
         return;
     }
+
+void ComputeNodeServiceImpl::TransferHotLocate(::google::protobuf::RpcController* controller,
+                       const ::compute_node_service::TransferHotLocateRequest* request,
+                       ::compute_node_service::TransferHotLocateResponse* response,
+                       ::google::protobuf::Closure* done){
+
+        brpc::ClosureGuard done_guard(done);
+        node_id_t dest_node_id = request->dest_node_id();
+        assert(dest_node_id == server->get_node()->getNodeID());
+        for (int i = 0 ; i < request->entries_size() ; i++){
+            auto &entry = request->entries(i);
+            table_id_t table_id = entry.page_id().table_id();
+            page_id_t page_id = entry.page_id().page_no();
+            node_id_t newest = entry.newest_node_id();
+            server->get_node()->getLocalPageLockTables(table_id)->GetLock(page_id)->SetNewestNode(newest);
+        }
+        server->get_node()->notifyRemoteOK();
+        return;
+    }
 }
 
 void ComputeServer::PushPageToOther(table_id_t table_id , page_id_t page_id , node_id_t dest_node_id){
@@ -342,19 +385,31 @@ void ComputeServer::PushPageToOther(table_id_t table_id , page_id_t page_id , no
     push_request.set_src_node_id(src_node_id);
     push_request.set_dest_node_id(dest_node_id);
 
+    if (NetworkLatency != 0)  usleep(NetworkLatency);
+
+    // 等待页面日志刷下去之后，再传走页面
+    if (table_id < 10000){
+        wait_log_flush(page);
+    }
+
     brpc::Controller* push_cntl = new brpc::Controller();
     compute_node_service::ComputeNodeService_Stub compute_node_stub(get_compute_channel() + dest_node_id);
     compute_node_stub.PushPage(push_cntl, &push_request, push_response,
         brpc::NewCallback(PushPageRPCDone, push_response, push_cntl, table_id, page_id, this));
 }
 
-void ComputeServer::UpdatePageFromRemoteCompute(Page* page, table_id_t table_id, page_id_t page_id, node_id_t node_id){
+std::string ComputeServer:: UpdatePageFromRemoteCompute(table_id_t table_id, page_id_t page_id, node_id_t node_id , bool need_to_record){
     // LOG(INFO) << "need to update page from node " << node_id << " table id = " << table_id << " page_id = " << page_id ;
+    // std::cout << "Fetch From Remote\n";
     // 从远程取数据页
+    assert(node_id != node_->get_node_id());
     struct timespec start_time, end_time;
     clock_gettime(CLOCK_REALTIME, &start_time);
     brpc::Controller cntl;
-    node_->fetch_remote_cnt++;
+    if (need_to_record){
+        node_->fetch_remote_cnt++;
+        node_->fetch_from_remote_cnt++;
+    }
 
     // 使用远程compute node进行更新
     compute_node_service::ComputeNodeService_Stub compute_node_stub(&nodes_channel[node_id]);
@@ -368,26 +423,18 @@ void ComputeServer::UpdatePageFromRemoteCompute(Page* page, table_id_t table_id,
     if(cntl.Failed()){
         LOG(ERROR) << "Fail to fetch page " << page_id << " from remote compute node";
     }
+    std::string ret;
     // 如果对方提前把数据页给丢掉了，那你就自己去存储拿
     if (response->need_to_storage()){
-        std::string data = rpc_fetch_page_from_storage(table_id , page_id);
-        memcpy(page->get_data() , data.c_str() , PAGE_SIZE);
+        // LOG(INFO) << "Remote No Page , Fetch From Storage , table_id = " << table_id << " page_id = " << page_id << " Remote node_id = " << node_id;
+        ret = rpc_fetch_page_from_storage(table_id , page_id , need_to_record);
+        // memcpy(page->get_data() , data.c_str() , PAGE_SIZE);
     }else {
+        // LOG(INFO) << "Fetch From Remote , table_id = " << table_id << " page_id = " << page_id << " Remote node_id = " << node_id;
         assert(response->page_data().size() == PAGE_SIZE);
-        memcpy(page->get_data(), response->page_data().c_str(), response->page_data().size());
-    }
-
-    {
-        // Debug：检查 page 是否全为 0
-        // bool res = true;
-        // char *page_data = page->get_data();
-        // for (int i = 0 ; i < PAGE_SIZE ; i++){
-        //     if (page_data[i] != 0){
-        //         res = false;
-        //         break;
-        //     }
-        // }
-        // assert(!res);
+        ret = response->page_data();
+        node_->fetch_from_remote_cnt++;
+        // memcpy(page->get_data(), response->page_data().c_str(), response->page_data().size());
     }
 
     // delete response;
@@ -396,60 +443,164 @@ void ComputeServer::UpdatePageFromRemoteCompute(Page* page, table_id_t table_id,
     update_m.lock();
     this->tx_update_time += (end_time.tv_sec - start_time.tv_sec) + (double)(end_time.tv_nsec - start_time.tv_nsec) / 1000000000;
     update_m.unlock();
+
+    return ret;
 }
 
 void ComputeServer::InitTableNameMeta(){
+    /*
+        目前的想法是，10000~20000存 Blink，20000到 30000 存 FSM
+    */
+    table_name_meta.resize(30000);
     if(WORKLOAD_MODE == 0){
-        table_name_meta.resize(2);
         table_name_meta[0] = "../storage_server/smallbank_savings";
         table_name_meta[1] = "../storage_server/smallbank_checking";
+        table_name_meta[10000] = "../storage_server/smallbank_savings_bl";
+        table_name_meta[10001] = "../storage_server/smallbank_checking_bl";
+        table_name_meta[20000] = "../storage_server/smallbank_savings_fsm";
+        table_name_meta[20001] = "../storage_server/smallbank_checking_fsm";
     }
     else if(WORKLOAD_MODE == 1){
-        table_name_meta.resize(11);
-        table_name_meta[0] = "../storage_server/TPCC_warehouse";
-        table_name_meta[1] = "../storage_server/TPCC_district";
-        table_name_meta[2] = "../storage_server/TPCC_customer";
-        table_name_meta[3] = "../storage_server/TPCC_customerhistory";
-        table_name_meta[4] = "../storage_server/TPCC_ordernew";
-        table_name_meta[5] = "../storage_server/TPCC_order";
-        table_name_meta[6] = "../storage_server/TPCC_orderline";
-        table_name_meta[7] = "../storage_server/TPCC_item";
-        table_name_meta[8] = "../storage_server/TPCC_stock";
-        table_name_meta[9] = "../storage_server/TPCC_customerindex";
-        table_name_meta[10] = "../storage_server/TPCC_orderindex";
+        // 11 张原始表，11 张 B+ 树楔形协议表，11 张 BLink 表
+        table_name_meta[0] = "../storage_server/tpcc_warehouse";
+        table_name_meta[1] = "../storage_server/tpcc_district";
+        table_name_meta[2] = "../storage_server/tpcc_customer";
+        table_name_meta[3] = "../storage_server/tpcc_customerhistory";
+        table_name_meta[4] = "../storage_server/tpcc_ordernew";
+        table_name_meta[5] = "../storage_server/tpcc_order";
+        table_name_meta[6] = "../storage_server/tpcc_orderline";
+        table_name_meta[7] = "../storage_server/tpcc_item";
+        table_name_meta[8] = "../storage_server/tpcc_stock";
+        table_name_meta[9] = "../storage_server/tpcc_customerindex";
+        table_name_meta[10] = "../storage_server/tpcc_orderindex";
+        table_name_meta[10000] = "../storage_server/tpcc_warehouse_bl";
+        table_name_meta[10001] = "../storage_server/tpcc_district_bl";
+        table_name_meta[10002] = "../storage_server/tpcc_customer_bl";
+        table_name_meta[10003] = "../storage_server/tpcc_customerhistory_bl";
+        table_name_meta[10004] = "../storage_server/tpcc_ordernew_bl";
+        table_name_meta[10005] = "../storage_server/tpcc_order_bl";
+        table_name_meta[10006] = "../storage_server/tpcc_orderline_bl";
+        table_name_meta[10007] = "../storage_server/tpcc_item_bl";
+        table_name_meta[10008] = "../storage_server/tpcc_stock_bl";
+        table_name_meta[10009] = "../storage_server/tpcc_customerindex_bl";
+        table_name_meta[10010] = "../storage_server/tpcc_orderindex_bl";    
+        table_name_meta[20000] = "../storage_server/tpcc_warehouse_fsm";
+        table_name_meta[20001] = "../storage_server/tpcc_district_fsm";
+        table_name_meta[20002] = "../storage_server/tpcc_customer_fsm";
+        table_name_meta[20003] = "../storage_server/tpcc_customerhistory_fsm";
+        table_name_meta[20004] = "../storage_server/tpcc_ordernew_fsm";
+        table_name_meta[20005] = "../storage_server/tpcc_order_fsm";
+        table_name_meta[20006] = "../storage_server/tpcc_orderline_fsm";
+        table_name_meta[20007] = "../storage_server/tpcc_item_fsm";
+        table_name_meta[20008] = "../storage_server/tpcc_stock_fsm";
+        table_name_meta[20009] = "../storage_server/tpcc_customerindex_fsm";
+        table_name_meta[20010] = "../storage_server/tpcc_orderindex_fsm";
+    }else if (WORKLOAD_MODE == 2){
+        table_name_meta[0] = "../storage_server/ycsb_user_table";
+        table_name_meta[10000] = "../storage_server/ycsb_user_table_bl";
+        table_name_meta[20000] = "../storage_server/ycsb_user_table_fsm";
+    }else {
+        assert(false);
     }
 }
 
-// LJTag：
-std::string ComputeServer::rpc_fetch_page_from_storage(table_id_t table_id, page_id_t page_id){    
+std::string ComputeServer::rpc_fetch_page_from_storage_with_lsn(table_id_t table_id , page_id_t page_id , LLSN page_lsn , bool need_to_record){
+    storage_service::StorageService_Stub storage_stub(get_storage_channel());
+    storage_service::GetPageWithLsnRequest request;
+    storage_service::GetPageWithLsnResponse response;
+    auto page_id_pb = request.add_page_id();
+    page_id_pb->set_page_no(page_id);
+
+    // SQL 模式下，通过 db_meta 获取表名字
+    if (WORKLOAD_MODE == 4){
+        // B+ 树存在 10000 - 20000，FSM 存在 20000 到 30000
+        int tab_id = 0;
+        if (table_id < 10000){
+            tab_id = table_id;
+        }else if (table_id < 20000){
+            tab_id = table_id - 10000;
+        }else if (table_id < 30000){
+            tab_id = table_id - 20000;
+        }else {
+            assert(false);
+        }
+
+        std::string tab_name = getTableNameFromTableID(tab_id);
+        assert(tab_name != "");
+
+        if (table_id >= 10000 && table_id < 20000){
+            tab_name += "_bl";
+        }else if (table_id >= 20000 && table_id < 30000){
+            tab_name += "_fsm";
+        }
+
+        page_id_pb->set_table_name(tab_name);
+    }else{
+        page_id_pb->set_table_name(table_name_meta[table_id]);
+    }
+
+    request.set_require_lsn(page_lsn);
+
+    brpc::Controller cntl;
+    // LOG(INFO) << "GetPage From Storage With LSN , table_id = " << table_id << " page_id = " << page_id << " require lsn = " << page_lsn;
+    storage_stub.GetPageWithLsn(&cntl , &request , &response , NULL);
+    if(cntl.Failed()){
+        LOG(ERROR) << "Fail to fetch page " << page_id << " from remote storage server";
+    }
+    assert(response.data().size() == PAGE_SIZE);
+    if (need_to_record){
+        node_->fetch_from_storage_cnt++;
+    }
+    return response.data(); 
+}
+
+
+std::string ComputeServer::rpc_fetch_page_from_storage(table_id_t table_id, page_id_t page_id , bool need_record){    
     storage_service::StorageService_Stub storage_stub(get_storage_channel());
     storage_service::GetPageRequest request;
     storage_service::GetPageResponse response;
     auto page_id_pb = request.add_page_id();
     page_id_pb->set_page_no(page_id);
-    page_id_pb->set_table_name(table_name_meta[table_id]);
+
+    // SQL 模式下，通过 db_meta 获取表名字
+    if (WORKLOAD_MODE == 4){
+        // B+ 树存在 10000 - 20000，FSM 存在 20000 到 30000
+        int tab_id = 0;
+        if (table_id < 10000){
+            tab_id = table_id;
+        }else if (table_id < 20000){
+            tab_id = table_id - 10000;
+        }else if (table_id < 30000){
+            tab_id = table_id - 20000;
+        }else {
+            assert(false);
+        }
+
+        std::string tab_name = getTableNameFromTableID(tab_id);
+        assert(tab_name != "");
+
+        if (table_id >= 10000 && table_id < 20000){
+            tab_name += "_bl";
+        }else if (table_id >= 20000 && table_id < 30000){
+            tab_name += "_fsm";
+        }
+
+        page_id_pb->set_table_name(tab_name);
+    }else{
+        page_id_pb->set_table_name(table_name_meta[table_id]);
+    }
+
+    
     brpc::Controller cntl;
     storage_stub.GetPage(&cntl, &request, &response, NULL);
     if(cntl.Failed()){
         LOG(ERROR) << "Fail to fetch page " << page_id << " from remote storage server";
     }
     assert(response.data().size() == PAGE_SIZE);
-    return response.data(); // hcy todo: string-> char*
-    // memcpy(node_->getBufferPoolByIndex(table_id)->GetPage(page_id)->get_data() , response.data().c_str() , PAGE_SIZE);
-    // return node_->getBufferPoolByIndex(table_id)->GetPage(page_id);
-}
-
-void ComputeServer::FlushRPCDone(bufferpool_service::FlushPageResponse* response, brpc::Controller* cntl) {
-    // unique_ptr会帮助我们在return时自动删掉response/cntl，防止忘记。gcc 3.4下的unique_ptr是模拟版本。
-    std::unique_ptr<bufferpool_service::FlushPageResponse> response_guard(response);
-    std::unique_ptr<brpc::Controller> cntl_guard(cntl);
-    if (cntl->Failed()) {
-        LOG(ERROR) << "FlushRPC failed";
-        // RPC失败了. response里的值是未定义的，勿用。
-    } else {
-        // RPC成功了，response里有我们想要的数据。开始RPC的后续处理.
+    if (need_record){
+        node_->fetch_from_storage_cnt++;
     }
-    // NewCallback产生的Closure会在Run结束后删除自己，不用我们做。
+    return response.data(); 
 }
 
 void ComputeServer::InvalidRPCDone(partition_table_service::InvalidResponse* response, brpc::Controller* cntl) {
@@ -524,4 +675,26 @@ void ComputeServer::PushPageRPCDone(compute_node_service::PushPageResponse* resp
         2. 自己主动换出？这个不可能，因为一轮只会释放一次页面，而本轮页面没释放的话，下一轮是拿不到锁的
     */
     // server->get_node()->getBufferPoolByIndex(table_id)->DecrementPendingOperations(table_id , page_id , lr_lock);
+}
+
+void ComputeServer::NotifyCreateTableRPCDone(compute_node_service::NotifyCreateTableResponse* response,
+                                             brpc::Controller* cntl,
+                                             std::atomic<bool>* has_error){
+    std::unique_ptr<compute_node_service::NotifyCreateTableResponse> response_guard(response);
+    std::unique_ptr<brpc::Controller> cntl_guard(cntl);
+    if (cntl->Failed()) {
+        LOG(ERROR) << "NotifyCreateTable RPC failed";
+        *has_error = true;
+    }
+}
+
+void ComputeServer::NotifyDropTableRPCDone(compute_node_service::NotifyDropTableResponse* response,
+                                           brpc::Controller* cntl,
+                                           std::atomic<bool>* has_error){
+    std::unique_ptr<compute_node_service::NotifyDropTableResponse> response_guard(response);
+    std::unique_ptr<brpc::Controller> cntl_guard(cntl);
+    if (cntl->Failed()) {
+        LOG(ERROR) << "NotifyDropTable RPC failed";
+        *has_error = true;
+    }
 }

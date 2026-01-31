@@ -2,21 +2,18 @@
   "local_storage_node": {
     "machine_num": 1,
     "machine_id": 0,
-    "local_rpc_port": 33001,
-    "local_meta_port": 33002,
-    "use_rdma": false,
-    "workload": "SmallBank"
+    "local_rpc_port": 15980,
+    "local_meta_port": 15981,
+    "use_rdma": false
   },
   "remote_compute_nodes": {
     "compute_node_ips": [
       "127.0.0.1",
-      "127.0.0.1",
       "127.0.0.1"
     ],
     "compute_node_ports": [
-      42340,
-      42341,
-      42342
+      28688,
+      28689
     ]
   }
 }

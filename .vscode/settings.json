@@ -97,6 +97,9 @@
         "future": "cpp",
         "forward_list": "cpp",
         "buffer": "cpp",
-        "netfwd": "cpp"
+        "netfwd": "cpp",
+        "latch": "cpp",
+        "shared_mutex": "cpp"
     }
 }
+
