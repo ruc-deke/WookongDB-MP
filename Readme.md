@@ -4,7 +4,7 @@
 本项目支持 2 种运行方式：**SQL 模式** 和 **负载模式**，事务并发采用 **2PL**
 
 - **SQL 模式**：支持基础 SQL 操作
-- **负载模式**：支持 3 种标准负载（SmallBank, YCSB, TPCC），并提供多种页面获取/释放策略（2PC, Eager, Lazy 等）。
+- **负载模式**：支持 3 种标准负载（SmallBank, YCSB, TPCC），并提供2种页面获取/释放策略（Eager, Lazy）。
 
 在 **lazy** 模式下，采用 **日志回放** 机制来确保页面的正确性,
 **SQL** 模式目前仅支持 **lazy** 模式运行，其它模式暂不支持
@@ -85,7 +85,7 @@ cd ./build/compute_server
 
 - **参数说明**：
   1. `workload`: 负载类型，支持 `smallbank`, `ycsb`, `tpcc`。
-  2. `mode`: 页面获取模式，支持 `eager`, `lazy`, `2pc`, `single`, `ts_sep`, `ts_sep_hot`。
+  2. `mode`: 页面获取模式，支持 `eager`, `lazy`。
   3. `thread_num`: 本节点的执行线程数量。
   4. `read_only_ratio`: 只读事务比例 (范围 0-1)。
   5. `local_txn_ratio`: 本地事务比例 (范围 0-1)。

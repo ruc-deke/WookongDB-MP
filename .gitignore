@@ -3,6 +3,7 @@ build/
 figure/
 *.pyc
 result.txt
+.cache
 *.pb.cc
 *.pb.h
 cmake-build-debug-docker/*
