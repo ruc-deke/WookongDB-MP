@@ -152,7 +152,7 @@ add_subdirectory(storage_server)
 
 add_subdirectory(core/sql_executor)
 
-add_subdirectory(WookongDB_client)
+add_subdirectory(wookongdb-mp-client)
 
 add_subdirectory(tests)
 

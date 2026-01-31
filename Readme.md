@@ -1,4 +1,5 @@
 # WookongDB MP 
+<img src="image-1.png" alt="alt text" width="600" />
 
 本项目支持 2 种运行方式：**SQL 模式** 和 **负载模式**，事务并发采用 **2PL**
 
@@ -16,7 +17,7 @@
 
 请按照以下顺序启动各组件：
 
-### 1. 存储层 (Storage Layer)
+### 1. 存储节点 (Storage Node)
 
 ```bash
 cd ./build/storage_server
@@ -31,7 +32,7 @@ cd ./build/storage_server
   ./storage_pool sql
   ```
 
-### 2. 元信息层 (Metadata Layer)
+### 2. 元信息节点 (Metadata Node)
 
 ```bash
 cd ./build/remote_server
@@ -43,7 +44,7 @@ cd ./build/remote_server
   ./remote_node sql
   ```
 
-### 3. 计算层 (Compute Layer)
+### 3. 计算节点 (Compute Node)
 
 #### 方式 A：以 SQL 模式启动
 
@@ -109,8 +110,9 @@ cd ./build/compute_server
 - **修改分区大小**：
   编辑 `config/compute_node_config.json`，修改 `"partition_size_per_table"` (默认为 100)。
 
-### 增加计算节点
-如果需要增加计算节点数量（例如从 2 个增加到 N 个），需同步修改以下配置文件：
+### 修改计算节点数量 (静态配置)
+本项目目前**仅支持静态配置**计算节点数量，不支持在运行时动态添加或删除节点。
+如果需要变更节点数量（例如从 2 个节点变更为 N 个），必须在**启动集群前**修改以下配置文件：
 
 1. **`compute_node_config.json`**
    - 修改 `"local_compute_node"` -> `"machine_num"` 为 `N`。
@@ -125,7 +127,7 @@ cd ./build/compute_server
    - 在 `"remote_compute_nodes"` -> `"compute_node_ips"` 列表中添加新节点 IP。
    - 在 `"remote_compute_nodes"` -> `"compute_node_ports"` 列表中添加新节点端口。
 
-> **重要**：除 `compute_node_config.json` 中的 `machine_id` 需根据节点区分外，所有节点上的其他配置项必须完全保持一致。
+> **重要**：所有节点上的配置项须保持一致，部分参数，例如 machine_num , thread_num 等，由节点启动时自动配置，无需修改
 
 ---
 
@@ -148,6 +150,10 @@ cd ./build/compute_server
 - **事务**: `begin , commit , abort , rollback`
 ---
 
-## 本项目参考以下代码优化实现：
-- **Chimera**: Mitigating Ownership Transfers in Multi-Primary Shared-Storage Cloud-Native Databases  
+## 致谢与引用 (Acknowledgements)
+
+本项目基于 **Chimera** 实现。如果您使用了本项目代码，请引用以下论文和仓库：
+
+- **Chimera: Mitigating Ownership Transfers in Multi-Primary Shared-Storage Cloud-Native Databases**  
+  *Proceedings of the VLDB Endowment (PVLDB), 2024*  
   GitHub: [https://github.com/HuangDunD/Chimera](https://github.com/HuangDunD/Chimera)
