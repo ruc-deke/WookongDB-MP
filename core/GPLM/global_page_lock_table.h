@@ -1,9 +1,9 @@
 #pragma once
 #include "common.h"
 #include "config.h"
-#include "global_page_lock.h"
-#include "global_LR_page_lock.h"
-#include "global_partition_lock.h"
+#include "GPLM/global_page_lock.h"
+#include "GPLM/global_LR_page_lock.h"
+#include "GPLM/global_partition_lock.h"
 
 #include <iostream>
 #include <list>

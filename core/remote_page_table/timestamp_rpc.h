@@ -1,8 +1,8 @@
 // author:huangdund
 
 #pragma once
-#include "global_page_lock_table.h"
-#include "global_valid_table.h"
+#include "GPLM/global_page_lock_table.h"
+#include "GPLM/global_valid_table.h"
 #include <butil/logging.h> 
 #include <brpc/server.h>
 #include <gflags/gflags.h>

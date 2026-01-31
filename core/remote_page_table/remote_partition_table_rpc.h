@@ -4,9 +4,9 @@
 // 这个文件用于实现远程的分区锁表，通过brpc实现，在无rdma环境下适用
 #pragma once
 #include "config.h"
-#include "global_partition_lock.h"
-#include "global_page_lock_table.h"
-#include "global_valid_table.h"
+#include "GPLM/global_partition_lock.h"
+#include "GPLM/global_page_lock_table.h"
+#include "GPLM/global_valid_table.h"
 #include <butil/logging.h> 
 #include <brpc/server.h>
 #include <gflags/gflags.h>

@@ -8,7 +8,7 @@ add_compile_options(-w -Wno-deprecated-declarations)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 execute_process(
-    COMMAND bash -c "find ${PROJECT_SOURCE_DIR}/ -type d -regex \".*output/include$\" | head -n1 | xargs dirname | tr -d '\n'"
+    COMMAND bash -c "find ${PROJECT_SOURCE_DIR}/ -type d -regex \".*output/include$\" | head -n1 | xargs -r dirname | tr -d '\n'"
     OUTPUT_VARIABLE OUTPUT_PATH
 )
 
@@ -150,9 +150,9 @@ add_subdirectory(compute_server)
 
 add_subdirectory(storage_server)
 
-add_subdirectory(sql_executor)
+add_subdirectory(core/sql_executor)
 
-add_subdirectory(sql_client)
+add_subdirectory(WookongDB_client)
 
 add_subdirectory(tests)
 

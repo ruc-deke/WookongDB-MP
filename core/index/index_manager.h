@@ -1,7 +1,7 @@
 #pragma once
 
 #include "index_defs.h"
-#include "compute_server/bp_tree/bp_tree_defs.h"
+#include "bp_tree/bp_tree_defs.h"
 #include "storage/disk_manager.h"
 
 #include "sstream"

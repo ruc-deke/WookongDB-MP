@@ -25,9 +25,9 @@ void YCSB::PopulateUserTable(){
     int ba = record_count + record_count % num_records_per_page;
     table_file->file_hdr_.num_pages_ = ba / num_records_per_page;
 
-    std::cout << "Table Record Size = " << table_file->file_hdr_.record_size_ << "\n";
-    std::cout << "Table Record Num Per Page = " << table_file->file_hdr_.num_records_per_page_ << "\n";
-    std::cout << "Table Bitmap Size = " << table_file->file_hdr_.bitmap_size_ << "\n";
+    // std::cout << "Table Record Size = " << table_file->file_hdr_.record_size_ << "\n";
+    // std::cout << "Table Record Num Per Page = " << table_file->file_hdr_.num_records_per_page_ << "\n";
+    // std::cout << "Table Bitmap Size = " << table_file->file_hdr_.bitmap_size_ << "\n";
     std::cout << "Table Init Page Num = " << table_file->file_hdr_.num_pages_ << "\n";
 
     

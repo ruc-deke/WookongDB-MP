@@ -1,5 +1,5 @@
 #include "cache_consistency_test.h"
-#include "../../../sql_client/sql_connect.h"
+#include "../../../WookongDB_client/sql_connect.h"
 #include <string.h>
 #include <stdio.h>
 #include <thread>

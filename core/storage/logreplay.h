@@ -82,7 +82,7 @@ public:
         max_replay_off_ = disk_manager_->get_file_size(log_file_path_) - 1;
         // LOG(INFO) << "init max_replay_off_: " << max_replay_off_<<std::endl; 
         persist_off_=max_replay_off_;//这里是不对的，暂时先默认重启前日志都重做完了
-        std::cout << "persist off init = " << persist_off_ << "\n";
+        // std::cout << "persist off init = " << persist_off_ << "\n";
         replay_thread_ = std::thread(&LogReplay::replayFun, this);
         // checkpoint_thread_ = std::thread(&LogReplay::checkpointFun, this);//启动检查点线程，每隔一段时间将wal应用到磁盘
 

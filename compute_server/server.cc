@@ -408,6 +408,7 @@ std::string ComputeServer:: UpdatePageFromRemoteCompute(table_id_t table_id, pag
     brpc::Controller cntl;
     if (need_to_record){
         node_->fetch_remote_cnt++;
+        node_->fetch_from_remote_cnt++;
     }
 
     // 使用远程compute node进行更新
@@ -600,19 +601,6 @@ std::string ComputeServer::rpc_fetch_page_from_storage(table_id_t table_id, page
         node_->fetch_from_storage_cnt++;
     }
     return response.data(); 
-}
-
-void ComputeServer::FlushRPCDone(bufferpool_service::FlushPageResponse* response, brpc::Controller* cntl) {
-    // unique_ptr会帮助我们在return时自动删掉response/cntl，防止忘记。gcc 3.4下的unique_ptr是模拟版本。
-    std::unique_ptr<bufferpool_service::FlushPageResponse> response_guard(response);
-    std::unique_ptr<brpc::Controller> cntl_guard(cntl);
-    if (cntl->Failed()) {
-        LOG(ERROR) << "FlushRPC failed";
-        // RPC失败了. response里的值是未定义的，勿用。
-    } else {
-        // RPC成功了，response里有我们想要的数据。开始RPC的后续处理.
-    }
-    // NewCallback产生的Closure会在Run结束后删除自己，不用我们做。
 }
 
 void ComputeServer::InvalidRPCDone(partition_table_service::InvalidResponse* response, brpc::Controller* cntl) {

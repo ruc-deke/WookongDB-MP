@@ -5,7 +5,7 @@
 #include "base/page.h"
 #include "common.h"
 #include "bufferpool_replacer.h"
-#include "local_LR_page_lock.h"
+#include "LPLM/local_LR_page_lock.h"
 
 #include "memory"
 #include "mutex"

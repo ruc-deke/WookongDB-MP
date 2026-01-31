@@ -10,7 +10,7 @@ SCORES = [2, 2, 2, 2, 4]
 HOST = "127.0.0.1"
 PORT = 9095
 # Path to the sql_client binary, relative to the tests/ directory
-CLIENT_PATH = "./build/sql_client/sql_client"
+CLIENT_PATH = "./build/WookongDB_client/WookongDB_client"
 
 # Path to the test cases directory, relative to the tests/ directory
 TEST_DIR = "./tests/test_cases"
@@ -38,7 +38,7 @@ def run():
     # Check if client exists
     if not os.path.exists(CLIENT_PATH):
         print(f"Error: Client binary not found at {os.path.abspath(CLIENT_PATH)}")
-        print("Please build the project first (e.g., cd ../build && cmake .. && make sql_client)")
+        print("Please build the project first (e.g., cd ../build && cmake .. && make WookongDB_client)")
         return
 
     database_name = "basic_query_test_db"
@@ -84,7 +84,7 @@ def run():
         print(f"Running test {i+1} ({test_file})...")
         
         # Prepare output file
-        my_answer = "./tests/client_output/basic_query_test_output.txt"
+        my_answer = "./output.txt"
         if os.path.exists(my_answer):
             os.remove(my_answer)
 

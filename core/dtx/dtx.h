@@ -31,7 +31,6 @@
 #include "scheduler/corotine_scheduler.h"
 #include "remote_page_table/timestamp_rpc.h"
 #include "thread_pool.h"
-#include "TIT/TIT.h"
 
 struct ItemTableKeyHash {
   size_t operator()(const std::pair<itemkey_t, table_id_t>& p) const noexcept {

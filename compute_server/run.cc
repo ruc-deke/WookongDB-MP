@@ -29,16 +29,8 @@ int main(int argc, char* argv[]) {
         std::string db_name = std::string(argv[2]);
 
         handler->StartDatabaseSQL(node_id , thread_num , SYSTEM_MODE , db_name);
-    }else if (argc != 7 || argc != 8) {
+    }else if (argc == 7) {
         // 负载运行模式
-        /*
-            参数列表：
-            1. 负载：smallbank , ycsb , tpcc
-            2. 运行模式：lazy , 2pc , eager , ts , ts_hot
-            3. 线程数量
-            4. 协程数量(ts 和 ts_hot 才有用)
-            5. 
-        */
         Handler* handler = new Handler();
         handler->ConfigureComputeNodeRunBench(argc, argv);
         handler->GenThreads(std::string(argv[1]));
@@ -48,9 +40,9 @@ int main(int argc, char* argv[]) {
         for(auto tp: tp_vec) {
             throughtput += tp;
         }
-        std::cout << "Throughtput: " << throughtput << std::endl;
-        double fetch_remote_ratio = *fetch_remote_vec.rbegin() / *fetch_all_vec.rbegin();
-        std::cout << "Fetch remote ratio: " << fetch_remote_ratio << std::endl;
+        std::cout << "Throughtput: " << throughtput << " Transactions Per Second\n";
+        // double fetch_remote_ratio = *fetch_remote_vec.rbegin() / *fetch_all_vec.rbegin();
+        // std::cout << "Fetch Page From remote ratio: " << fetch_remote_ratio << std::endl;
         double lock_ratio = *lock_remote_vec.rbegin() / *fetch_all_vec.rbegin();
         std::cout << "Lock ratio: " << lock_ratio << std::endl;
         
@@ -64,37 +56,36 @@ int main(int argc, char* argv[]) {
         const auto fetch_local_cnt = static_cast<long long>(*fetch_from_local_vec.rbegin());
         std::cout << std::fixed << std::setprecision(2);
         if (SYSTEM_MODE != 2){
-            std::cout << "Fetch from remote compute: " << fetch_remote_cnt << " (" << from_remote_ratio * 100 << "%)" << std::endl;
-            std::cout << "Fetch from storage: " << fetch_storage_cnt << " (" << from_storage_ratio * 100 << "%)" << std::endl;
-            std::cout << "Fetch from local cache: " << fetch_local_cnt << " (" << from_local_ratio * 100 << "%)" << std::endl;
+            std::cout << "Fetch Page from remote compute count: " << fetch_remote_cnt << " (" << from_remote_ratio * 100 << "%)" << std::endl;
+            std::cout << "Fetch Page from storage count : " << fetch_storage_cnt << " (" << from_storage_ratio * 100 << "%)" << std::endl;
+            std::cout << "Fetch Page from local BufferPool count : " << fetch_local_cnt << " (" << from_local_ratio * 100 << "%)" << std::endl;
         }
-        std::cout << std::defaultfloat;
         std::cout << "Evicted pages: " << *evict_page_vec.rbegin() << std::endl;
-        std::cout << "Fetch three cnt: " << static_cast<long long>(*fetch_three_vec.rbegin()) << std::endl;
-        std::cout << "Fetch four cnt: " << static_cast<long long>(*fetch_four_vec.rbegin()) << std::endl;
-        double p50_latency = 0;
-        for(auto i : medianlat_vec){
-            p50_latency += i;
-        }
-        p50_latency /= medianlat_vec.size();
-        std::cout << "P50 Latency: " << p50_latency << "us" << std::endl;
-        double p90_latency = 0;
-        for(auto i : taillat_vec){
-            p90_latency += i;
-        }
-        p90_latency /= taillat_vec.size();
-        std::cout << "P90 Latency: " << p90_latency << "us" << std::endl;
+
+        // double p50_latency = 0;
+        // for(auto i : medianlat_vec){
+        //     p50_latency += i;
+        // }
+        // p50_latency /= medianlat_vec.size();
+        // std::cout << "P50 Latency: " << p50_latency << "us" << std::endl;
+        // double p90_latency = 0;
+        // for(auto i : taillat_vec){
+        //     p90_latency += i;
+        // }
+        // p90_latency /= taillat_vec.size();
+        // std::cout << "P90 Latency: " << p90_latency << "us" << std::endl;
+        
         if(std::string(argv[1]) == "smallbank") {
             for (int i = 0; i < SmallBank_TX_TYPES; i++) {
-                std::cout << "abort:" <<SmallBank_TX_NAME[i] << " " << total_try_times[i] << " " << total_commit_times[i] << " " << (double)(total_try_times[i] - total_commit_times[i]) / (double)total_try_times[i] << std::endl;
+                std::cout << "SmallBank Type : " << SmallBank_TX_NAME[i] << " Total Transactions : " << total_try_times[i] << " Commit Transactions : " << total_commit_times[i] << " Abort Ratio : " << (double)(total_try_times[i] - total_commit_times[i]) / (double)total_try_times[i] << std::endl;
             }
         } else if(std::string(argv[1]) == "tpcc") {
             for (int i = 0; i < TPCC_TX_TYPES; i++) {
-                std::cout << "abort:" <<TPCC_TX_NAME[i] << " " << total_try_times[i] << " " << total_commit_times[i] << " " << (double)(total_try_times[i] - total_commit_times[i]) / (double)total_try_times[i] << std::endl;
+                std::cout << "TPCC : " << TPCC_TX_NAME[i] << " Total Transactions : " << total_try_times[i] << " Commit Transactions : " << total_commit_times[i] << " Abort Ratio : " << (double)(total_try_times[i] - total_commit_times[i]) / (double)total_try_times[i] << std::endl;
             }
         } else if(std::string(argv[1]) == "ycsb") {
             for (int i = 0; i < YCSB_TX_TYPES; i++) {
-                std::cout << "abort:YCSB " << total_try_times[i] << " " << total_commit_times[i] << " " << (double)(total_try_times[i] - total_commit_times[i]) / (double)total_try_times[i] << std::endl;
+                std::cout << "YCSB : Total Run Transaction : " << total_try_times[i] << " Commit Transactions : " << total_commit_times[i] << " Abort Ratio : " << (double)(total_try_times[i] - total_commit_times[i]) / (double)total_try_times[i] << std::endl;
             }
         }else {
             assert(false);
@@ -104,25 +95,27 @@ int main(int argc, char* argv[]) {
         std::cout << "tx_exe_time: " << tx_exe_time / std::atoi(argv[3]) << std::endl;
         std::cout << "tx_commit_time: " << tx_commit_time / std::atoi(argv[3]) << std::endl;
         std::cout << "tx_abort_time: " << tx_abort_time / std::atoi(argv[3]) << std::endl;
-        std::cout << "tx_update_time: " << tx_update_time / std::atoi(argv[3]) << std::endl;
+        // std::cout << "tx_update_time: " << tx_update_time / std::atoi(argv[3]) << std::endl;
         std::cout << "tx_fetch_exe_time: " << tx_fetch_exe_time / std::atoi(argv[3]) << std::endl;
         std::cout << "tx_fetch_commit_time: " << tx_fetch_commit_time / std::atoi(argv[3]) << std::endl;
         std::cout << "tx_fetch_abort_time: " << tx_fetch_abort_time / std::atoi(argv[3]) << std::endl;
         std::cout << "tx_release_exe_time: " << tx_release_exe_time / std::atoi(argv[3]) << std::endl;
         std::cout << "tx_release_commit_time: " << tx_release_commit_time / std::atoi(argv[3]) << std::endl;
         std::cout << "tx_release_abort_time: " << tx_release_abort_time / std::atoi(argv[3]) << std::endl;
-        std::cout << "tx_get_timestamp_time1: " << tx_get_timestamp_time1 / std::atoi(argv[3]) << std::endl;
-        std::cout << "tx_get_timestamp_time2: " << tx_get_timestamp_time2 / std::atoi(argv[3]) << std::endl;
-        std::cout << "tx_write_commit_log_time: " << tx_write_commit_log_time / std::atoi(argv[3]) << std::endl;
-        std::cout << "tx_write_prepare_log_time: " << tx_write_prepare_log_time / std::atoi(argv[3]) << std::endl;
-        std::cout << "tx_write_backup_log_time: " << tx_write_backup_log_time / std::atoi(argv[3]) << std::endl;
-        std::cout << "tx_write_commit_log_time2: " << tx_write_commit_log_time2 / std::atoi(argv[3]) << std::endl; // for distributed transactions commit log time
+        std::cout << std::defaultfloat;
+
+        // std::cout << "tx_get_timestamp_time1: " << tx_get_timestamp_time1 / std::atoi(argv[3]) << std::endl;
+        // std::cout << "tx_get_timestamp_time2: " << tx_get_timestamp_time2 / std::atoi(argv[3]) << std::endl;
+        // std::cout << "tx_write_commit_log_time: " << tx_write_commit_log_time / std::atoi(argv[3]) << std::endl;
+        // std::cout << "tx_write_prepare_log_time: " << tx_write_prepare_log_time / std::atoi(argv[3]) << std::endl;
+        // std::cout << "tx_write_backup_log_time: " << tx_write_backup_log_time / std::atoi(argv[3]) << std::endl;
+        // std::cout << "tx_write_commit_log_time2: " << tx_write_commit_log_time2 / std::atoi(argv[3]) << std::endl; 
 
         std::ofstream result_file("result.txt");
 
         result_file << all_time / std::atoi(argv[3]) <<std::endl;
         result_file << throughtput << std::endl;
-        result_file << fetch_remote_ratio << std::endl;
+        // result_file << fetch_remote_ratio << std::endl;
         result_file << lock_ratio << std::endl;
         result_file << *fetch_from_remote_vec.rbegin() << std::endl;
         result_file << *fetch_from_storage_vec.rbegin() << std::endl;
@@ -133,8 +126,8 @@ int main(int argc, char* argv[]) {
         result_file << from_remote_ratio << std::endl;
         result_file << from_storage_ratio << std::endl;
         result_file << from_local_ratio << std::endl;
-        result_file << p50_latency << std::endl;
-        result_file << p90_latency << std::endl;
+        // result_file << p50_latency << std::endl;
+        // result_file << p90_latency << std::endl;
         if(std::string(argv[1]) == "smallbank") {
             for (int i = 0; i < SmallBank_TX_TYPES; i++) {
                 result_file << total_try_times[i] << " " << total_commit_times[i] << std::endl;
@@ -176,19 +169,21 @@ int main(int argc, char* argv[]) {
         result_file << tx_exe_time / std::atoi(argv[3]) << std::endl;
         result_file << tx_commit_time / std::atoi(argv[3]) << std::endl;
         result_file << tx_abort_time / std::atoi(argv[3]) << std::endl;
-        result_file << tx_update_time / std::atoi(argv[3]) << std::endl;
+        // result_file << tx_update_time / std::atoi(argv[3]) << std::endl;
         result_file << tx_fetch_exe_time / std::atoi(argv[3]) << std::endl;
         result_file << tx_fetch_commit_time / std::atoi(argv[3]) << std::endl;
         result_file << tx_fetch_abort_time / std::atoi(argv[3]) << std::endl;
         result_file << tx_release_exe_time / std::atoi(argv[3]) << std::endl;
         result_file << tx_release_commit_time / std::atoi(argv[3]) << std::endl;
         result_file << tx_release_abort_time / std::atoi(argv[3]) << std::endl;
-        result_file << tx_get_timestamp_time1 / std::atoi(argv[3]) << std::endl;
-        result_file << tx_get_timestamp_time2 / std::atoi(argv[3]) << std::endl;
-        result_file << tx_write_commit_log_time / std::atoi(argv[3]) << std::endl;
-        result_file << tx_write_prepare_log_time / std::atoi(argv[3]) << std::endl;
-        result_file << tx_write_backup_log_time / std::atoi(argv[3]) << std::endl;
-        result_file << tx_write_commit_log_time2 / std::atoi(argv[3]) << std::endl; // for distributed transactions commit log time
+
+
+        // result_file << tx_get_timestamp_time1 / std::atoi(argv[3]) << std::endl;
+        // result_file << tx_get_timestamp_time2 / std::atoi(argv[3]) << std::endl;
+        // result_file << tx_write_commit_log_time / std::atoi(argv[3]) << std::endl;
+        // result_file << tx_write_prepare_log_time / std::atoi(argv[3]) << std::endl;
+        // result_file << tx_write_backup_log_time / std::atoi(argv[3]) << std::endl;
+        // result_file << tx_write_commit_log_time2 / std::atoi(argv[3]) << std::endl; 
 
         result_file.close();
     }else {

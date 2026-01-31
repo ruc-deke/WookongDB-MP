@@ -177,7 +177,10 @@ public:
        
         page_id_t page_id;
         
-        if (is_partitioned){
+        if (ComputeNodeCount == 1){
+            // 如果只有一个节点，那就无所谓是否分区了
+            target_node_id = dtx->compute_server->getNodeID();
+        }else if (is_partitioned){
             do {
                 target_node_id = FastRand(seed) % ComputeNodeCount;
             }while(target_node_id == belonged_node_id);

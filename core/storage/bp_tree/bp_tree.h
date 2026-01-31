@@ -1,6 +1,6 @@
 // #pragma once
 
-// #include "compute_server/bp_tree/bp_tree_defs.h"
+// #include "core/index/bp_tree/bp_tree_defs.h"
 // #include "storage/buffer/storage_bufferpool.h"
 // #include "storage/disk_manager.h"
 // #include "base/page.h"

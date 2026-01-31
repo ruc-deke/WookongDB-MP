@@ -21,28 +21,26 @@
 #include "compute_node/twoPC.pb.h"
 #include "compute_node/calvin.pb.h"
 #include "fiber/thread.h"
-#include "local_page_lock.h"
+#include "LPLM/local_page_lock.h"
 #include "record/record.h"
-#include "remote_bufferpool/remote_bufferpool.pb.h"
 #include "remote_page_table/remote_page_table.pb.h"
 #include "remote_page_table/remote_partition_table.pb.h"
 #include "storage/storage_rpc.h"
 #include "storage/txn_log.h"
-#include "remote_bufferpool/remote_bufferpool_rpc.h"
 #include "remote_page_table/remote_page_table_rpc.h"
 #include "remote_page_table/remote_partition_table_rpc.h"
 #include "remote_page_table/timestamp_rpc.h"
 #include "scheduler/corotine_scheduler.h"
-#include "global_page_lock.h"
-#include "global_valid_table.h"
+#include "GPLM/global_page_lock.h"
+#include "GPLM/global_valid_table.h"
 
 // sql
 #include "sql_executor/record_printer.h"
 #include "sql_executor/sql_common.h"
 
-#include "bp_tree/latch_crabbing/bp_tree.h"
-#include "bp_tree/blink/blink.h"
-#include "fsm/fsm_tree.h"
+#include "index/bp_tree/latch_crabbing/bp_tree.h"
+#include "index/bp_tree/blink/blink.h"
+#include "core/fsm/fsm_tree.h"
 
 #include "util/bitmap.h"
 #include "error_library.h"
@@ -225,6 +223,8 @@ public:
                 return;
             }
 
+            std::cout << "Init...\n";
+
             // add meta server service in each compute node
             // 初始化全局的bufferpool和page_lock_table
             // 初始化 30000 个，0 到 10000 存表，10000 到 20000 存B+树，20000 到 30000 存FSM
@@ -246,13 +246,11 @@ public:
             for (int i = 0 ; i < table_cnt ; i++){
                 bl_indexes[i] = new BLinkIndexHandle(this , i + 10000);
             }
-            std::cout << "Initlize BLink Over\n";
 
             fsm_trees.resize(10000);
             for (int i = 0 ; i < table_cnt ; i++){
                 fsm_trees[i] = new SecFSM(this , i + 20000);
             }
-            std::cout << "Initlize FSM Over\n";
             
 
             for (int i = 0 ; i < table_cnt ; i++){
@@ -267,7 +265,6 @@ public:
                 (*global_page_lock_table_list_)[i + 20000] = new GlobalLockTable();
                 (*global_valid_table_list_)[i + 20000] = new GlobalValidTable();
             }
-            std::cout << "Initlize Lock Table Over\n";
 
             page_table_service_impl_ = new page_table_service::PageTableServiceImpl(global_page_lock_table_list_, global_valid_table_list_);
             if (server.AddService(page_table_service_impl_, brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
@@ -292,7 +289,6 @@ public:
                 global_page_lock_table_list_->at(i + 20000)->BuildRPCConnection(compute_ips , compute_ports);
             }
 
-            std::cout << "Initlize Meta Server Over\n";
 
             butil::EndPoint point;
             point = butil::EndPoint(butil::IP_ANY, compute_ports[node_->getNodeID()]);
@@ -305,8 +301,7 @@ public:
                 bool res = table_exist(node_->table_names[i]);
                 assert(res);
             }
-
-            LOG(INFO) << "Server Start";
+            std::cout << "Initlize Over , Server Start\n";
 
             if (server.Start(point,&server_options) != 0) {
                 LOG(ERROR) << "Fail to start Server";
@@ -1011,8 +1006,6 @@ public:
     ~ComputeServer(){}
     static void InvalidRPCDone(partition_table_service::InvalidResponse* response, brpc::Controller* cntl);
 
-    static void FlushRPCDone(bufferpool_service::FlushPageResponse* response, brpc::Controller* cntl);
-
     static void LazyReleaseRPCDone(page_table_service::PAnyUnLockResponse* response, brpc::Controller* cntl);
 
     void PSUnlockRPCDone(page_table_service::PSUnlockResponse* response, brpc::Controller* cntl, page_id_t page_id);
@@ -1685,6 +1678,9 @@ public:
         return node_id;
     }
 
+    /*
+        页面转移走，或者页面被淘汰之前，需要等待这个页面的日志落盘
+    */
     void wait_log_flush(Page *page){
         if (!page->is_dirty()){
             // no_need_wait_cnt++;

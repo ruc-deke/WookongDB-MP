@@ -69,20 +69,40 @@ void Handler::ConfigureComputeNodeRunBench(int argc, char* argv[]) {
   std::string config_file = "../../config/compute_node_config.json";
   std::string system_name = std::string(argv[2]);
 
-  if (argc == 7 || argc == 8) {
+  // 根据输入的参数，配置一些东西
+  if (argc == 7) {
     std::string s2 = "sed -i '5c \"thread_num_per_machine\": " + std::string(argv[3]) + ",' " + config_file;
     thread_num_per_node = std::stoi(argv[3]);
-    std::string s3 = "sed -i '6c \"coroutine_num\": " + std::string(argv[4]) + ",' " + config_file;
+    // 这里的协程数量目前没啥用，设置为 1 即可
+    std::string s3 = "sed -i '6c \"coroutine_num\": 1,' " + config_file;
     system(s2.c_str());
     system(s3.c_str());
-    READONLY_TXN_RATE = std::stod(argv[5]);
-    LOCAL_TRASACTION_RATE = std::stod(argv[6]);
+    READONLY_TXN_RATE = std::stod(argv[4]);
+    LOCAL_TRASACTION_RATE = std::stod(argv[5]);
     CrossNodeAccessRatio = 1 - LOCAL_TRASACTION_RATE;
 
-    // 新增：支持第 8 个参数覆盖 machine_id（对应 config 第 4 行）
-    if (argc == 8) {
-      std::string s1 = "sed -i '4c \"machine_id\": " + std::string(argv[7]) + ",' " + config_file;
+    // 新增：支持第 7 个参数覆盖 machine_id（对应 config 第 4 行）
+    {
+      std::string s1 = "sed -i '4c \"machine_id\": " + std::string(argv[6]) + ",' " + config_file;
       system(s1.c_str());
+    }
+
+    // 如果是 YCSB 负载，那修改 config 文件，来修改只读事务的比例
+    if (std::string(argv[1]) == "ycsb") {
+        std::string ycsb_config = "../../config/ycsb_config.json";
+        int read_p = (int)(READONLY_TXN_RATE * 100);
+        int write_p = 100 - read_p;
+        // 注意保留缩进和逗号
+        std::string s_read = "sed -i '7c \\ \\ \\ \\ \"read_percent\": " + std::to_string(read_p) + ",' " + ycsb_config;
+        std::string s_write = "sed -i '8c \\ \\ \\ \\ \"write_percent\": " + std::to_string(write_p) + ",' " + ycsb_config;
+        
+        // 执行 sed 命令
+        int ret1 = system(s_read.c_str());
+        int ret2 = system(s_write.c_str());
+        if (ret1 != 0 || ret2 != 0) {
+            std::cerr << "Failed to update ycsb_config.json" << std::endl;
+            assert(false);
+        }
     }
   }
 

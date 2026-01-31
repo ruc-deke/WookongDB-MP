@@ -1,3 +1,6 @@
+# 这个文件的目的是，测试多种条件下的性能对比，能够实现多物理机上自动化的脚本运行
+# 需要先在预定的机器的指定目录下，安装本项目，然后配置好环境，如 brpc，boost 等，编译通过后，再跑这个脚本
+
 import os
 import sys
 import io
@@ -244,8 +247,8 @@ def aggregate_results(result_base_dir, node_count):
     # smallbank: choose sum vs average by row (0-based index)
     sum_rows = set([
         1,              # throughput
-        4,5,6,7,8,9,    # counts
-        15,16,17,18,19,20  # per-type try/commit pairs (6 rows)
+        3,4,5,6,7,8,    # counts (fetch/evict)
+        12,13,14,15,16,17  # per-type try/commit pairs (6 rows)
     ])
     agg = []
     for r in range(max_rows):
@@ -270,22 +273,19 @@ def build_legend(bench_name):
         return [
             'line_1=total_time_seconds',
             'line_2=throughput',
-            'line_3=fetch_remote_ratio',
-            'line_4=lock_ratio',
-            'line_5=fetch_from_remote_count',
-            'line_6=fetch_from_storage_count',
-            'line_7=fetch_from_local_count',
-            'line_8=evicted_pages_count',
-            'line_9=fetch_three_count',
-            'line_10=fetch_four_count',
-            'line_11=from_remote_ratio',
-            'line_12=from_storage_ratio',
-            'line_13=from_local_ratio',
-            'line_14=p50_latency_us',
-            'line_15=p90_latency_us',
-            'line_16_to_21=per_type_try_commit_pairs_smallbank(order:Amalgamate,Balance,DepositChecking,SendPayment,TransactSaving,WriteCheck)',
-            'line_22_to_27=per_type_rollback_rate_smallbank(same_order)',
-            'line_28_to_44=stage_times_seconds(tx_begin,tx_exe,tx_commit,tx_abort,tx_update,tx_fetch_exe,tx_fetch_commit,tx_fetch_abort,tx_release_exe,tx_release_commit,tx_release_abort,tx_get_timestamp1,tx_get_timestamp2,tx_write_commit_log,tx_write_prepare_log,tx_write_backup_log,tx_write_commit_log2)'
+            'line_3=lock_ratio',
+            'line_4=fetch_from_remote_count',
+            'line_5=fetch_from_storage_count',
+            'line_6=fetch_from_local_count',
+            'line_7=evicted_pages_count',
+            'line_8=fetch_three_count',
+            'line_9=fetch_four_count',
+            'line_10=from_remote_ratio',
+            'line_11=from_storage_ratio',
+            'line_12=from_local_ratio',
+            'line_13_to_18=per_type_try_commit_pairs_smallbank(order:Amalgamate,Balance,DepositChecking,SendPayment,TransactSaving,WriteCheck)',
+            'line_19_to_24=per_type_rollback_rate_smallbank(same_order)',
+            'line_25_to_34=stage_times_seconds(tx_begin,tx_exe,tx_commit,tx_abort,tx_fetch_exe,tx_fetch_commit,tx_fetch_abort,tx_release_exe,tx_release_commit,tx_release_abort)'
         ]
     else:
         return []
@@ -498,11 +498,9 @@ def main():
                                 hf.write(f"{k}={v}\n")
                             # metrics
                             names = [
-                                'total_time_seconds','throughput','fetch_remote_ratio','lock_ratio',
+                                'total_time_seconds','throughput','lock_ratio',
                                 'fetch_from_remote_count','fetch_from_storage_count','fetch_from_local_count',
-                                'evicted_pages_count','fetch_three_count','fetch_four_count',
-                                'from_remote_ratio','from_storage_ratio','from_local_ratio',
-                                'p50_latency_us','p90_latency_us'
+                                'evicted_pages_count'
                             ]
                             for i, key in enumerate(names):
                                 val = combo_summary[i][0] if i < len(combo_summary) and combo_summary[i] else 0
@@ -567,17 +565,15 @@ def main():
             hf.write(f"{k}={v}\n")
         # metrics keys mapping
         names = [
-            'total_time_seconds','throughput','fetch_remote_ratio','lock_ratio',
+            'total_time_seconds','throughput','lock_ratio',
             'fetch_from_remote_count','fetch_from_storage_count','fetch_from_local_count',
-            'evicted_pages_count','fetch_three_count','fetch_four_count',
-            'from_remote_ratio','from_storage_ratio','from_local_ratio',
-            'p50_latency_us','p90_latency_us'
+            'evicted_pages_count'
         ]
         for i, key in enumerate(names):
             val = final_summary[i][0] if i < len(final_summary) and final_summary[i] else 0
             hf.write(f"{key}={val}\n")
         types = ['Amalgamate','Balance','DepositChecking','SendPayment','TransactSaving','WriteCheck']
-        base = 15
+        base = 7
         for idx, t in enumerate(types):
             row = base + idx
             if row < len(final_summary) and len(final_summary[row]) >= 2:

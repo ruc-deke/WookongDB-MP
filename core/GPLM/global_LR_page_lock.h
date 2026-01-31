@@ -2,7 +2,7 @@
 #include "common.h"
 #include "config.h"
 #include "compute_node/compute_node.pb.h"
-#include "global_valid_table.h"
+#include "GPLM/global_valid_table.h"
 
 #include <iostream>
 #include <list>

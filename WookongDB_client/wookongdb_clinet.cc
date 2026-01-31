@@ -28,7 +28,7 @@ int main(int argc, char *argv[]) {
 
     if (server_host == nullptr || server_port <= 0) {
         fprintf(stderr, "Error: Host (-h) and Port (-p) are required.\n");
-        std::cout << "Example : ./sql_client -h 127.0.0.1 -p 8635\n";
+        std::cout << "Example : ./WookongDB_client -h 127.0.0.1 -p 8635\n";
         return 1;
     }
 

@@ -7,55 +7,24 @@
 #include "util/json_config.h"
 
 void TPCC::LoadTable(node_id_t node_id, node_id_t num_server) {
-    printf(
-            "sizeof(tpcc_warehouse_val_t) = %lu, sizeof(tpcc_district_val_t) = %lu\n"
-            "sizeof(tpcc_customer_val_t) = %lu, sizeof(tpcc_customer_index_val_t) = %lu\n"
-            "sizeof(tpcc_history_val_t) = %lu, sizeof(tpcc_new_order_val_t) = %lu\n"
-            "sizeof(tpcc_order_val_t) = %lu, sizeof(tpcc_order_index_val_t) = %lu\n"
-            "sizeof(tpcc_order_line_val_t) = %lu, sizeof(tpcc_item_val_t) = %lu\n"
-            "sizeof(tpcc_stock_val_t) = %lu, DataItemSize = %lu\n",
-            sizeof(tpcc_warehouse_val_t),
-            sizeof(tpcc_district_val_t),
-
-            sizeof(tpcc_customer_val_t),
-            sizeof(tpcc_customer_index_val_t),
-            sizeof(tpcc_history_val_t),
-
-            sizeof(tpcc_new_order_val_t),
-            sizeof(tpcc_order_val_t),
-            sizeof(tpcc_order_index_val_t),
-            sizeof(tpcc_order_line_val_t),
-            sizeof(tpcc_item_val_t),
-            sizeof(tpcc_stock_val_t),
-            sizeof(DataItem));
     // Initiate + Populate table for primary role
     if ((node_id_t)TPCCTableType::kWarehouseTable % num_server == node_id) {
-        printf("Primary: Initializing Warehouse table\n");
-        printf("Warehouse table setup\n");
         PopulateWarehouseTable(9324);
     }
     if ((node_id_t)TPCCTableType::kDistrictTable % num_server == node_id) {
-        printf("Primary: Initializing District table\n");
         PopulateDistrictTable(123456789);
     }
     if ((node_id_t)TPCCTableType::kCustomerTable % num_server == node_id) {
-        printf("Primary: Initializing Customer+CustomerIndex+History table\n");
         PopulateCustomerAndHistoryTable(1210);
 
     }
     if ((node_id_t)TPCCTableType::kOrderTable % num_server == node_id) {
-        printf("Primary: Initializing Order+OrderIndex+NewOrder+OrderLine table\n");
-
         PopulateOrderNewOrderAndOrderLineTable(705);
     }
     if ((node_id_t)TPCCTableType::kStockTable % num_server == node_id) {
-        printf("Primary: Initializing Stock table\n");
-
         PopulateStockTable(3214154);
     }
     if ((node_id_t)TPCCTableType::kItemTable % num_server == node_id) {
-        printf("Primary: Initializing Item table\n");
-
         PopulateItemTable(987646);
     }
 }
@@ -175,8 +144,6 @@ void TPCC::PopulateCustomerAndHistoryTable(unsigned long seed) {
     // printf("total_customer_records_inserted = %d, total_customer_records_examined = %d\n",
     //        total_customer_records_inserted, total_customer_records_examined);
     FastRandom random_generator(seed);
-    printf("num_warehouse = %d, num_district_per_warehouse = %d, num_customer_per_district = %d\n",
-           num_warehouse, num_district_per_warehouse, num_customer_per_district);
     for (uint32_t w_id = 1; w_id <= num_warehouse; w_id++) {
         for (uint32_t d_id = 1; d_id <= num_district_per_warehouse; d_id++) {
             for (uint32_t c_id = 1; c_id <= num_customer_per_district; c_id++) {
@@ -576,7 +543,7 @@ DataItem* TPCC::GetRecord(RmFileHandle* file_handle,
 }
 
 void TPCC::VerifyData() {
-    std::cout << "Verifying TPCC Data...\n";
+    // std::cout << "Verifying TPCC Data...\n";
 
     // 1. Verify Item Table
     {
@@ -584,7 +551,7 @@ void TPCC::VerifyData() {
         // Verify File Header
         assert(table_file->get_file_hdr().record_size_ == sizeof(DataItem) + sizeof(tpcc_item_val_t));
         assert(table_file->get_file_hdr().num_pages_ >= 1);
-        std::cout << "Item Table Header Verified\n";
+        // std::cout << "Item Table Header Verified\n";
 
         for (int64_t i_id = 1; i_id <= num_item; i_id++) {
             tpcc_item_key_t item_key;
@@ -607,7 +574,7 @@ void TPCC::VerifyData() {
             }
             free(data_item);
         }
-        std::cout << "Item Table Verified\n";
+        // std::cout << "Item Table Verified\n";
         rm_manager->close_file(table_file.get());
     }
 
@@ -617,7 +584,7 @@ void TPCC::VerifyData() {
         // Verify File Header
         assert(table_file->get_file_hdr().record_size_ == sizeof(DataItem) + sizeof(tpcc_warehouse_val_t));
         assert(table_file->get_file_hdr().num_pages_ >= 1);
-        std::cout << "Warehouse Table Header Verified\n";
+        // std::cout << "Warehouse Table Header Verified\n";
 
         for (uint32_t w_id = 1; w_id <= num_warehouse; w_id++) {
             tpcc_warehouse_key_t warehouse_key;
@@ -636,7 +603,7 @@ void TPCC::VerifyData() {
             }
             free(data_item);
         }
-        std::cout << "Warehouse Table Verified\n";
+        // std::cout << "Warehouse Table Verified\n";
         rm_manager->close_file(table_file.get());
     }
 
@@ -646,7 +613,6 @@ void TPCC::VerifyData() {
         // Verify File Header
         assert(table_file->get_file_hdr().record_size_ == sizeof(DataItem) + sizeof(tpcc_stock_val_t));
         assert(table_file->get_file_hdr().num_pages_ >= 1);
-        std::cout << "Stock Table Header Verified\n";
 
         for (uint32_t w_id = 1; w_id <= num_warehouse; w_id++) {
              for (uint32_t i_id = 1; i_id <= num_item; i_id++) {
@@ -667,7 +633,6 @@ void TPCC::VerifyData() {
                 free(data_item);
              }
         }
-        std::cout << "Stock Table Verified\n";
         rm_manager->close_file(table_file.get());
     }
     
@@ -677,7 +642,6 @@ void TPCC::VerifyData() {
         // Verify File Header
         assert(table_file->get_file_hdr().record_size_ == sizeof(DataItem) + sizeof(tpcc_district_val_t));
         assert(table_file->get_file_hdr().num_pages_ >= 1);
-        std::cout << "District Table Header Verified\n";
 
         for (uint32_t w_id = 1; w_id <= num_warehouse; w_id++) {
             for (uint32_t d_id = 1; d_id <= num_district_per_warehouse; d_id++) {
@@ -698,7 +662,6 @@ void TPCC::VerifyData() {
                 free(data_item);
             }
         }
-         std::cout << "District Table Verified\n";
          rm_manager->close_file(table_file.get());
     }
 

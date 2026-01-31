@@ -10,7 +10,7 @@
 #include <memory>
 #include <fstream>
 
-#include "sql_client/sql_connect.h"
+#include "WookongDB_client/sql_connect.h"
 
 int send_recv_sql(int sockfd, const std::string& sql, char* recv_buf) {
     int send_bytes;

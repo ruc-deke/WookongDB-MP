@@ -73,7 +73,7 @@ def run():
     for test_case in TESTS:
         test_file = get_test_name(test_case)
 
-        outPut_name = "./tests/client_output/concurrency_output.txt"
+        outPut_name = "./output.txt"
         cmd = "./build/tests/concurrency_test -h " + RUNNING_HOST + " -p " + str(RUNNING_PORT) + " " + test_file + " " + outPut_name
         # print("Executing : " + cmd)
         # 等待执行完成

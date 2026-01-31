@@ -17,6 +17,7 @@ void LoadData(node_id_t machine_id,
                       node_id_t machine_num,  // number of memory nodes
                       std::string& workload,
                       RmManager* rm_manager) {
+  std::cout << "Begin Init Data...\n";
   if (workload == "smallbank") {
     SmallBank* smallbank_server = new SmallBank(rm_manager);
     smallbank_server->LoadTable(machine_id, machine_num);
@@ -147,7 +148,7 @@ void Server::PrepareStorageMeta(node_id_t machine_id, std::string workload, char
         int bl_size = rm_manager_->get_diskmanager()->get_file_size(bl_name);
         init_page_num_per_table[i + 1] = (bl_size == -1) ? 0 : (bl_size / PAGE_SIZE);
         
-        std::cout << "Init Page Num = " << init_page_num_per_table[i] << " " << "Init BLink = " << init_page_num_per_table[i + 1] << "\n";
+        // std::cout << "Init Page Num = " << init_page_num_per_table[i] << " " << "Init BLink = " << init_page_num_per_table[i + 1] << "\n";
         // 3. FSM
         std::string fsm_name = ycsb_table + "fsm";
         // int fsm_size = rm_manager_->get_diskmanager()->get_file_size(fsm_name);
@@ -236,6 +237,8 @@ void Server::SendStorageMeta(char* hash_meta_buffer, size_t& total_meta_size) {
   if (strcmp(recv_buf, "[ACK]hash_meta_received_from_client") != 0) {
     std::string ack(recv_buf);
     LOG(ERROR) << "Client receives hash meta error. Received ack is: " << ack;
+  } else {
+    std::cout << "Connect Success" << std::endl;
   }
 
   free(recv_buf);

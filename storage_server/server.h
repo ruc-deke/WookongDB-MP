@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <iostream>
 #include <brpc/channel.h>
 
 #include "storage/storage_rpc.h"
@@ -79,6 +80,8 @@ public:
             if (server.Start(point,&options) != 0) {
                 LOG(ERROR) << "Fail to start Server";
             }
+
+            std::cout << "Storage Server Start Over , Ready For Connect...." << std::endl;
 
             SendMeta(machine_id, compute_node_num, workload);
 

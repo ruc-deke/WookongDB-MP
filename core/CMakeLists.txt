@@ -11,7 +11,7 @@ include_directories(dtx)
 include_directories(concurrency)
 
 set(BufferPool_SRC 
-        remote_bufferpool/remote_bufferpool.pb.cc)
+        )
 
 set(PageTable_SRC 
         remote_page_table/remote_page_table.pb.cc
@@ -32,6 +32,7 @@ set(DTX_SRC
         dtx/dtx_log.cc)
 set(INDEX_SRC
         index/index_manager.cc
+        index/bp_tree/blink/blink.cc
 )
 
 set(FIBER_SRC
@@ -40,16 +41,10 @@ set(FIBER_SRC
         fiber/thread.cc
 )
 set(FSM_SRC
-        storage/fsm_tree/s_fsm_tree.cc)
+        storage/fsm_tree/s_fsm_tree.cc
+        fsm/fsm_tree.cc)
 
-set(Recovery_SRC
-        recovery/recovery_manager.cc)
 
-set(TXN_SRC
-        Transaction/Transaction.cc)
- 
-set(TIT_SRC
-        TIT/TIT.cc)
 
 add_library(core STATIC
         ${BufferPool_SRC}
@@ -60,9 +55,7 @@ add_library(core STATIC
         ${INDEX_SRC}
         ${FIBER_SRC}
         ${FSM_SRC}
-        ${Recovery_SRC}
-        ${TXN_SRC}
-        ${TIT_SRC})
+)
 
 target_link_libraries(core boost_coroutine boost_context boost_system ${BRPC_LIB})
 

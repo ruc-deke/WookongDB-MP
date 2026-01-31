@@ -59,6 +59,7 @@ Page* ComputeServer::rpc_fetch_s_page(table_id_t table_id, page_id_t page_id) {
         delete response;
     }else {
         // LOG(INFO)  << "Fetching S Page From Local , table_id = " << table_id << " page_id = " << page_id;
+        node_->fetch_from_local_cnt++;
         page = node_->getBufferPoolByIndex(table_id)->fetch_page(page_id);
         node_->eager_local_page_lock_tables[table_id]->GetLock(page_id)->UnlockMtx();
     } 

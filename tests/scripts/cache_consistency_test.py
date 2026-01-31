@@ -35,7 +35,7 @@ def build():
     os.chdir("./build") 
     # Build sql_client and cache_consistency_test
     os.system("cmake ..")
-    os.system("make sql_client cache_consistency_test -j8")
+    os.system("make WookongDB_client cache_consistency_test -j8")
     os.chdir("..")
 
 def run():
@@ -97,7 +97,7 @@ def run():
         print(f"Running test {i+1} ({test_file})...")
         
         # Prepare output file
-        my_answer = "./tests/client_output/cache_consistency_test_" + str(i+1) + "_output.txt"
+        my_answer = "./output.txt"
         if not os.path.exists("./tests/client_output"):
             os.makedirs("./tests/client_output")
             

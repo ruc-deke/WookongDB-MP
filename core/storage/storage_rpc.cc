@@ -5,7 +5,7 @@
 #include "base/data_item.h"
 #include "storage/blink_tree/blink_tree.h"
 
-#include "compute_server/bp_tree/bp_tree_defs.h"
+#include "core/index/bp_tree/bp_tree_defs.h"
 
 namespace storage_service{
 

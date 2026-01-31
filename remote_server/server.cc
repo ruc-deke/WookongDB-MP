@@ -6,17 +6,16 @@
 
 #include "util/json_config.h"
 #include "config.h"
-#include "remote_bufferpool/remote_bufferpool_rpc.h"
 #include "remote_page_table/remote_page_table_rpc.h"
 #include "remote_page_table/remote_partition_table_rpc.h"
 #include "remote_page_table/timestamp_rpc.h"
-#include "global_page_lock.h"
-#include "global_valid_table.h"
+#include "GPLM/global_page_lock.h"
+#include "GPLM/global_valid_table.h"
 
 class Server {
 public:
-    Server(std::vector<GlobalLockTable*>* global_page_lock_table_list, std::vector<GlobalValidTable*>* global_valid_table_list, BufferPool* bufferpool)
-        : global_page_lock_table_list_(global_page_lock_table_list), global_valid_table_list_(global_valid_table_list), bufferpool_(bufferpool){
+    Server(std::vector<GlobalLockTable*>* global_page_lock_table_list, std::vector<GlobalValidTable*>* global_valid_table_list)
+        : global_page_lock_table_list_(global_page_lock_table_list), global_valid_table_list_(global_valid_table_list){
         
         // read config file
         auto server_config =  JsonConfig::load_file("../../config/remote_server_config.json");
@@ -94,7 +93,6 @@ public:
 private:
     std::vector<GlobalLockTable*>* global_page_lock_table_list_;
     std::vector<GlobalValidTable*>* global_valid_table_list_;
-    BufferPool* bufferpool_;
 };
 
 // 主节点等待所有计算节点都连接上并完成注册，然后一起开始
@@ -288,7 +286,7 @@ int main(int argc, char* argv[]) {
         global_valid_table_list->at(i + 10000) = new GlobalValidTable();
         global_valid_table_list->at(i + 20000) = new GlobalValidTable();
     }
-    Server server(global_page_lock_table_list.get(), global_valid_table_list.get(), nullptr);
+    Server server(global_page_lock_table_list.get(), global_valid_table_list.get());
 
     
     // 启动socket server

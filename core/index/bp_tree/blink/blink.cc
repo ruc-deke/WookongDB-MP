@@ -1,6 +1,6 @@
 #include "blink.h"
 #include "common.h"
-#include "compute_server/bp_tree/bp_tree_defs.h"
+#include "core/index/bp_tree/bp_tree_defs.h"
 #include "compute_server/server.h"
 #include "assert.h"
 
