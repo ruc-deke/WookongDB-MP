@@ -1,4 +1,5 @@
 # WookongDB MP 
+<img src="image-1.png" alt="alt text" width="600" />
 
 本项目支持 2 种运行方式：**SQL 模式** 和 **负载模式**，事务并发采用 **2PL**
 
@@ -9,8 +10,6 @@
 **SQL** 模式目前仅支持 **lazy** 模式运行，其它模式暂不支持
 
 > **注意**：启动时，需确保存储层、元信息层和计算层的启动模式保持一致（例如均为 `sql` 或均为 `ycsb`）。
-
-<img src="image-1.png" alt="alt text" width="600" />
 
 ---
 
