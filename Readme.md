@@ -10,6 +10,8 @@
 
 > **注意**：启动时，需确保存储层、元信息层和计算层的启动模式保持一致（例如均为 `sql` 或均为 `ycsb`）。
 
+<img src="image-1.png" alt="alt text" width="600" />
+
 ---
 
 ## 启动步骤
@@ -109,8 +111,9 @@ cd ./build/compute_server
 - **修改分区大小**：
   编辑 `config/compute_node_config.json`，修改 `"partition_size_per_table"` (默认为 100)。
 
-### 增加计算节点
-如果需要增加计算节点数量（例如从 2 个增加到 N 个），需同步修改以下配置文件：
+### 修改计算节点数量 (静态配置)
+本项目目前**仅支持静态配置**计算节点数量，不支持在运行时动态添加或删除节点。
+如果需要变更节点数量（例如从 2 个节点变更为 N 个），必须在**启动集群前**修改以下配置文件：
 
 1. **`compute_node_config.json`**
    - 修改 `"local_compute_node"` -> `"machine_num"` 为 `N`。
@@ -148,6 +151,10 @@ cd ./build/compute_server
 - **事务**: `begin , commit , abort , rollback`
 ---
 
-## 本项目参考以下代码优化实现：
-- **Chimera**: Mitigating Ownership Transfers in Multi-Primary Shared-Storage Cloud-Native Databases  
+## 致谢与引用 (Acknowledgements)
+
+本项目基于 **Chimera** 实现。如果您使用了本项目代码，请引用以下论文和仓库：
+
+- **Chimera: Mitigating Ownership Transfers in Multi-Primary Shared-Storage Cloud-Native Databases**  
+  *Proceedings of the VLDB Endowment (PVLDB), 2024*  
   GitHub: [https://github.com/HuangDunD/Chimera](https://github.com/HuangDunD/Chimera)
