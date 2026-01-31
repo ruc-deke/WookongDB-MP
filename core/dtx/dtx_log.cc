@@ -106,6 +106,7 @@ LLSN DTX::GenUpdateLog(DataItem* item,
     log->lsn_ = lsn;
     compute_server->AddToLogNoBlock(log);
 
+    // LOG(INFO) << "GenUpdateLog , table_id = " << table_id << " page_id = " << rid.page_no_ << " slot_no = " << rid.slot_no_ << " new lsn = " << lsn;
     assert(max_lsn <= log->lsn_);
     max_lsn = log->lsn_;
     return log->lsn_;

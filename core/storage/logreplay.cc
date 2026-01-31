@@ -490,7 +490,7 @@ void LogReplay::apply_sigle_log(LogRecord* log, int curr_offset) {
             //     table_name << " page_id = " << update_log->rid_.page_no_ << " slot_no = " << update_log->rid_.slot_no_
             //     << " page lsn = " << page_hdr->LLSN_ << " log lsn = " << log_llsn << " log prev_lsn = " << log->prev_lsn_;
 
-            if (page_hdr->LLSN_ >= log_llsn || log->prev_lsn_!=page_hdr->LLSN_) {
+            if (page_hdr->LLSN_ >= log_llsn || log->prev_lsn_ != page_hdr->LLSN_) {
                 assert(false);
             }
 

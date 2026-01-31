@@ -170,7 +170,7 @@ struct dtx_entry {
 };
 
 // 日志刷新配置常量
-const size_t LOG_FLUSH_THRESHOLD = 300;        // 日志数量阈值：达到300条触发刷新
+const size_t LOG_FLUSH_THRESHOLD = 10000;        // 日志数量阈值：达到300条触发刷新
 const int LOG_FLUSH_INTERVAL_MS = 10;          // 时间间隔：30ms触发刷新
 
 // Class ComputeNode 可以建立与pagetable的连接，但不能直接与其他计算节点通信
@@ -1695,10 +1695,8 @@ public:
         RmPageHdr *hdr = reinterpret_cast<RmPageHdr*>(page->get_data());
         // LOG(INFO) << "Transfer To Other , Need Wait Log Flush , table_id = " << page->get_page_id().table_id << " page_id = " << page->get_page_id().page_no << " wait lsn = " << hdr->LLSN_;
         std::unique_lock<std::mutex> lock(persist_lsn_mtx);
-        LLSN debug_lsn = persist_lsn;
         while(hdr->LLSN_ > persist_lsn){
             persist_lsn_cond.wait(lock);
-            debug_lsn = persist_lsn;
         }
 
         page->set_dirty(false);
@@ -1734,6 +1732,7 @@ public:
         }
         page_hdr->pre_LLSN_ = old_page_llsn;
         page_hdr->LLSN_ = new_llsn;
+        
         return new_llsn;
     }
 
@@ -1860,7 +1859,7 @@ public:
      */
     void LogFlush(){
         // 批量取出所有日志（在锁作用域内）
-        std::list<LogRecord*> batch_logs;
+        std::vector<LogRecord*> batch_logs;
         {
             std::lock_guard<std::mutex> lk(log_mtx);
             
@@ -1874,19 +1873,29 @@ public:
         }  // 锁在这里自动释放
         
         // 1. 将 batch_logs 序列化成字符串
-        std::string serialized_logs;
+        size_t total_size = 0;
         LLSN max_lsn = 0;  // 记录本批次中最大的 LSN
         
         for (auto* log : batch_logs) {
-            // 序列化单条日志
-            char* log_buf = new char[log->log_tot_len_];
-            log->serialize(log_buf);
-            serialized_logs.append(log_buf, log->log_tot_len_);
-            delete[] log_buf;
+            total_size += log->log_tot_len_;
 
-            // 更新最大 LSN
             if (log->lsn_ > max_lsn) {
                 max_lsn = log->lsn_;
+            }
+        }
+
+        std::string serialized_logs;
+        // std::stringstream ss;
+        if (total_size > 0) {
+            serialized_logs.resize(total_size);
+            // C++11 保证 string 内存连续，可以直接写入
+            char* dest_ptr = &serialized_logs[0];
+            
+            // 第二遍遍历：直接序列化
+            for (auto* log : batch_logs) {
+                // ss << "\nlog lsn = " << log->lsn_ << " log prev lsn = " << log->prev_lsn_ << "\n";
+                log->serialize(dest_ptr);
+                dest_ptr += log->log_tot_len_;
             }
         }
         
@@ -1897,7 +1906,7 @@ public:
             storage_service::LogWriteRequest request;
             storage_service::LogWriteResponse response;
             
-            request.set_log(serialized_logs);
+            request.set_log(std::move(serialized_logs));
             request.set_urgent(0);  // 后台刷新，非紧急
             
             storage_stub.LogWrite(&cntl, &request, &response, NULL);
@@ -2008,7 +2017,7 @@ private:
 
     // 日志管理：节点级别的共享日志系统
     // 所有事务的日志都写入此共享队列，由后台线程统一刷新到存储层
-    std::list<LogRecord*> log_records;          // 共享日志队列
+    std::vector<LogRecord*> log_records;           // 共享日志队列
     mutable std::mutex log_mtx;                 // 保护 log_records 的互斥锁
     
     // 持久化 LSN 管理
@@ -2017,10 +2026,6 @@ private:
     std::condition_variable persist_lsn_cond;   // persist_lsn 条件变量
 
     LLSN current_llsn_ = 0;                     // 本节点当前的最大 LLSN, 初始为0
-
-
-    std::atomic<int> need_wait_cnt{0};
-    std::atomic<int> no_need_wait_cnt{0}; 
 };
 
 int socket_start_client(std::string ip, int port);

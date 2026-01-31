@@ -641,37 +641,65 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
     switch (tx_type) {
       case SmallBankTxType::kAmalgamate: {
           thread_local_try_times[uint64_t(tx_type)]++;
-          tx_committed = bench_dtx->TxAmalgamate(smallbank_client, &run_seed, yield, iter, dtx, is_partitioned , zipfan_gens);
+          if (smallbank_client->use_zipfian == 1){
+            tx_committed = bench_dtx->TxAmalgamate(smallbank_client, &run_seed, yield, iter, dtx, is_partitioned , zipfan_gens);
+          }else if (smallbank_client->use_zipfian == 0){
+            tx_committed = bench_dtx->TxAmalgamate(smallbank_client, &run_seed, yield, iter, dtx, is_partitioned , nullptr);
+          }else {
+            assert(false);
+          }
+          
           if (tx_committed) thread_local_commit_times[uint64_t(tx_type)]++;
         break;
       }
       case SmallBankTxType::kBalance: {
           thread_local_try_times[uint64_t(tx_type)]++;
-          tx_committed = bench_dtx->TxBalance(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , zipfan_gens);
+          if (smallbank_client->use_zipfian == 1){
+            tx_committed = bench_dtx->TxBalance(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , zipfan_gens);
+          }else {
+            tx_committed = bench_dtx->TxBalance(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , nullptr);
+          }
           if (tx_committed) thread_local_commit_times[uint64_t(tx_type)]++;
         break;
       }
       case SmallBankTxType::kDepositChecking: {
           thread_local_try_times[uint64_t(tx_type)]++;
-          tx_committed = bench_dtx->TxDepositChecking(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , zipfan_gens);
+          if (smallbank_client->use_zipfian == 1){
+            tx_committed = bench_dtx->TxDepositChecking(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , zipfan_gens);
+          }else {
+            tx_committed = bench_dtx->TxDepositChecking(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , nullptr);
+          }
           if (tx_committed) thread_local_commit_times[uint64_t(tx_type)]++;
         break;
       }
       case SmallBankTxType::kSendPayment: {
           thread_local_try_times[uint64_t(tx_type)]++;
-          tx_committed = bench_dtx->TxSendPayment(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , zipfan_gens);
+          if (smallbank_client->use_zipfian == 1){
+            tx_committed = bench_dtx->TxSendPayment(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , zipfan_gens);
+          }else {
+            tx_committed = bench_dtx->TxSendPayment(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , nullptr);
+          }
           if (tx_committed) thread_local_commit_times[uint64_t(tx_type)]++;
         break;
       }
       case SmallBankTxType::kTransactSaving: {
           thread_local_try_times[uint64_t(tx_type)]++;
-          tx_committed = bench_dtx->TxTransactSaving(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , zipfan_gens);
+          if (smallbank_client->use_zipfian == 1){
+            tx_committed = bench_dtx->TxTransactSaving(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , zipfan_gens);
+          }else {
+            tx_committed = bench_dtx->TxTransactSaving(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , nullptr);
+          }
           if (tx_committed) thread_local_commit_times[uint64_t(tx_type)]++;
         break;
       }
       case SmallBankTxType::kWriteCheck: {
           thread_local_try_times[uint64_t(tx_type)]++;
-          tx_committed = bench_dtx->TxWriteCheck(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , zipfan_gens);
+          if (smallbank_client->use_zipfian == 1){
+            tx_committed = bench_dtx->TxWriteCheck(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , zipfan_gens);
+          }else {
+            tx_committed = bench_dtx->TxWriteCheck(smallbank_client, &run_seed, yield, iter, dtx,is_partitioned , nullptr);
+          }
+          
           if (tx_committed) thread_local_commit_times[uint64_t(tx_type)]++;
         break;
       }

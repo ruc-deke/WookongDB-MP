@@ -359,8 +359,10 @@ void Handler::GenThreads(std::string bench_name) {
     std::string config_path = "../../config/smallbank_config.json";
     auto config = JsonConfig::load_file(config_path);
     int hot_rate = config.get("smallbank").get("num_hot_rate").get_int64();
+    int use_zipfian = config.get("smallbank").get("use_zipfian").get_int64();
+
     assert(hot_rate > 0 && hot_rate < 100);
-    smallbank_client = new SmallBank(nullptr , hot_rate);
+    smallbank_client = new SmallBank(nullptr , hot_rate , use_zipfian);
     total_try_times.resize(SmallBank_TX_TYPES, 0);
     total_commit_times.resize(SmallBank_TX_TYPES, 0);
   } else if(bench_name == "tpcc") {

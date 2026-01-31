@@ -114,7 +114,7 @@ class SmallBank {
   std::vector<std::vector<itemkey_t>> hot_accounts_vec; // only use for uniform hot setting
   double hot_rate = 50;      // 热点页面占总页面的比例
   int tx_hot_rate;      // 访问热点页面的事务比例
-  int use_zipfian;      // 是否采用 zipfian
+  int use_zipfian;      // 是否使用 zipfian
 
   int num_records_per_page;
   int num_pages;
@@ -129,8 +129,9 @@ class SmallBank {
 
   // For server usage: Provide interfaces to servers for loading tables
   // Also for client usage: Provide interfaces to clients for generating ids during tests
-  SmallBank(RmManager* rm_manager , int tx_hot_rate_ = 50): rm_manager(rm_manager) {
+  SmallBank(RmManager* rm_manager , int tx_hot_rate_ = 50 , int u_zipfian = 0): rm_manager(rm_manager) {
     tx_hot_rate = tx_hot_rate_;
+    use_zipfian = u_zipfian;
 
     bench_name = "smallbank";
     // Used for populate table (line num) and get account
