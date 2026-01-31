@@ -1,18 +1,18 @@
-SQL> create table student (id int, name char(9), major char(32));
+WookongDB-MP> create table student (id int, name char(9), major char(32));
 success
-SQL> insert into student values (0, 'KangKanga', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+WookongDB-MP> insert into student values (0, 'KangKanga', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 affect raw : 1
-SQL> insert into student values (1, 'TomTomTom', 'Computer ScienceComputer Science');
+WookongDB-MP> insert into student values (1, 'TomTomTom', 'Computer ScienceComputer Science');
 affect raw : 1
-SQL> insert into student values (2, 'JerryJerr', 'Computer ScienceComputer Science');
+WookongDB-MP> insert into student values (2, 'JerryJerr', 'Computer ScienceComputer Science');
 affect raw : 1
-SQL> insert into student values (3, 'JackJackJ', 'Electrical Engineeringer Science');
+WookongDB-MP> insert into student values (3, 'JackJackJ', 'Electrical Engineeringer Science');
 affect raw : 1
-SQL> insert into student values (3, 'JerryJerr', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+WookongDB-MP> insert into student values (3, 'JerryJerr', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 affect raw : 1
-SQL> update student set major = 'Electrical Engineering' where id = 2;
+WookongDB-MP> update student set major = 'Electrical Engineering' where id = 2;
 affect raw : 1
-SQL> select * from student where id>=1;
+WookongDB-MP> select * from student where id>=1;
 +------------------+------------------+------------------+
 |               id |             name |            major |
 +------------------+------------------+------------------+
@@ -23,7 +23,7 @@ SQL> select * from student where id>=1;
 +------------------+------------------+------------------+
 Total record(s): 4
 
-SQL> select * from student where id = 0;
+WookongDB-MP> select * from student where id = 0;
 +------------------+------------------+------------------+
 |               id |             name |            major |
 +------------------+------------------+------------------+
@@ -31,9 +31,9 @@ SQL> select * from student where id = 0;
 +------------------+------------------+------------------+
 Total record(s): 1
 
-SQL> update student set id = 100 where name = 'JerryJerry';
+WookongDB-MP> update student set id = 100 where name = 'JerryJerry';
 affect raw : 2
-SQL> select * from student where id > 2;
+WookongDB-MP> select * from student where id > 2;
 +------------------+------------------+------------------+
 |               id |             name |            major |
 +------------------+------------------+------------------+
@@ -43,7 +43,7 @@ SQL> select * from student where id > 2;
 +------------------+------------------+------------------+
 Total record(s): 3
 
-SQL> select * from student where id < 101;
+WookongDB-MP> select * from student where id < 101;
 +------------------+------------------+------------------+
 |               id |             name |            major |
 +------------------+------------------+------------------+
@@ -55,16 +55,16 @@ SQL> select * from student where id < 101;
 +------------------+------------------+------------------+
 Total record(s): 5
 
-SQL> update student set name = '789123456' , major = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' where id < 3;
+WookongDB-MP> update student set name = '789123456' , major = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' where id < 3;
 affect raw : 2
-SQL> select * from student where id = 2;
+WookongDB-MP> select * from student where id = 2;
 +------------------+------------------+------------------+
 |               id |             name |            major |
 +------------------+------------------+------------------+
 +------------------+------------------+------------------+
 Total record(s): 0
 
-SQL> select * from student where name = '789123456';
+WookongDB-MP> select * from student where name = '789123456';
 +------------------+------------------+------------------+
 |               id |             name |            major |
 +------------------+------------------+------------------+
@@ -73,6 +73,6 @@ SQL> select * from student where name = '789123456';
 +------------------+------------------+------------------+
 Total record(s): 2
 
-SQL> drop table student;
+WookongDB-MP> drop table student;
 success
-SQL> Bye.
+WookongDB-MP> Bye.

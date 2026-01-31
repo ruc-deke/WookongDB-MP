@@ -42,6 +42,9 @@ int SmManager::open_db(const std::string &db_name){
     // 如果已经打开了，那直接返回即可
     if (db.m_name == db_name){
         return LJ::ErrorCode::SUCCESS;
+    }else if (db.m_name != ""){
+        // 不允许多个节点打开不同的数据库
+        assert(false);
     }
     if (!is_dir(db_name)){
         // 创建一个新的数据库

@@ -108,6 +108,13 @@ def run():
                 line = line.strip('\n')
                 if line == "":
                     continue
+                
+                # Filter out known client messages/prompts from standard answer too
+                if line == "SQL> ": continue
+                if line == "WookongDB-MP> ": continue
+                if line == "Bye." or line == "WookongDB-MP> Bye." or line == "The client will be closed.": continue
+                if line == "Connection has been closed": continue
+
                 num = ansDict.setdefault(line, 0)
                 ansDict[line] = num + 1
         
@@ -122,9 +129,10 @@ def run():
                 
                 # 2. Prompts (if they appear)
                 if line == "SQL> ": continue
+                if line == "WookongDB-MP> ": continue
                 
                 # 3. Exit messages
-                if line == "Bye." or line == "The client will be closed.": continue
+                if line == "Bye." or line == "WookongDB-MP> Bye." or line == "The client will be closed.": continue
                 if line == "Connection has been closed": continue
                 
                 # 4. Error messages (if we want to ignore them for score, or count them as wrong answer?)

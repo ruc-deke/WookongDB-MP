@@ -44,17 +44,29 @@ int main(int argc, char *argv[]) {
     }
 
     char recv_buf[MAX_MEM_BUFFER_SIZE] = {0};
+    bool is_interactive = isatty(STDIN_FILENO);
 
     while (1) {
-        char *line_read = readline("SQL> ");
-        if (line_read == nullptr) {
-            break;
+        std::string command;
+        if (is_interactive) {
+            char *line_read = readline("WookongDB-MP> ");
+            if (line_read == nullptr) {
+                break;
+            }
+            command = line_read;
+            free(line_read);
+        } else {
+            // std::cout << "WookongDB-MP> ";
+            if (!std::getline(std::cin, command)) {
+                break;
+            }
+            std::cout << "WookongDB-MP> " << command << std::endl;
         }
-        std::string command = line_read;
-        free(line_read);
 
         if (!command.empty()) {
-            add_history(command.c_str());
+            if (is_interactive) {
+                add_history(command.c_str());
+            }
             if (is_exit_command(command)) {
                 printf("The client will be closed.\n");
                 break;

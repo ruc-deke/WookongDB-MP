@@ -1,28 +1,28 @@
-SQL> create table student (id int, name char(9), major char(32));
+WookongDB-MP> create table student (id int, name char(9), major char(32));
 success
-SQL> insert into student values (0, 'KangKanga', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+WookongDB-MP> insert into student values (0, 'KangKanga', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 affect raw : 1
-SQL> insert into student values (1, 'TomTomTom', 'Computer ScienceComputer Science');
+WookongDB-MP> insert into student values (1, 'TomTomTom', 'Computer ScienceComputer Science');
 affect raw : 1
-SQL> insert into student values (2, 'JerryJerr', 'Computer ScienceComputer Science');
+WookongDB-MP> insert into student values (2, 'JerryJerr', 'Computer ScienceComputer Science');
 affect raw : 1
-SQL> insert into student values (3, 'JackJackJ', 'Electrical Engineeringer Science');
+WookongDB-MP> insert into student values (3, 'JackJackJ', 'Electrical Engineeringer Science');
 affect raw : 1
-SQL> insert into student values (3, 'JerryJerr', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+WookongDB-MP> insert into student values (3, 'JerryJerr', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 affect raw : 1
-SQL> insert into student values (4, 'JerryJerr', 'bbbbbbbbbbbbbbbcccccccccdddddddd');
+WookongDB-MP> insert into student values (4, 'JerryJerr', 'bbbbbbbbbbbbbbbcccccccccdddddddd');
 affect raw : 1
-SQL> insert into student values (5, 'JackJackJ', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+WookongDB-MP> insert into student values (5, 'JackJackJ', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 affect raw : 1
-SQL> insert into student values (-1, 'LiXianShe', 'c741258963qwertyuioplkjhgfdsazxc');
+WookongDB-MP> insert into student values (-1, 'LiXianShe', 'c741258963qwertyuioplkjhgfdsazxc');
 affect raw : 1
-SQL> insert into student values (7, 'RMDBrmdbr', '74125896332145698712365478996321');
+WookongDB-MP> insert into student values (7, 'RMDBrmdbr', '74125896332145698712365478996321');
 affect raw : 1
-SQL> delete from student where name = 'Jack';
+WookongDB-MP> delete from student where name = 'Jack';
 affect raw : 0
-SQL> delete from student where id < 0;
+WookongDB-MP> delete from student where id < 0;
 affect raw : 1
-SQL> select * from student;
+WookongDB-MP> select * from student;
 +------------------+------------------+------------------+
 |               id |             name |            major |
 +------------------+------------------+------------------+
@@ -37,7 +37,7 @@ SQL> select * from student;
 +------------------+------------------+------------------+
 Total record(s): 8
 
-SQL> select name,major from student where id > -5;
+WookongDB-MP> select name,major from student where id > -5;
 +------------------+------------------+
 |             name |            major |
 +------------------+------------------+
@@ -52,9 +52,9 @@ SQL> select name,major from student where id > -5;
 +------------------+------------------+
 Total record(s): 8
 
-SQL> delete from student where id = 3 and name = 'JackJackJ';
+WookongDB-MP> delete from student where id = 3 and name = 'JackJackJ';
 affect raw : 1
-SQL> select * from student;
+WookongDB-MP> select * from student;
 +------------------+------------------+------------------+
 |               id |             name |            major |
 +------------------+------------------+------------------+
@@ -68,7 +68,7 @@ SQL> select * from student;
 +------------------+------------------+------------------+
 Total record(s): 7
 
-SQL> select name from student where id = 3;
+WookongDB-MP> select name from student where id = 3;
 +------------------+
 |             name |
 +------------------+
@@ -76,7 +76,7 @@ SQL> select name from student where id = 3;
 +------------------+
 Total record(s): 1
 
-SQL> select name from student where name = 'JackJackJ';
+WookongDB-MP> select name from student where name = 'JackJackJ';
 +------------------+
 |             name |
 +------------------+
@@ -84,9 +84,9 @@ SQL> select name from student where name = 'JackJackJ';
 +------------------+
 Total record(s): 1
 
-SQL> delete from student where major = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+WookongDB-MP> delete from student where major = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 affect raw : 3
-SQL> select * from student where id>=1;
+WookongDB-MP> select * from student where id>=1;
 +------------------+------------------+------------------+
 |               id |             name |            major |
 +------------------+------------------+------------------+
@@ -97,6 +97,6 @@ SQL> select * from student where id>=1;
 +------------------+------------------+------------------+
 Total record(s): 4
 
-SQL> drop table student;
+WookongDB-MP> drop table student;
 success
-SQL> Bye.
+WookongDB-MP> Bye.

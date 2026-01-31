@@ -64,7 +64,7 @@ public:
 public:
     SmManager(RmManager *_rm_manager, StorageBufferPoolManager *buffer_)
         :rm_manager(_rm_manager) , buffer_pool_mgr(buffer_){
-        
+        db.m_name = "";
     }
 
     ~SmManager() = default;

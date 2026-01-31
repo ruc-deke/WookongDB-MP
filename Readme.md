@@ -1,11 +1,11 @@
-# WookongDB MP 运行指南
+# WookongDB MP 
 
 本项目支持 2 种运行方式：**SQL 模式** 和 **负载模式**，事务并发采用 **2PL**
 
 - **SQL 模式**：支持基础 SQL 操作
 - **负载模式**：支持 3 种标准负载（SmallBank, YCSB, TPCC），并提供多种页面获取/释放策略（2PC, Eager, Lazy 等）。
 
-在 **lazy** 模式下，采用 **日志回放** 机制来确保页面的正确性
+在 **lazy** 模式下，采用 **日志回放** 机制来确保页面的正确性,
 **SQL** 模式目前仅支持 **lazy** 模式运行，其它模式暂不支持
 
 > **注意**：启动时，需确保存储层、元信息层和计算层的启动模式保持一致（例如均为 `sql` 或均为 `ycsb`）。
@@ -56,14 +56,15 @@ cd ./build/compute_server
 
 - **参数说明**：
   1. `node_id`: 节点 ID（从 0 开始）。
-  2. `db_name`: 要打开的数据库名称。
+  2. `db_name`: 启动的数据库名称(需确保各个节点打开的数据库一致)
 
 - **示例**：
   ```bash
-  ./compute_server 0 test_db
+  ./compute_server 0 test_db    (节点 0)
+  ./compute_server 1 test_db    (节点 1)
   ```
 
-> 计算层启动后，需要使用 **WookongDB_client** 连接到指定节点输入 SQL 交互
+> SQL 模式的计算层启动后，每个节点会对外暴露一个端口，需使用客户端连接到指定节点输入 SQL 交互
 > ```bash
 > # 在另一个终端执行
 > cd ./build/WookongDB_client
@@ -91,8 +92,9 @@ cd ./build/compute_server
 
 - **示例**：
   ```bash
-  # 启动 YCSB 负载，Lazy 模式，3 个线程，0% 只读，80% 本地事务，机器 ID 为 0
-  ./compute_server ycsb lazy 3 0 0.8 0
+  # 启动 smallbank 负载，Lazy 模式，3 个线程，80% 只读，80% 本地事务，机器 ID 为 0
+  ./compute_server smallbank lazy 3 0.8 0.8 0
+  其它节点启动同上
   ```
 
 ---
@@ -141,7 +143,7 @@ cd ./build/compute_server
 - **删除**: `DELETE FROM table_name where ...;`
 - **更新**: `UPDATE table_name SET col=val where ...;`
 - **查询**: `SELECT * FROM table_name where ...;`
-- **join**: `SELECT * FROM table1 , table2; (目前仅支持 2 表 Join 查询)`
+- **join**: `SELECT * FROM table1 , table2 where table.col1 = table2.col2; (目前仅支持 2 表 Join 查询)`
 
 - **事务**: `begin , commit , abort , rollback`
 ---

@@ -1,8 +1,8 @@
-SQL> create table student (id int, name char(32), major char(32));
+WookongDB-MP> create table student (id int, name char(32), major char(32));
 success
-SQL> create table grade (course char(32), student_id int, score float);
+WookongDB-MP> create table grade (course char(32), student_id int, score float);
 success
-SQL> show tables;
+WookongDB-MP> show tables;
 +------------------+
 |           Tables |
 +------------------+
@@ -11,9 +11,9 @@ SQL> show tables;
 +------------------+
 Total record(s): 2
 
-SQL> drop table student;
+WookongDB-MP> drop table student;
 success
-SQL> show tables;
+WookongDB-MP> show tables;
 +------------------+
 |           Tables |
 +------------------+
@@ -21,11 +21,11 @@ SQL> show tables;
 +------------------+
 Total record(s): 1
 
-SQL> create table grade (id int);
+WookongDB-MP> create table grade (id int);
 fail
-SQL> drop table t;
+WookongDB-MP> drop table t;
 fail
-SQL> show tables;
+WookongDB-MP> show tables;
 +------------------+
 |           Tables |
 +------------------+
@@ -33,8 +33,8 @@ SQL> show tables;
 +------------------+
 Total record(s): 1
 
-SQL> drop table grade;
+WookongDB-MP> drop table grade;
 success
-SQL> drop table student;
+WookongDB-MP> drop table student;
 fail
-SQL> Bye.
+WookongDB-MP> Bye.

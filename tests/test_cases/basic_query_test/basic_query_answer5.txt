@@ -1,46 +1,46 @@
-SQL> create table student (id int, name char(9), major char(32));
+WookongDB-MP> create table student (id int, name char(9), major char(32));
 success
-SQL> create table grade (course char(9), student_id int, score float);
+WookongDB-MP> create table grade (course char(9), student_id int, score float);
 success
-SQL> insert into student values (1, 'TomTomTom', 'Computer ScienceComputer Science');
+WookongDB-MP> insert into student values (1, 'TomTomTom', 'Computer ScienceComputer Science');
 affect raw : 1
-SQL> insert into student values (2, 'JerryJerr', 'Computer ScienceComputer Science');
+WookongDB-MP> insert into student values (2, 'JerryJerr', 'Computer ScienceComputer Science');
 affect raw : 1
-SQL> insert into student values (3, 'JackJackJ', 'Electrical Engineeringer Science');
+WookongDB-MP> insert into student values (3, 'JackJackJ', 'Electrical Engineeringer Science');
 affect raw : 1
-SQL> insert into grade values ('DataDataa', 1, 90.0);
+WookongDB-MP> insert into grade values ('DataDataa', 1, 90.0);
 affect raw : 1
-SQL> insert into grade values ('DataDatab', 1, 60.0);
+WookongDB-MP> insert into grade values ('DataDatab', 1, 60.0);
 affect raw : 1
-SQL> insert into grade values ('DataDatac', 1, 82.0);
+WookongDB-MP> insert into grade values ('DataDatac', 1, 82.0);
 affect raw : 1
-SQL> insert into grade values ('DataDatad', 1, 88.5);
+WookongDB-MP> insert into grade values ('DataDatad', 1, 88.5);
 affect raw : 1
-SQL> insert into grade values ('DataDataa', 2, 91.25);
+WookongDB-MP> insert into grade values ('DataDataa', 2, 91.25);
 affect raw : 1
-SQL> insert into grade values ('DataDatab', 2, 90.0);
+WookongDB-MP> insert into grade values ('DataDatab', 2, 90.0);
 affect raw : 1
-SQL> insert into grade values ('DataDatac', 2, 89.5);
+WookongDB-MP> insert into grade values ('DataDatac', 2, 89.5);
 affect raw : 1
-SQL> insert into grade values ('DataDatad', 2, 88.0);
+WookongDB-MP> insert into grade values ('DataDatad', 2, 88.0);
 affect raw : 1
-SQL> insert into grade values ('DataDataa', 3, 90.0);
+WookongDB-MP> insert into grade values ('DataDataa', 3, 90.0);
 affect raw : 1
-SQL> insert into grade values ('DataDatab', 3, 90.125);
+WookongDB-MP> insert into grade values ('DataDatab', 3, 90.125);
 affect raw : 1
-SQL> insert into grade values ('DataDatac', 3, 99.0);
+WookongDB-MP> insert into grade values ('DataDatac', 3, 99.0);
 affect raw : 1
-SQL> insert into grade values ('DataDatad', 3, 97.5);
+WookongDB-MP> insert into grade values ('DataDatad', 3, 97.5);
 affect raw : 1
-SQL> insert into grade values ('DataDataa', 4, 82.0);
+WookongDB-MP> insert into grade values ('DataDataa', 4, 82.0);
 affect raw : 1
-SQL> insert into grade values ('DataDatab', 4, 85.0);
+WookongDB-MP> insert into grade values ('DataDatab', 4, 85.0);
 affect raw : 1
-SQL> insert into grade values ('DataDatac', 4, 85.0);
+WookongDB-MP> insert into grade values ('DataDatac', 4, 85.0);
 affect raw : 1
-SQL> insert into grade values ('DataDatad', 4, 90.5);
+WookongDB-MP> insert into grade values ('DataDatad', 4, 90.5);
 affect raw : 1
-SQL> select * from student, grade;
+WookongDB-MP> select * from student, grade;
 +------------------+------------------+------------------+------------------+------------------+------------------+
 |               id |             name |            major |           course |       student_id |            score |
 +------------------+------------------+------------------+------------------+------------------+------------------+
@@ -95,7 +95,7 @@ SQL> select * from student, grade;
 +------------------+------------------+------------------+------------------+------------------+------------------+
 Total record(s): 48
 
-SQL> select id, name, major, course, score from student, grade where student.id = grade.student_id;
+WookongDB-MP> select id, name, major, course, score from student, grade where student.id = grade.student_id;
 +------------------+------------------+------------------+------------------+------------------+
 |               id |             name |            major |           course |            score |
 +------------------+------------------+------------------+------------------+------------------+
@@ -114,8 +114,8 @@ SQL> select id, name, major, course, score from student, grade where student.id 
 +------------------+------------------+------------------+------------------+------------------+
 Total record(s): 12
 
-SQL> drop table student;
+WookongDB-MP> drop table student;
 success
-SQL> drop table grade;
+WookongDB-MP> drop table grade;
 success
-SQL> Bye.
+WookongDB-MP> Bye.

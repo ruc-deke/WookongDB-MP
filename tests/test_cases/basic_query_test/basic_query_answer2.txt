@@ -1,16 +1,16 @@
-SQL> create table student (id int, name char(9), major char(32));
+WookongDB-MP> create table student (id int, name char(9), major char(32));
 success
-SQL> insert into student values (0, 'KangKanga', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+WookongDB-MP> insert into student values (0, 'KangKanga', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 affect raw : 1
-SQL> insert into student values (1, 'TomTomTom', 'Computer ScienceComputer Science');
+WookongDB-MP> insert into student values (1, 'TomTomTom', 'Computer ScienceComputer Science');
 affect raw : 1
-SQL> insert into student values (2, 'JerryJerr', 'Computer ScienceComputer Science');
+WookongDB-MP> insert into student values (2, 'JerryJerr', 'Computer ScienceComputer Science');
 affect raw : 1
-SQL> insert into student values (3, 'JackJackJ', 'Electrical Engineeringer Science');
+WookongDB-MP> insert into student values (3, 'JackJackJ', 'Electrical Engineeringer Science');
 affect raw : 1
-SQL> insert into student values (3, 'JerryJerr', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+WookongDB-MP> insert into student values (3, 'JerryJerr', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 affect raw : 1
-SQL> select * from student where id >= 1;
+WookongDB-MP> select * from student where id >= 1;
 +------------------+------------------+------------------+
 |               id |             name |            major |
 +------------------+------------------+------------------+
@@ -21,7 +21,7 @@ SQL> select * from student where id >= 1;
 +------------------+------------------+------------------+
 Total record(s): 4
 
-SQL> select id from student where id = 2;
+WookongDB-MP> select id from student where id = 2;
 +------------------+
 |               id |
 +------------------+
@@ -29,7 +29,7 @@ SQL> select id from student where id = 2;
 +------------------+
 Total record(s): 1
 
-SQL> select major from student where name = 'JerryJerr';
+WookongDB-MP> select major from student where name = 'JerryJerr';
 +------------------+
 |            major |
 +------------------+
@@ -38,14 +38,14 @@ SQL> select major from student where name = 'JerryJerr';
 +------------------+
 Total record(s): 2
 
-SQL> select name,major from student where name = 'JerryJerr' and id = 0;
+WookongDB-MP> select name,major from student where name = 'JerryJerr' and id = 0;
 +------------------+------------------+
 |             name |            major |
 +------------------+------------------+
 +------------------+------------------+
 Total record(s): 0
 
-SQL> select name,major from student where name = 'JerryJerr' and id = 2;
+WookongDB-MP> select name,major from student where name = 'JerryJerr' and id = 2;
 +------------------+------------------+
 |             name |            major |
 +------------------+------------------+
@@ -53,7 +53,7 @@ SQL> select name,major from student where name = 'JerryJerr' and id = 2;
 +------------------+------------------+
 Total record(s): 1
 
-SQL> select name,id from student where major = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+WookongDB-MP> select name,id from student where major = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 +------------------+------------------+
 |             name |               id |
 +------------------+------------------+
@@ -62,10 +62,10 @@ SQL> select name,id from student where major = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 +------------------+------------------+
 Total record(s): 2
 
-SQL> select myname from student;
+WookongDB-MP> select myname from student;
 fail
-SQL> select name from student where myname = 'aaa';
+WookongDB-MP> select name from student where myname = 'aaa';
 fail
-SQL> drop table student;
+WookongDB-MP> drop table student;
 success
-SQL> Bye.
+WookongDB-MP> Bye.
