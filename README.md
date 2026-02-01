@@ -1,9 +1,14 @@
-# WookongDB MP 
+# WookongDB-MP
+
+WookongDB-MP 是一款由中国人民大学数据库系统研究组一体机课题小组研发的 **基于共享存储架构的多写云原生数据库系统**。
+
+系统采用存储-计算分离的架构设计, 不同于一写多读架构, WookongDB-MP支持多写, 即集群中任何写节点可以操作任何数据页面, 并可以执行读写事务。
+
 <img src="assets/wookongdb.png" alt="alt text" width="300" />
 
 本项目支持 2 种运行方式：**SQL 模式** 和 **负载模式**，事务并发采用 **2PL**
 
-- **SQL 模式**：支持基础 SQL 操作
+- **SQL 模式**：支持基础 SQL 操作, 兼容 [Rucbase](https://github.com/ruc-deke/rucbase-lab) 语法。
 - **负载模式**：支持 3 种标准负载（SmallBank, YCSB, TPCC），并提供2种页面获取/释放策略（Eager, Lazy）。
 
 在 **lazy** 模式下，采用 **日志回放** 机制来确保页面的正确性,
