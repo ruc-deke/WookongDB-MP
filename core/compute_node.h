@@ -54,11 +54,7 @@ public:
         // connect to remote pagetable&bufferpool server
         brpc::ChannelOptions options;
         options.use_rdma = use_rdma;
-        ts_cnt = node_id;       // 初始分配的时间片设置成 node_id
-        ts_cnt_hot = node_id;
-        if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
-            std::cout << "Node : " << node_id << " allocate a timestamp , id = " << ts_cnt << "\n";
-        }
+
         // options.timeout_ms = 5000; // 5s超时
         options.timeout_ms = 0x7fffffff; // 2147483647ms
         std::string remote_node = remote_server_ip + ":" + std::to_string(remote_server_port);
@@ -102,14 +98,8 @@ public:
             if (partition_size.exists() && partition_size.is_int64()){
                 partition_size_cfg = (size_t)partition_size.get_int64();
             }
-            if (ts_time_node.exists() && ts_time_node.is_int64()){
-                ts_time = (int)ts_time_node.get_int64();
-            }
             std::cout << "Table BufferPool Size Per Table : " << table_pool_size_cfg << "\n";
             std::cout << "Index BufferPool Size Per Table : " << blink_buffer_pool_cfg << "\n";
-            if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
-                std::cout << "TS Time Slice : " << ts_time/1000 << "ms" << "\n";
-            }
         }
 
         meta_manager_->initParSize();
@@ -146,18 +136,7 @@ public:
             for(int i = 0; i < table_num; i++){
                 local_page_lock_tables.emplace_back(new LocalPageLockTable());
             }
-        }else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
-            local_page_lock_tables.reserve(table_num);
-            lazy_local_page_lock_tables.reserve(30000);
-            for (int i = 0 ; i < table_num ; i++){
-                local_page_lock_tables.emplace_back(new LocalPageLockTable());
-            }
-
-            for (int i = 0 ; i < table_num ; i++){
-                lazy_local_page_lock_tables[i + 10000] = new LRLocalPageLockTable();
-                lazy_local_page_lock_tables[i + 20000] = new LRLocalPageLockTable();
-            }
-        } else {
+        }else {
             assert(false);
         }
         
@@ -190,25 +169,6 @@ public:
                 local_buffer_pools[table_id + 20000] = new BufferPool(fsm_pool_size_cfg , 5000);
             }
         }
-
-        if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
-            int thread_num = 5;
-            {
-                std::string config_filepath = "../../config/compute_node_config.json";
-                auto json_config = JsonConfig::load_file(config_filepath);
-                auto client_conf = json_config.get("local_compute_node");
-                if(client_conf.exists()) {
-                     thread_num = (int)client_conf.get("thread_num_per_machine").get_int64();
-                }
-            }
-            std::stringstream ss;
-            ss << "node" << node_id << " scheduler";
-            // 多的一个线程来调度时间片轮转
-            scheduler = new Scheduler(thread_num + 1, false , "TS_Scheduler");
-            scheduler->enableTimeSliceScheduling(ComputeNodeCount);
-            scheduler->start();
-        }
-
 
         // 不知道干啥的，这里先给他设置 100 吧
         local_buffer_pool = new BufferPool(ComputeNodeBufferPageSize , 100);
@@ -436,33 +396,9 @@ public:
     inline std::vector<std::pair<Page_request_info, double>>& get_latency_pair_vec() {
         return latency_pair_vec;
     }
-    inline void add_partition_cnt(){
-        partition_cnt++;
-    }
-    inline void add_global_cnt(){
-        global_cnt++;
-    }
-    inline std::atomic<int>& get_partition_cnt(){
-        return partition_cnt;
-    }
-    inline std::atomic<int>& get_global_cnt(){
-        return global_cnt;
-    }
-    inline Phase get_phase(){
-        return phase;
-    }
-    inline std::queue<Txn_request_info>& get_partitioned_txn_queue(){
-        return partitioned_txn_queue;
-    }
-    inline std::queue<Txn_request_info>& get_global_txn_queue(){
-        return global_txn_queue;
-    }
-    inline std::mutex& getTxnQueueMutex(){
-        return txn_queue_mutex;
-    }
-    inline void setNodeRunning(bool running){
-        is_running = running;
-    }
+
+
+
     inline MetaManager* getMetaManager(){
         return meta_manager_;
     }
@@ -470,78 +406,10 @@ public:
     node_id_t get_node_id() const {
         return node_id;
     }
-    
-    void set_page_dirty(table_id_t table_id , page_id_t page_id , bool flag){
-        if (flag){
-            dirty_pages.insert(std::make_pair(table_id , page_id));
-        }else {
-            dirty_pages.erase(std::make_pair(table_id , page_id));
-        }
-    }
 
-    void set_page_dirty_hot(table_id_t table_id , page_id_t page_id , bool flag){
-        if (flag){
-            dirty_pages_hot.insert(std::make_pair(table_id , page_id));
-        }else{
-            dirty_pages.erase(std::make_pair(table_id , page_id));
-        }
-    }
-
-    void waitRemoteOK(){
-        std::unique_lock<std::mutex> lk(switch_mtx_hot);
-        // assert(success_return == false);
-
-        // 等待远程通知我，热点页面轮到你了
-        switch_hot_cv.wait(lk , [this]{
-            return success_return;
-        });
-
-        success_return = false;
-    }
-    void notifyRemoteOK(){
-        success_return = true;
-        switch_hot_cv.notify_one();
-    }
-
-    TsPhase getPhase() {
-        RWMutex::ReadLock lock(rw_mutex);
-        return ts_phase;
-    }
-    TsPhase getPhaseNoBlock() const {
-        return ts_phase;
-    }
-
-    TsPhase getPhaseHotNoBlock() const {
-        return ts_phase_hot;
-    }
 
     Scheduler* getScheduler() {
         return scheduler;
-    }
-
-    std::vector<int> getSchedulerThreadIds() {
-        if (scheduler)
-            return scheduler->getThreadIds();
-        return std::vector<int>();
-    }
-
-    void setPhase(TsPhase val) {
-        RWMutex::WriteLock lock(rw_mutex);
-        ts_phase = val;
-    }
-
-    void setPhaseHot(TsPhase val){
-        RWMutex::WriteLock lock(rw_mutex_hot);
-        ts_phase_hot = val;
-    }
-
-    void addPhase(){
-        RWMutex::WriteLock lock(rw_mutex);
-        ts_cnt = (ts_cnt + 1) % ComputeNodeCount;
-    }
-    int get_ts_cnt() {
-        RWMutex::ReadLock lock(rw_mutex);
-        return ts_cnt;
     }
 
 
@@ -573,16 +441,8 @@ private:
     std::vector<ERLocalPageLockTable*> eager_local_page_lock_tables;
     std::vector<LRLocalPageLockTable*> lazy_local_page_lock_tables;
 
-    // for phase switch
-    std::queue<Page_request_info> partitioned_page_queue;  // 访问本地逻辑分区的数据页
-    std::queue<Page_request_info> global_page_queue;  // 访问全局逻辑分区的数据页
-    std::queue<Txn_request_info> partitioned_txn_queue;  // 访问本地逻辑分区的事务
-    std::queue<Txn_request_info> global_txn_queue;  // 访问全局逻辑分区的事务
-    std::mutex txn_queue_mutex;
 
-    // 时间片轮转 SYSTEM_MODE = 12 和 13 用的
-    Phase phase = Phase::BEGIN;
-    bool is_running = true;
+    // bool is_running = true;
     Scheduler* scheduler;
     
 
@@ -618,25 +478,7 @@ public:
     int pool_size_per_table = 100;
     int pool_size_per_blink = 100;
     int pool_size_per_fsm = 100;
-
-    // 时间戳阶段转化用的
-    std::atomic<TsPhase> ts_phase{TsPhase::BEGIN};
-    std::atomic<TsPhase> ts_phase_hot{TsPhase::BEGIN};
-    std::atomic<int> ts_cnt{0};                 // 当前节点处于哪个时间片中
-    std::atomic<int> ts_cnt_hot{0};
-    RWMutex rw_mutex;
-    RWMutex rw_mutex_hot;      
-    std::condition_variable ts_switch_cond;
-    int ts_time = 1000000;  // 默认 100ms
-    // TS: 统计当前正在进行中的 fetch 数，切片切换时等待其归零以保证安全
-    std::atomic<int> ts_inflight_fetch{0};
-    std::atomic<int> ts_inflight_fetch_hot{0};
-    std::mutex switch_mtx;
-    std::condition_variable switch_hot_cv;
-    bool success_return = false;
-    std::mutex switch_mtx_hot;
-    std::set<std::pair<table_id_t , page_id_t>> dirty_pages;
-    std::set<std::pair<table_id_t , page_id_t>> dirty_pages_hot;
+      
 
     // for delay release
     bool check_delay_release_finish = false;

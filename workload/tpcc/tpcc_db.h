@@ -637,17 +637,9 @@ public:
         if (diff == 1)
             return start;
         if(is_partitioned) { //生成本地分区事务
-            // SYSTEM_MODE == 12: 使用时间片分区，用 ts_cnt 代替固定的 node_id
-            if((SYSTEM_MODE == 12 || SYSTEM_MODE == 13) && dtx != nullptr) {
-                node_id = dtx->compute_server->get_node()->get_ts_cnt();
-            }
             return node_id * (diff / ComputeNodeCount) + r.Next() % (diff / ComputeNodeCount) + 1;
 
         } else {
-            // SYSTEM_MODE == 12: 使用时间片分区，用 ts_cnt 代替固定的 node_id
-            if((SYSTEM_MODE == 12|| SYSTEM_MODE == 13) && dtx != nullptr) {
-                node_id = dtx->compute_server->get_node()->get_ts_cnt();
-            }
             int random = r.Next() % (ComputeNodeCount - 1);
             return r.Next()  % (diff / ComputeNodeCount) +
                              (random < node_id ? random : random + 1) * (diff / ComputeNodeCount) + 1;

@@ -1,5 +1,5 @@
 # WookongDB MP 
-<img src="image-1.png" alt="alt text" width="600" />
+<img src="assets/wookongdb.png" alt="alt text" width="600" />
 
 本项目支持 2 种运行方式：**SQL 模式** 和 **负载模式**，事务并发采用 **2PL**
 

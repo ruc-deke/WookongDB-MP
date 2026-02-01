@@ -69,107 +69,50 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
   for (auto& task : ro_fetch_tasks) {
     size_t idx = task.first;
     Rid rid = task.second.first;
-    if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
-      DataSetItem &item = read_only_set[idx].second;
-      itemkey_t item_key = read_only_set[idx].first;
+    DataSetItem& item = read_only_set[idx].second;
+    itemkey_t item_key = read_only_set[idx].first;
 
-      assert(&item == task.second.second);
-      auto data = compute_server->FetchSPage(item.item_ptr->table_id , rid.page_no_);
+    assert(&item == task.second.second); // Ensure the pointer matches
+    // Fetch data from storage
+    if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3){
+      auto data = compute_server->FetchSPage(item.item_ptr->table_id, rid.page_no_);
+      std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
 
-      // 在获取元组之前，还需要拿到这个表的元组大小，这个信息存储在 Page0 里
       RmFileHdr::ptr file_hdr = compute_server->get_file_hdr_cached(item.item_ptr->table_id);
-      *item.item_ptr = *GetDataItemFromPageRO(item.item_ptr->table_id , data , rid , file_hdr , item_key);
-      assert(item.item_ptr != nullptr);
+      *item.item_ptr = *GetDataItemFromPageRO(item.item_ptr->table_id, data, rid , file_hdr , item_key);
       
       item.is_fetched = true;
-      ReleaseSPage(yield , item.item_ptr->table_id , rid.page_no_);
-    } else {
-        DataSetItem& item = read_only_set[idx].second;
-        itemkey_t item_key = read_only_set[idx].first;
+      ReleaseSPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page
+    } else if (SYSTEM_MODE == 2){
+      // 2PC
+      // 1. 先获取到页面所在的节点 ID
+      node_id_t node_id = compute_server->get_node_id_by_page_id(item.item_ptr->table_id , rid.page_no_); 
+      participants.emplace(node_id);
+      char* data = nullptr;
+      if(node_id == compute_server->get_node()->getNodeID()){
+        compute_server->Get_2pc_Local_page(node_id, item.item_ptr->table_id, rid, false, data , item_key);
+      } else {
+        // 从远程把页面给拉过来，此时远程已经给这个元组加上锁了
+        compute_server->Get_2pc_Remote_page(node_id, item.item_ptr->table_id, rid, false, data);
+      }
+      if (sleep_time != 0){
+        std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
+      }
 
-        assert(&item == task.second.second); // Ensure the pointer matches
-        // Fetch data from storage
-        if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3){
-          auto data = compute_server->FetchSPage(item.item_ptr->table_id, rid.page_no_);
-          std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
+      assert (data != nullptr);
+      RmFileHdr::ptr file_hdr = compute_server->get_file_hdr_cached(item.item_ptr->table_id);
 
-          RmFileHdr::ptr file_hdr = compute_server->get_file_hdr_cached(item.item_ptr->table_id);
-          *item.item_ptr = *GetDataItemFromPageRO(item.item_ptr->table_id, data, rid , file_hdr , item_key);
-          
-          item.is_fetched = true;
-          ReleaseSPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page
-        } else if (SYSTEM_MODE == 2){
-          // 2PC
-          // 1. 先获取到页面所在的节点 ID
-          node_id_t node_id = compute_server->get_node_id_by_page_id(item.item_ptr->table_id , rid.page_no_); 
-          participants.emplace(node_id);
-          char* data = nullptr;
-          if(node_id == compute_server->get_node()->getNodeID()){
-            compute_server->Get_2pc_Local_page(node_id, item.item_ptr->table_id, rid, false, data , item_key);
-          } else {
-            // 从远程把页面给拉过来，此时远程已经给这个元组加上锁了
-            compute_server->Get_2pc_Remote_page(node_id, item.item_ptr->table_id, rid, false, data);
-          }
-          if (sleep_time != 0){
-            std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
-          }
-
-          assert (data != nullptr);
-          RmFileHdr::ptr file_hdr = compute_server->get_file_hdr_cached(item.item_ptr->table_id);
-
-          // 2pc 模式下，拿到的就是 data_item + value了，所以不需要再去解析 bitmap 那些东西了
-          DataItem* disk_item = reinterpret_cast<DataItem*>(data);
-          assert(disk_item->table_id < 10000);
-          assert(disk_item->valid < 2);
-          disk_item->value = (uint8_t*)reinterpret_cast<char*>(disk_item) + sizeof(DataItem);
-          *item.item_ptr = *disk_item;
-          item.is_fetched = true;
-        } else{
-          assert(false);
-        }
+      // 2pc 模式下，拿到的就是 data_item + value了，所以不需要再去解析 bitmap 那些东西了
+      DataItem* disk_item = reinterpret_cast<DataItem*>(data);
+      assert(disk_item->table_id < 10000);
+      assert(disk_item->valid < 2);
+      disk_item->value = (uint8_t*)reinterpret_cast<char*>(disk_item) + sizeof(DataItem);
+      *item.item_ptr = *disk_item;
+      item.is_fetched = true;
+    } else{
+      assert(false);
     }
   }
-  // 插入
-  // for (size_t i = 0 ; i < insert_set.size() ; i++){
-  //   DataSetItem &item = insert_set[i].second;
-  //   itemkey_t item_key = insert_set[i].first;
-
-  //   if (SYSTEM_MODE == 1){
-  //     // insert 有可能是覆盖了旧的数据，所以把旧的给记下来
-
-  //     Rid insert_rid = insert_entry(insert_set[i].second.item_ptr.get() , item_key);
-  //     std::cout << "Insert a Key , primary = " << item_key << " page_id = " << insert_rid.page_no_ << " slot = " << insert_rid.slot_no_ << "\n";
-  //     if (insert_rid.page_no_ == -1){
-  //       tx_status = TXStatus::TX_ABORTING;
-  //       break;
-  //     }
-  //     item.is_fetched = true;
-  //   }else {
-  //     // 目前只支持 lazy 模式插入数据
-  //     assert(false);
-  //   }
-  // }
-
-  // for (size_t i = 0 ; i < delete_set.size() ; i++){
-  //   // 如果插入已经和你说了 Abort，那 delete 也没必要执行了
-  //   if (tx_status == TXStatus::TX_ABORTING){
-  //     break;
-  //   }
-  //   DataSetItem &item = delete_set[i].second;
-  //   itemkey_t key = delete_set[i].first;
-  //   if (SYSTEM_MODE == 1){
-  //     Rid delete_rid = delete_entry(delete_set[i].second.item_ptr->table_id , key);
-  //     // 如果删除的元组不存在，先按回滚处理
-  //     if (delete_rid.page_no_ == -1){
-  //       tx_status = TXStatus::TX_ABORTING;
-  //       break;
-  //     }
-  //     item.is_fetched = true;
-  //   }else {
-  //     // 目前只支持 lazy 模式删除数据
-  //     assert(false);
-  //   }
-  // }
 
   for (auto& task : rw_fetch_tasks) {
     // 如果插入或者删除出问题了，那写操作也没必要执行了
@@ -178,95 +121,64 @@ bool DTX::TxExe(coro_yield_t &yield , bool fail_abort){
     }
     size_t idx = task.first;
     Rid rid = task.second.first;
-    if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
-      DataSetItem& item = read_write_set[idx].second;  
-      itemkey_t item_key = read_write_set[idx].first;
+    DataSetItem& item = read_write_set[idx].second; 
+    itemkey_t item_key = read_write_set[idx].first;
 
-      assert(&item == task.second.second); // Ensure the pointer matches
-      Page *x_page = compute_server->FetchXPage(item.item_ptr->table_id, rid.page_no_);
-      char *data = x_page->get_data();
+    assert(&item == task.second.second); // Ensure the pointer matches
+    // Fetch data from storage
+    if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3){
+      Page *page = compute_server->FetchXPage(item.item_ptr->table_id, rid.page_no_);
+      char *data = page->get_data();
+      std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
       DataItem* orginal_item = nullptr;
 
       RmFileHdr::ptr file_hdr = compute_server->get_file_hdr_cached(item.item_ptr->table_id);
       orginal_item = GetDataItemFromPageRW(item.item_ptr->table_id, data, rid , file_hdr , item_key);
-
-      // 这里是做了一个复制操作，把 original_item->value memcpy 一份到 item 里
       *item.item_ptr = *orginal_item;
-
+      
       if(orginal_item->lock == UNLOCKED) {
         orginal_item->lock = EXCLUSIVE_LOCKED;
         if(item.release_imme) {
           orginal_item->lock = UNLOCKED;
         }
+        page->set_dirty(true);
+        GenUpdateLog(orginal_item , &item_key , rid , (char*)orginal_item + sizeof(DataItem) , (RmPageHdr*)data);
         ReleaseXPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page
       } else{
         // lock conflict
         ReleaseXPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page
         tx_status = TXStatus::TX_ABORTING; // Transaction is aborting due to lock conflict
-        // std::cout << "Abort\n";
-        break; // Exit the loop on lock conflict, will check tx_status later
+        continue;
       }
       item.is_fetched = true;
+    } else if(SYSTEM_MODE == 2){
+      // this is coordinator
+      node_id_t node_id = compute_server->get_node_id_by_page_id(item.item_ptr->table_id , rid.page_no_);
+      participants.emplace(node_id);
+      char* data = nullptr;
+      if(node_id == compute_server->get_node()->getNodeID()){
+        compute_server->Get_2pc_Local_page(node_id, item.item_ptr->table_id, rid, true, data , item_key);
+      } else {
+        compute_server->Get_2pc_Remote_page(node_id, item.item_ptr->table_id, rid, true, data);
+      }
+      if (sleep_time != 0){
+        std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
+      }
+      if(data == nullptr){
+        // lock conflict
+        tx_status = TXStatus::TX_ABORTING; // Transaction is aborting due to lock conflict
+        continue;
+      }
+
+      DataItem* disk_item = reinterpret_cast<DataItem*>(data);
+      disk_item->value = (uint8_t*)reinterpret_cast<char*>(disk_item) + sizeof(DataItem);
+
+
+      *item.item_ptr = *disk_item;
+      assert(item.item_ptr->table_id == item.item_ptr->table_id);
+      item.is_fetched = true;
     }else {
-        DataSetItem& item = read_write_set[idx].second; 
-        itemkey_t item_key = read_write_set[idx].first;
-
-        assert(&item == task.second.second); // Ensure the pointer matches
-        // Fetch data from storage
-        if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3){
-          Page *page = compute_server->FetchXPage(item.item_ptr->table_id, rid.page_no_);
-          char *data = page->get_data();
-          std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
-          DataItem* orginal_item = nullptr;
-
-          RmFileHdr::ptr file_hdr = compute_server->get_file_hdr_cached(item.item_ptr->table_id);
-          orginal_item = GetDataItemFromPageRW(item.item_ptr->table_id, data, rid , file_hdr , item_key);
-          *item.item_ptr = *orginal_item;
-          
-          if(orginal_item->lock == UNLOCKED) {
-            orginal_item->lock = EXCLUSIVE_LOCKED;
-            if(item.release_imme) {
-              orginal_item->lock = UNLOCKED;
-            }
-            page->set_dirty(true);
-            GenUpdateLog(orginal_item , &item_key , rid , (char*)orginal_item + sizeof(DataItem) , (RmPageHdr*)data);
-            ReleaseXPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page
-          } else{
-            // lock conflict
-            ReleaseXPage(yield, item.item_ptr->table_id, rid.page_no_); // release the page
-            tx_status = TXStatus::TX_ABORTING; // Transaction is aborting due to lock conflict
-            continue;
-          }
-          item.is_fetched = true;
-        } else if(SYSTEM_MODE == 2){
-          // this is coordinator
-          node_id_t node_id = compute_server->get_node_id_by_page_id(item.item_ptr->table_id , rid.page_no_);
-          participants.emplace(node_id);
-          char* data = nullptr;
-          if(node_id == compute_server->get_node()->getNodeID()){
-            compute_server->Get_2pc_Local_page(node_id, item.item_ptr->table_id, rid, true, data , item_key);
-          } else {
-            compute_server->Get_2pc_Remote_page(node_id, item.item_ptr->table_id, rid, true, data);
-          }
-          if (sleep_time != 0){
-            std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
-          }
-          if(data == nullptr){
-            // lock conflict
-            tx_status = TXStatus::TX_ABORTING; // Transaction is aborting due to lock conflict
-            continue;
-          }
-
-          DataItem* disk_item = reinterpret_cast<DataItem*>(data);
-          disk_item->value = (uint8_t*)reinterpret_cast<char*>(disk_item) + sizeof(DataItem);
-
-
-          *item.item_ptr = *disk_item;
-          assert(item.item_ptr->table_id == item.item_ptr->table_id);
-          item.is_fetched = true;
-        }else {
-          assert(false);
-        }
+      assert(false);
     }
   }
 
@@ -287,7 +199,7 @@ bool DTX::TxCommit(coro_yield_t& yield){
   // std::cout << "TxCommit\n";
     clock_gettime(CLOCK_REALTIME, &start_time);
     bool commit_status = false;
-  if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3 || SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
+  if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3){
     commit_status = TxCommitSingle(yield);
   } else if(SYSTEM_MODE == 2){
     commit_status = Tx2PCCommit(yield);
@@ -668,7 +580,7 @@ void DTX::TxAbortWorkLoad(coro_yield_t& yield) {
   // std::cout << "TxAbort\n";
     struct timespec start_time, end_time;
     clock_gettime(CLOCK_REALTIME, &start_time);
-  if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3 || SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
+  if(SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 3){
     // // LOG(INFO) << "TxAbort";
     for(size_t i = 0; i < read_write_set.size(); i++){
       DataSetItem& data_item = read_write_set[i].second;

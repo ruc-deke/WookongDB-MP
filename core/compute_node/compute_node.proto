@@ -101,12 +101,6 @@ message HotLocateEntry{
     sint32 newest_node_id = 2;
 }
 
-message TransferHotLocateRequest{
-    sint32 dest_node_id = 1;
-    repeated HotLocateEntry entries = 2;
-}
-
-message TransferHotLocateResponse{}
 
 service ComputeNodeService {
     rpc Pending(PendingRequest) returns (PendingResponse);
@@ -115,7 +109,6 @@ service ComputeNodeService {
     rpc TransferDTX(TransferDTXRequest) returns (TransferDTXResponse);
     rpc PushPage(PushPageRequest) returns (PushPageResponse);
     rpc NotifyPushPage(NotifyPushPageRequest) returns (NotifyPushPageResponse);
-    rpc TransferHotLocate(TransferHotLocateRequest) returns (TransferHotLocateResponse);
 
     // SQL
     rpc NotifyCreateTable(NotifyCreateTableRequest) returns (NotifyCreateTableResponse);

@@ -252,7 +252,7 @@ class SmallBank {
         } 
         
         page_id_t page_id;
-        int belonged_node_id = (SYSTEM_MODE == 12 || SYSTEM_MODE == 13) ? dtx->compute_server->get_node()->get_ts_cnt() : gen_node_id;
+        int belonged_node_id = gen_node_id;
         node_id_t target_node_id = -1;
         if (!is_partitioned){
             target_node_id = belonged_node_id;
@@ -336,7 +336,7 @@ class SmallBank {
    */
     inline void get_uniform_hot_account(uint64_t* seed, uint64_t* acct_id,const DTX* dtx, bool is_partitioned, node_id_t gen_node_id, table_id_t table_id = 0) const {
         if(is_partitioned){
-            int node_id = (SYSTEM_MODE == 12 || SYSTEM_MODE == 13) ? dtx->compute_server->get_node()->get_ts_cnt() : gen_node_id;
+            int node_id = gen_node_id;
             // int node_id = gen_node_id;
             if(FastRand(seed) % 100 < tx_hot_rate){ 
                 int hot_range = hot_accounts_vec[node_id].size();
@@ -345,7 +345,7 @@ class SmallBank {
                 *acct_id = FastRand(seed) % (num_accounts_global / ComputeNodeCount) + node_id * (num_accounts_global / ComputeNodeCount);
             }
         }else{
-            int node_id = (SYSTEM_MODE == 12 || SYSTEM_MODE == 13) ? dtx->compute_server->get_node()->get_ts_cnt() : gen_node_id;
+            int node_id = gen_node_id;
             // int node_id = gen_node_id;
             if(FastRand(seed) % 100 < tx_hot_rate){ 
                 int random = FastRand(seed) % (ComputeNodeCount - 1);

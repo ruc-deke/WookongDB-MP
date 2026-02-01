@@ -346,25 +346,6 @@ void ComputeNodeServiceImpl::TransferDTX(::google::protobuf::RpcController* cont
         brpc::ClosureGuard done_guard(done);
         return;
     }
-
-void ComputeNodeServiceImpl::TransferHotLocate(::google::protobuf::RpcController* controller,
-                       const ::compute_node_service::TransferHotLocateRequest* request,
-                       ::compute_node_service::TransferHotLocateResponse* response,
-                       ::google::protobuf::Closure* done){
-
-        brpc::ClosureGuard done_guard(done);
-        node_id_t dest_node_id = request->dest_node_id();
-        assert(dest_node_id == server->get_node()->getNodeID());
-        for (int i = 0 ; i < request->entries_size() ; i++){
-            auto &entry = request->entries(i);
-            table_id_t table_id = entry.page_id().table_id();
-            page_id_t page_id = entry.page_id().page_no();
-            node_id_t newest = entry.newest_node_id();
-            server->get_node()->getLocalPageLockTables(table_id)->GetLock(page_id)->SetNewestNode(newest);
-        }
-        server->get_node()->notifyRemoteOK();
-        return;
-    }
 }
 
 void ComputeServer::PushPageToOther(table_id_t table_id , page_id_t page_id , node_id_t dest_node_id){

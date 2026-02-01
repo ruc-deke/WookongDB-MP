@@ -89,32 +89,19 @@ void DTX::ReleaseSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_
         compute_server->local_release_s_page(table_id,page_id);
     }else if(SYSTEM_MODE == 3){
         compute_server->single_release_s_page(table_id,page_id);
-    }else if(SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
-        compute_server->rpc_ts_release_s_page(table_id , page_id);
     }else assert(false);
 }
 
 void DTX::ReleaseXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id){
-   if(SYSTEM_MODE == 0) {
+    if(SYSTEM_MODE == 0) {
         compute_server->rpc_release_x_page(table_id,page_id);
-    } 
-    else if(SYSTEM_MODE == 1){
+    } else if(SYSTEM_MODE == 1){
         compute_server->rpc_lazy_release_x_page(table_id,page_id);
-    }
-    else if(SYSTEM_MODE == 2){
+    } else if(SYSTEM_MODE == 2){
         compute_server->local_release_x_page(table_id,page_id);
-    }
-    else if(SYSTEM_MODE == 3){
+    } else if(SYSTEM_MODE == 3){
         compute_server->single_release_x_page(table_id,page_id);
-    }else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
-        compute_server->rpc_ts_release_x_page(table_id , page_id);
-        // if (compute_server->is_hot_page(table_id, page_id)){
-        //     compute_server->rpc_lazy_release_x_page(table_id , page_id);
-        // } else {
-        //     compute_server->rpc_ts_release_x_page(table_id , page_id);
-        // }
-    }
-    else assert(false);
+    } else assert(false);
     
 }
 

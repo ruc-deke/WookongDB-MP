@@ -21,7 +21,7 @@ public:
 
     // threads：线程数量
     // use_caller ：是否使用专门的线程调度协程
-    Scheduler(size_t threads = 1 , bool use_caller = true , const std::string &name = "");
+    // Scheduler(size_t threads = 1 , bool use_caller = true , const std::string &name = "");
 
     // 不指定线程数量，等后续添加线程
     Scheduler(const std::string &name = "");
@@ -46,21 +46,6 @@ public:
         }
     }
 
-    template<class FiberOrCb>
-    void scheduleToWaitQueue(FiberOrCb fc, int thread = -1){
-        bool need_tickle = false;
-        {
-            FiberAndThread ft(fc, thread);
-            m_waitQueues.push_back(ft);
-        }
-    }
-
-    void lockSlice(){
-        m_sliceMutex.lock();
-    }
-    void unlockSlice(){
-        m_sliceMutex.unlock();
-    }
 
     template<class InputIterator>
     void schedule(InputIterator begin, InputIterator end) {
@@ -126,18 +111,6 @@ public:
     size_t getWaitHotSize(int slice_id) const;
     std::vector<int> getThreadIds() { return m_threadIds; }
 
-    int getTaskQueueSize(int idx){
-        return m_sliceQueues[idx].size();
-    }
-
-    int getLeftQueueSize(){
-        std::lock_guard<std::mutex> lk(m_sliceMutex);
-        int ret = m_waitQueues.size();
-        m_waitQueues.clear();
-        
-        return ret;
-    }
-
     void addFiberCnt(){
         m_fiberCnt++;
         // std::cout << "Add A Fiber , Now Fiber Cnt = " << m_fiberCnt << "\n";
@@ -150,13 +123,6 @@ public:
 public:
     const std::string& getName() const { 
         return m_name;
-    }
-
-    void validFetchFromQueue(){
-        m_validFetch = true;
-    }
-    void invalidFetchFromQueue(){
-        m_validFetch = false;
     }
 
 protected:
@@ -255,17 +221,6 @@ protected:
     bool m_stopping = true;
     bool m_autoStop = false;
     int m_rootThread = 0;
-
-    // 时间片调度数据结构
-    bool m_sliceSchedulerEnabled = false;                       // 是否启动时间片调度
-    std::vector<std::deque<FiberAndThread>> m_sliceQueues;      // 时间片调度队列的队列
-    std::vector<std::deque<FiberAndThread>> m_hotSliceQueues;   // 热点页面时间片调度队列的队列
-    std::deque<FiberAndThread> m_waitQueues;                    
-    mutable std::mutex m_sliceMutex;                            // 锁
-    std::atomic<int> m_activeSlice{0};                     // 当前所在的时间片
-    std::atomic<int> m_hotActiveSlice{-1};                  // 热点页面调度所在的时间片
-    std::atomic<bool> m_validFetch{false};                             // 是否允许直接从时间片队列里面取
-    std::atomic<bool> m_validFetchFromHot{false};                      // 是否允许从热点页面等待队列里面取任务
 
     std::atomic<int> m_fiberCnt{0};                           // 调试参数    
 

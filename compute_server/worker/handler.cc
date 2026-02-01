@@ -118,6 +118,8 @@ void Handler::ConfigureComputeNodeRunBench(int argc, char* argv[]) {
   } else if (system_name.find("lazy") != std::string::npos) {
     txn_system_value = 1;
   } else if (system_name.find("2pc") != std::string::npos) {
+    // 2pc 有点问题
+    assert(false);
     txn_system_value = 2;
   } else if (system_name.find("single") != std::string::npos) {
     txn_system_value = 3;
@@ -295,9 +297,7 @@ void Handler::GenThreads(std::string bench_name) {
   node_id_t machine_id = (node_id_t)client_conf.get("machine_id").get_int64();
   std::cout << "starting primary , machine id = " << machine_id << " machine num = " << machine_num << "\n";
   t_id_t thread_num_per_machine = (t_id_t)client_conf.get("thread_num_per_machine").get_int64();
-  if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
-    thread_num_per_machine++;
-  }
+
   const int coro_num = (int)client_conf.get("coroutine_num").get_int64();
 
   LOCAL_BATCH_TXN_SIZE = (int)client_conf.get("batch_size").get_int64();
@@ -432,20 +432,7 @@ void Handler::GenThreads(std::string bench_name) {
     param_arr[i].compute_server = compute_server;
     param_arr[i].thread_num_per_machine = thread_num_per_machine;
     param_arr[i].total_thread_num = thread_num_per_machine * machine_num;
-    if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
-      std::vector<int> thread_ids = compute_node->getSchedulerThreadIds();
-      if (i < thread_ids.size()) {
-          // 先初始化一下调度器里面的每一个线程
-          auto task = [&, i](){
-            initThread(&param_arr[i] , smallbank_client , tpcc_client , ycsb_client);
-            init_finish_cnt++;
-          };
-          compute_node->getScheduler()->schedule(task , thread_ids[i]);
-          // std::cout << "Thread ID " << i << " = " << thread_ids[i] << "\n";
-      } else {
-          assert(false);
-      }
-    }else{
+    {
       thread_arr[i] = std::thread(run_thread,
                                   &param_arr[i],
                                   smallbank_client,
@@ -469,51 +456,7 @@ void Handler::GenThreads(std::string bench_name) {
         std::cout << "thread " << i << " joined" << std::endl;
       }
     }
-  } else {
-    // 等待协程调度器里面的线程池中的每个线程初始化
-    while (init_finish_cnt < thread_num_per_machine ){
-      usleep(1000);
-    }
-    compute_node->getScheduler()->schedule([compute_server]{
-      compute_server->ts_switch_phase(compute_server->get_node()->ts_time);
-    });
-    if (SYSTEM_MODE == 13){
-      compute_node->getScheduler()->schedule([compute_server]{
-        // 先用 10ms 试试
-        compute_server->ts_switch_phase_hot_new(20000);
-      });
-    }
-    std::vector<int> thread_ids = compute_node->getSchedulerThreadIds();
-    std::cout << "coro num = " << coro_num << "\n";
-    compute_server->set_alive_fiber_cnt(coro_num);
-    RunWorkLoad(compute_server, bench_name , -1 , coro_num);
-
-    while (true){
-      usleep(10000);
-      if (compute_server->get_alive_fiber_cnt() == 0){
-        break;
-      }
-    }
-
-    // 最后，统计一下信息：
-    for (int i = 0 ; i < thread_num_per_machine ; i++){
-        auto task = [&](){
-          CaculateInfo(compute_server);
-          init_finish_cnt--;
-        };
-        compute_node->getScheduler()->schedule(task , thread_ids[i]);
-        // std::cout << "Thread ID " << i << " = " << thread_ids[i] << "\n";
-    }
-    // compute_node->getScheduler()->stop();
-
-    while(true){
-      usleep(10000);
-      if (init_finish_cnt == 0){
-        break;
-      }
-    }
   }
-  // LOG(INFO) << "All workers DONE, Waiting for all compute nodes to finish...";
 
   // 统计compute server中的统计信息
   tx_update_time = compute_server->tx_update_time;

@@ -1,5 +1,5 @@
 {
   "tpcc": {
-    "attempted_num": 10000
+    "attempted_num": 30000
   }
 }

@@ -167,13 +167,8 @@ public:
     // 1. 是否是热点数据(ZipFian 不需要这个规则)
     // 2. 是否是跨分区访问数据
     void generate_ten_keys(std::vector<itemkey_t> &keys , uint64_t *seed , bool is_partitioned , const DTX *dtx){
-        int belonged_node_id;
+        int belonged_node_id = dtx->compute_server->getNodeID();
         int target_node_id;
-        if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
-            belonged_node_id = dtx->compute_server->get_node()->ts_cnt;
-        }else {
-            belonged_node_id = dtx->compute_server->getNodeID();
-        }
        
         page_id_t page_id;
         

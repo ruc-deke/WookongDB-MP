@@ -68,7 +68,7 @@
             "program": "${workspaceFolder}/build/compute_server/compute_server",
             // lazy , 2pc , eager , ts_sep , ts_sep_hot
             // smallbank , tpcc , ycsb
-            "args": ["ycsb", "2pc", "5" , "0.6", "0.9" , "0"],
+            "args": ["smallbank", "lazy", "10" , "0.2", "0.8" , "0"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
@@ -88,7 +88,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",
 
-            "args": ["tpcc", "lazy", "5", "0.6", "0.9" , "1"],
+            "args": ["smallbank", "lazy", "10", "0.2", "0.8" , "1"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],
@@ -107,7 +107,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/compute_server/compute_server",
-            "args": ["ycsb", "lazy", "5" , "0.6", "0.9" , "2"],
+            "args": ["smallbank", "lazy", "10" , "0.2", "0.8" , "2"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/compute_server/",
             "environment": [],

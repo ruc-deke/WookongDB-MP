@@ -125,16 +125,16 @@ namespace storage_service{
 
             char data[PAGE_SIZE];
 
-            log_replay->latch3_.lock();
-            log_replay->pageid_batch_count_[page_id].first.lock();
-            while (log_replay->pageid_batch_count_[page_id].second > 0) {
-                usleep(10);
-            }
-            log_replay->pageid_batch_count_[page_id].first.unlock();
-            log_replay->latch3_.unlock();
+            // log_replay->latch3_.lock();
+            // log_replay->pageid_batch_count_[page_id].first.lock();
+            // while (log_replay->pageid_batch_count_[page_id].second > 0) {
+            //     usleep(10);
+            // }
+            // log_replay->pageid_batch_count_[page_id].first.unlock();
+            // log_replay->latch3_.unlock();
+
             page_id_t total_pages = disk_manager_->get_fd2pageno(fd);
 
-           // disk_manager_->read_page(fd, page_no, data, PAGE_SIZE);  
             disk_manager_->read_page_with_lsn(fd, page_no, data, PAGE_SIZE, lsn);          
             return_data.append(std::string(data, PAGE_SIZE));
         }

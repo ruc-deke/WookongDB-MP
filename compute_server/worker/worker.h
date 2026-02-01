@@ -39,6 +39,5 @@ void initThread(thread_params* params,
               SmallBank* smallbank_cli,
               TPCC* tpcc_cli,
               YCSB* ycsb_cli);
-
-void RunWorkLoad(ComputeServer* server, std::string bench_name, int thread_id = -1 , int run_cnt = 1);
+              
 void RunSQL(int sock);

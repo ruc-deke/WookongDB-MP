@@ -106,9 +106,10 @@ LLSN DTX::GenUpdateLog(DataItem* item,
     log->lsn_ = lsn;
     compute_server->AddToLogNoBlock(log);
 
+    assert(max_lsn <= lsn);
+    max_lsn = lsn;
+
     // LOG(INFO) << "GenUpdateLog , table_id = " << table_id << " page_id = " << rid.page_no_ << " slot_no = " << rid.slot_no_ << " new lsn = " << lsn;
-    assert(max_lsn <= log->lsn_);
-    max_lsn = log->lsn_;
     return log->lsn_;
 }
 
@@ -177,11 +178,11 @@ LLSN DTX::GenInsertLog(DataItem* item,
     log->prev_lsn_ = pagehdr->LLSN_;
     LLSN lsn = compute_server->UpdatePageLLSN(pagehdr);
     log->lsn_ = lsn;
-
     compute_server->AddToLogNoBlock(log);
 
-    assert(max_lsn <= log->lsn_);
-    max_lsn = log->lsn_;
+    assert(max_lsn <= lsn);
+    max_lsn = lsn;
+
     return log->lsn_;
 }
 
@@ -233,11 +234,10 @@ LLSN DTX::GenDeleteLog(table_id_t table_id,
     log->prev_lsn_ = pagehdr->LLSN_;
     LLSN lsn = compute_server->UpdatePageLLSN(pagehdr);
     log->lsn_ = lsn;
-
     compute_server->AddToLogNoBlock(log);
 
-    assert(max_lsn <= log->lsn_);
-    max_lsn = log->lsn_;
+    assert(max_lsn <= lsn);
+    max_lsn = lsn;
     return log->lsn_;
 }
 

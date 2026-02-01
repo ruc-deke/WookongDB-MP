@@ -112,8 +112,6 @@ thread_local std::vector<std::vector<ZipFanGen*>>* zipfan_gens;
 thread_local struct timespec msr_start, msr_end;
 static std::atomic<bool> has_caculate{false};
 static timespec msr_end_ts;
-static timespec msr_start_global;  // 全局开始时间，用于SYSTEM_MODE == 12
-static std::atomic<bool> msr_start_global_set{false};  // 确保只设置一次
 
 thread_local double* timer;
 thread_local std::atomic<uint64_t> stat_attempted_tx_total{0}; // Issued transaction number
@@ -186,7 +184,7 @@ void FinalizeStats(double msr_sec , ComputeServer *compute_server) {
   double evict_page = 0;
   double fetch_three = 0;
   double fetch_four = 0;
-  if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 12 || SYSTEM_MODE == 13) {
+  if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1) {
     fetch_remote = compute_server->get_node()->get_fetch_remote_cnt() ;
     fetch_all = compute_server->get_node()->get_fetch_allpage_cnt();
     lock_remote = compute_server->get_node()->get_lock_remote_cnt();
@@ -278,7 +276,7 @@ void RecordTpLat(double msr_sec, DTX* dtx) {
   double evict_page = 0;
   double fetch_three = 0;
   double fetch_four = 0;
-  if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1 || SYSTEM_MODE == 12 || SYSTEM_MODE == 13) {
+  if (SYSTEM_MODE == 0 || SYSTEM_MODE == 1) {
     fetch_remote = (double)dtx->compute_server->get_node()->get_fetch_remote_cnt() ;
     fetch_all = (double)dtx->compute_server->get_node()->get_fetch_allpage_cnt();
     lock_remote = (double)dtx->compute_server->get_node()->get_lock_remote_cnt();
@@ -549,7 +547,7 @@ void RunYCSB(coro_yield_t& yield, coro_id_t coro_id){
     double msr_sec = (msr_end.tv_sec - msr_start.tv_sec) + (double)(msr_end.tv_nsec - msr_start.tv_nsec) / 1000000000;
     RecordTpLat(msr_sec,dtx);
   }else {
-    // SYSTEM_MODE == 12 || 13
+
   }
 }
 
@@ -582,14 +580,6 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
     
   clock_gettime(CLOCK_REALTIME, &msr_start);
   uint64_t run_seed = seed;
-  // 对于SYSTEM_MODE == 12，设置全局开始时间（只设置一次）
-  if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13) {
-    bool expected = false;
-    run_seed = (static_cast<uint64_t>(thread_gid) << 32) ^ (static_cast<uint64_t>(Fiber::GetFiberID()) * 0x9E3779B97F4A7C15ULL);
-    if (msr_start_global_set.compare_exchange_strong(expected, true)) {
-      clock_gettime(CLOCK_REALTIME, &msr_start_global);
-    }
-  }
 
   SmallBankDTX* bench_dtx = new SmallBankDTX();
   bench_dtx->dtx = dtx;
@@ -700,18 +690,7 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
         coro_sched->Yield(yield, coro_id);
     }
   }
-  if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
-    if (!has_caculate) {
-        has_caculate = true;
-        clock_gettime(CLOCK_REALTIME, &msr_end_ts);
-        Scheduler::setJobFinish(true);
-        int not_schedule_cnt = dtx->compute_server->get_node()->getScheduler()->getLeftQueueSize();
-        dtx->compute_server->decrease_alive_fiber_cnt(not_schedule_cnt);
-        std::cout << "Not Schedule Fiber Cnt = " << not_schedule_cnt << "\n";
-    }
-    // 对于执行过的每个协程，都把本协程跑过的事务信息统计一下
-    CollectStats(dtx);
-  }else {
+  {
     clock_gettime(CLOCK_REALTIME, &msr_end);
     // double msr_usec = (msr_end.tv_sec - msr_start.tv_sec) * 1000000 + (double) (msr_end.tv_nsec - msr_start.tv_nsec) / 1000;
     double msr_sec = (msr_end.tv_sec - msr_start.tv_sec) + (double)(msr_end.tv_nsec - msr_start.tv_nsec) / 1000000000;
@@ -720,12 +699,6 @@ void RunSmallBank(coro_yield_t& yield, coro_id_t coro_id) {
   delete bench_dtx;
 }
 
-void CaculateInfo(ComputeServer *server){
-  // 使用全局开始时间，而不是thread_local的开始时间
-  double msr_sec = (msr_end_ts.tv_sec - msr_start_global.tv_sec) + (double)(msr_end_ts.tv_nsec - msr_start_global.tv_nsec) / 1000000000;
-  std::cout << "Cost Time = " << msr_sec << "s\n";
-  FinalizeStats(msr_sec , server);
-}
 
 void RunTPCC(coro_yield_t& yield, coro_id_t coro_id) {
     // Each coroutine has a dtx: Each coroutine is a coordinator
@@ -750,14 +723,6 @@ void RunTPCC(coro_yield_t& yield, coro_id_t coro_id) {
     uint64_t start_commit_cnt = stat_committed_tx_total;
     clock_gettime(CLOCK_REALTIME, &msr_start);
     uint64_t run_seed = seed;
-    // 对于SYSTEM_MODE == 12，设置全局开始时间（只设置一次）
-    if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13) {
-      bool expected = false;
-      run_seed = (static_cast<uint64_t>(thread_gid) << 32) ^ (static_cast<uint64_t>(Fiber::GetFiberID()) * 0x9E3779B97F4A7C15ULL);
-      if (msr_start_global_set.compare_exchange_strong(expected, true)) {
-        clock_gettime(CLOCK_REALTIME, &msr_start_global);
-      }
-    }
 
     while (true) {
         // 是否是跨分区事务
@@ -843,18 +808,7 @@ void RunTPCC(coro_yield_t& yield, coro_id_t coro_id) {
         coro_sched->Yield(yield, coro_id);
     }
   }
-  if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
-    if (!has_caculate) {
-        has_caculate = true;
-        clock_gettime(CLOCK_REALTIME, &msr_end_ts);
-        Scheduler::setJobFinish(true);
-        int not_schedule_cnt = dtx->compute_server->get_node()->getScheduler()->getLeftQueueSize();
-        dtx->compute_server->decrease_alive_fiber_cnt(not_schedule_cnt);
-        std::cout << "Not Schedule Fiber Cnt = " << not_schedule_cnt << "\n";
-    }
-    // 对于执行过的每个协程，都把本协程跑过的事务信息统计一下
-    CollectStats(dtx);
-  }else {
+  {
     clock_gettime(CLOCK_REALTIME, &msr_end);
     // double msr_usec = (msr_end.tv_sec - msr_start.tv_sec) * 1000000 + (double) (msr_end.tv_nsec - msr_start.tv_nsec) / 1000;
     double msr_sec = (msr_end.tv_sec - msr_start.tv_sec) + (double)(msr_end.tv_nsec - msr_start.tv_nsec) / 1000000000;
@@ -972,31 +926,6 @@ void initThread(thread_params* params,
     }
 
     timer = new double[ATTEMPTED_NUM+50]();
-}
-
-void RunWorkLoad(ComputeServer* server, std::string bench_name , int thread_id , int run_cnt){
-  auto task = [=]() {
-     // 构造假 yield
-     coro_yield_t* fake_yield_ptr = nullptr; 
-     coro_yield_t& fake_yield = *reinterpret_cast<coro_yield_t*>(fake_yield_ptr);
-
-     if (bench_name == "smallbank"){
-        RunSmallBank(fake_yield, 0); 
-     } else if (bench_name == "tpcc"){
-        RunTPCC(fake_yield, 0);
-     } else if (bench_name == "ycsb"){
-        RunYCSB(fake_yield , 0);
-     }else {
-      assert(false);
-     }
-     server->decrease_alive_fiber_cnt(1);
-  };
-  server->get_node()->getScheduler()->lockSlice();
-  for (int i = 0 ; i < run_cnt ; i++){
-    server->get_node()->getScheduler()->addFiberCnt();
-    server->get_node()->getScheduler()->scheduleToWaitQueue(task , thread_id);
-  }
-  server->get_node()->getScheduler()->unlockSlice();
 }
 
 void run_thread(thread_params* params,
