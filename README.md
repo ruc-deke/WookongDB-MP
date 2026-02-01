@@ -6,7 +6,7 @@ WookongDB-MP 是一款由中国人民大学数据库系统研究组一体机课�
 
 <img src="assets/wookongdb.png" alt="alt text" width="300" />
 
-本项目支持 2 种运行方式：**SQL 模式** 和 **负载模式**，事务并发采用 **2PL**
+本项目支持 2 种运行方式：**SQL 模式** 和 **负载模式**
 
 - **SQL 模式**：支持基础 SQL 操作, 兼容 [Rucbase](https://github.com/ruc-deke/rucbase-lab) 语法。
 - **负载模式**：支持 3 种标准负载（SmallBank, YCSB, TPCC），并提供2种页面获取/释放策略（Eager, Lazy）。
