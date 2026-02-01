@@ -1,5 +1,5 @@
 # WookongDB MP 
-<img src="assets/wookongdb.png" alt="alt text" width="600" />
+<img src="assets/wookongdb.png" alt="alt text" width="300" />
 
 本项目支持 2 种运行方式：**SQL 模式** 和 **负载模式**，事务并发采用 **2PL**
 
@@ -155,5 +155,5 @@ cd ./build/compute_server
 本项目基于 **Chimera** 实现。如果您使用了本项目代码，请引用以下论文和仓库：
 
 - **Chimera: Mitigating Ownership Transfers in Multi-Primary Shared-Storage Cloud-Native Databases**  
-  *Proceedings of the VLDB Endowment (PVLDB), 2024*  
+  *Proceedings of the VLDB Endowment (PVLDB), 2025*  
   GitHub: [https://github.com/HuangDunD/Chimera](https://github.com/HuangDunD/Chimera)
