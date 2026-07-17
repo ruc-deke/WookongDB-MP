@@ -4,6 +4,8 @@
 #include "common.h"
 #include "base/data_item.h"
 #include "storage/blink_tree/blink_tree.h"
+#include <fstream>
+#include <unistd.h>
 
 #include "core/index/bp_tree/bp_tree_defs.h"
 
@@ -14,7 +16,72 @@ namespace storage_service{
 
         };
 
-    StoragePoolImpl::~StoragePoolImpl(){};
+    StoragePoolImpl::~StoragePoolImpl(){
+        DumpStorageStatsToFile();
+    };
+
+    // ------- 以下为「日志组提交」效果统计相关（Commit 1） -------
+    void StoragePoolImpl::MarkFetchStartIfNeeded() {
+        bool expected = false;
+        if (fetch_start_inited_.compare_exchange_strong(expected, true)) {
+            std::lock_guard<std::mutex> lk(stat_mtx_);
+            fetch_start_tp_ = std::chrono::steady_clock::now();
+        }
+    }
+
+    double StoragePoolImpl::GetStorageRunTimeSec() const {
+        if (!fetch_start_inited_.load()) {
+            return 0.0;
+        }
+        std::lock_guard<std::mutex> lk(stat_mtx_);
+        auto now = std::chrono::steady_clock::now();
+        return std::chrono::duration_cast<std::chrono::duration<double>>(now - fetch_start_tp_).count();
+    }
+
+    std::string StoragePoolImpl::GetStatsOutputPath() const {
+        char exe_path[4096];
+        ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+        if (len > 0) {
+            exe_path[len] = '\0';
+            std::string full_path(exe_path);
+            size_t pos = full_path.find_last_of('/');
+            if (pos != std::string::npos) {
+                return full_path.substr(0, pos) + "/storage_timing_stats.txt";
+            }
+        }
+        return "storage_timing_stats.txt";
+    }
+
+    // 组提交效果统计：把 LogManager 中的 lseek/write/fdatasync 耗时、
+    // fdatasync 调用次数、以及"平均每次 fdatasync 合并了多少次日志写入"
+    // (group_commit_logwrite_sum / fdatasync_count) 落盘，用于衡量组提交收益。
+    void StoragePoolImpl::DumpStorageStatsToFile() const {
+        const double storage_runtime_sec = GetStorageRunTimeSec();
+        const double lseek_time_sec = static_cast<double>(log_manager_->get_lseek_time_ns()) / 1000000000.0;
+        const double write_time_sec = static_cast<double>(log_manager_->get_write_time_ns()) / 1000000000.0;
+        const double fdatasync_time_sec = static_cast<double>(log_manager_->get_fdatasync_time_ns()) / 1000000000.0;
+        const int64_t logwrite_count = log_manager_->get_logwrite_count();
+        const double logwrite_rpc_total_sec = static_cast<double>(logwrite_rpc_total_time_ns_.load()) / 1000000000.0;
+        const int64_t fdatasync_count = log_manager_->get_fdatasync_count();
+        const int64_t group_commit_logwrite_sum = log_manager_->get_group_commit_logwrite_sum();
+        const double avg_fdatasync_time_ms = fdatasync_count > 0 ? (fdatasync_time_sec * 1000.0) / static_cast<double>(fdatasync_count) : 0.0;
+        const double avg_logwrite_per_fdatasync = fdatasync_count > 0 ? static_cast<double>(group_commit_logwrite_sum) / static_cast<double>(fdatasync_count) : 0.0;
+        std::ofstream out(GetStatsOutputPath(), std::ios::out | std::ios::trunc);
+        if (!out.is_open()) {
+            return;
+        }
+        out << "storage_runtime_sec=" << storage_runtime_sec << std::endl;
+        out << "storage_logwrite_time_sec=" << logwrite_rpc_total_sec << std::endl;
+        out << "storage_log_lseek_time_sec=" << lseek_time_sec << std::endl;
+        out << "storage_log_write_time_sec=" << write_time_sec << std::endl;
+        out << "storage_log_fdatasync_time_sec=" << fdatasync_time_sec << std::endl;
+        out << "storage_logwrite_count=" << logwrite_count << std::endl;
+        out << "storage_log_fdatasync_count=" << fdatasync_count << std::endl;
+        out << "storage_log_avg_logwrite_per_fdatasync=" << avg_logwrite_per_fdatasync << std::endl;
+        out << "storage_log_avg_fdatasync_time_ms=" << avg_fdatasync_time_ms << std::endl;
+        out.close();
+    }
+    // ------------------------------------------------------------
 
     static void LogOnRPCDone(storage_service::LogWriteResponse* response, brpc::Controller* cntl) {
         // unique_ptr会帮助我们在return时自动删掉response/cntl，防止忘记。gcc 3.4下的unique_ptr是模拟版本。
@@ -35,7 +102,9 @@ namespace storage_service{
                        const ::storage_service::LogWriteRequest* request,
                        ::storage_service::LogWriteResponse* response,
                        ::google::protobuf::Closure* done){
-            
+        // 组提交效果统计：记录本次 LogWrite RPC（write + 可能触发的 fdatasync）总耗时
+        auto logwrite_rpc_begin = std::chrono::steady_clock::now();
+
         brpc::ClosureGuard done_guard(done);
         log_manager_->write_batch_log_to_disk(request->log());
 
@@ -88,6 +157,11 @@ namespace storage_service{
 
         // 添加模拟延迟
         if (NetworkLatency != 0)  usleep(NetworkLatency); // 100us
+
+        // 组提交效果统计：LogWrite RPC 总耗时（含可能的 group commit 等待/fdatasync）
+        auto logwrite_rpc_end = std::chrono::steady_clock::now();
+        int64_t logwrite_rpc_elapsed_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(logwrite_rpc_end - logwrite_rpc_begin).count();
+        logwrite_rpc_total_time_ns_.fetch_add(logwrite_rpc_elapsed_ns);
         return;
     };
 
@@ -111,6 +185,8 @@ namespace storage_service{
                        ::storage_service::GetPageWithLsnResponse* response,
                        ::google::protobuf::Closure* done){
         brpc::ClosureGuard done_guard(done);
+        // 组提交效果统计：标记存储层开始处理请求的时间点，用于计算 storage_runtime_sec
+        MarkFetchStartIfNeeded();
 
         LLSN lsn = request->require_lsn();
         std::string return_data;
@@ -125,16 +201,16 @@ namespace storage_service{
 
             char data[PAGE_SIZE];
 
-            // log_replay->latch3_.lock();
-            // log_replay->pageid_batch_count_[page_id].first.lock();
-            // while (log_replay->pageid_batch_count_[page_id].second > 0) {
-            //     usleep(10);
-            // }
-            // log_replay->pageid_batch_count_[page_id].first.unlock();
-            // log_replay->latch3_.unlock();
-
+            log_replay->latch3_.lock();
+            log_replay->pageid_batch_count_[page_id].first.lock();
+            while (log_replay->pageid_batch_count_[page_id].second > 0) {
+                usleep(10);
+            }
+            log_replay->pageid_batch_count_[page_id].first.unlock();
+            log_replay->latch3_.unlock();
             page_id_t total_pages = disk_manager_->get_fd2pageno(fd);
 
+           // disk_manager_->read_page(fd, page_no, data, PAGE_SIZE);  
             disk_manager_->read_page_with_lsn(fd, page_no, data, PAGE_SIZE, lsn);          
             return_data.append(std::string(data, PAGE_SIZE));
         }
@@ -150,6 +226,8 @@ namespace storage_service{
                        ::google::protobuf::Closure* done){
 
         brpc::ClosureGuard done_guard(done);
+        // 组提交效果统计：标记存储层开始处理请求的时间点，用于计算 storage_runtime_sec
+        MarkFetchStartIfNeeded();
 
         std::string return_data;
         for(int i = 0; i < request->page_id().size(); i++){

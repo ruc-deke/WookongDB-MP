@@ -3,6 +3,10 @@
 #include <brpc/server.h>
 #include <brpc/channel.h>
 #include <gflags/gflags.h>
+#include <atomic>
+#include <chrono>
+#include <string>
+#include <mutex>
 
 #include "storage_service.pb.h"
 #include "log_manager.h"
@@ -83,6 +87,18 @@ class StoragePoolImpl : public StorageService{
                        ::google::protobuf::Closure* done);
 
   private:
+    // ------- 以下为「日志组提交」效果统计相关（Commit 1） -------
+    void MarkFetchStartIfNeeded();
+    double GetStorageRunTimeSec() const;
+    std::string GetStatsOutputPath() const;
+    void DumpStorageStatsToFile() const;
+
+    std::atomic<bool> fetch_start_inited_{false};
+    std::chrono::steady_clock::time_point fetch_start_tp_;
+    std::atomic<int64_t> logwrite_rpc_total_time_ns_{0};
+    mutable std::mutex stat_mtx_;
+    // ------------------------------------------------------------
+
     LogManager* log_manager_;
     DiskManager* disk_manager_;
     RmManager* rm_manager_;
