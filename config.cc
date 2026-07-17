@@ -7,6 +7,7 @@ int WORKLOAD_MODE = 2;
 int ComputeNodeCount = 8;
 bool use_rdma = false;
 int thread_num_per_node = 1;
+int PARALLEL_PAGE_FETCH = 0;
 double READONLY_TXN_RATE = 0.8;
 double LOCAL_TRASACTION_RATE = 0.8;
 uint64_t ATTEMPTED_NUM = 1000;

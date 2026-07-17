@@ -132,35 +132,25 @@ class DTX {
   brpc::Channel* remote_server_channel;
 
   // 计算事务的执行时间
-  double tx_begin_time=0,tx_exe_time=0,tx_commit_time=0,tx_abort_time=0;
+  double tx_begin_time=0,tx_exe_time=0,tx_commit_time=0,tx_abort_time=0,tx_fetch_exe_time=0,tx_commit_fetch_page_time=0;
   double tx_get_timestamp_time1=0, tx_get_timestamp_time2=0, tx_write_commit_log_time=0, tx_write_commit_log_time2=0, tx_write_prepare_log_time=0, tx_write_backup_log_time=0;
-  double tx_fetch_exe_time=0, tx_fetch_commit_time=0, tx_release_exe_time=0, tx_release_commit_time=0;
-  double tx_fetch_abort_time=0, tx_release_abort_time=0;
+  double TxWaitAbortLogTime=0;
   int single_txn=0;
-  int distribute_txn=0 ;
+  int distribute_txn=0;
 
-  void AddLogToTxn(); 
-    LLSN GenUpdateLog(DataItem* item,
-                                  itemkey_t *key,
-                                  Rid rid,
-                                  const void* value,
-                                  RmPageHdr* page = nullptr);
-    LLSN GenInsertLog(DataItem* item,
-                     itemkey_t* key,
-                     const void* value,
-                     const Rid& rid,
-                     RmPageHdr* pagehdr);
-    LLSN GenDeleteLog(table_id_t table_id,
-            itemkey_t* key,
-            int page_no,
-            int slot_no,RmPageHdr* pagehdr);
-    NewPageLogRecord* GenNewPageLog(table_id_t table_id,
+  // Log count statistics for Coordinator
+  int64_t cnt_commit_log = 0;
+  int64_t cnt_backup_log = 0;
+
+  void TxCommitOver(LLSN commit_lsn); 
+  void TxAbortOver();
+
+  NewPageLogRecord* GenNewPageLog(table_id_t table_id,
             int request_pages);
-    FSMUpdateLogRecord* GenFSMUpdateLog(table_id_t table_id,
+  FSMUpdateLogRecord* GenFSMUpdateLog(table_id_t table_id,
                     uint32_t page_id,
                     uint32_t free_space,
                     const std::string& table_name);
-  void SendLogToStoragePool(uint64_t bid, brpc::CallId* cid, int urgent = 0); // use for rpc
   std::vector<LogRecord*> temp_log;// 临时日志存储区
   DataItem* GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr::ptr file_hdr , itemkey_t& item_key);
   DataItem* GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid , RmFileHdr::ptr file_hdr , itemkey_t& item_key);
@@ -271,10 +261,14 @@ class DTX {
   void Tx2PCAbortAll(coro_yield_t &yield);
   void Tx2PCAbortLocal(coro_yield_t &yield);
 
+  // 返回 read_write_set 中、按 (table_id, page_no, slot_no) 去重后的 index 列表，
+  // 用于 commit/abort 阶段避免对同一 tuple 重复 unlock 触发 assert。
+  std::vector<size_t> UniqueRWIndices();
 
 
-  void ReleaseSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id);
-  void ReleaseXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id); 
+
+  void ReleaseSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id , int type = -1);
+  void ReleaseXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id , int type = -1); 
 
   DataItemPtr GetDataItemFromPageRO(table_id_t table_id, char* data, Rid rid , RmFileHdr *file_hdr , itemkey_t item_key);
   DataItemPtr GetDataItemFromPageRW(table_id_t table_id, char* data, Rid rid, DataItem*& orginal_item , RmFileHdr *file_hdr , itemkey_t item_key);
@@ -315,10 +309,6 @@ class DTX {
 
   TXStatus tx_status;
 
-  // 记录一下，当前事务做的最大 LSN
-  LLSN max_lsn;
-
-
   // 这个是跑 SmallBank 那些负载用的，SQL 模式不用这个
   std::vector<std::pair<itemkey_t , DataSetItem>> read_only_set;     // 本事务读取过的数据项集合
   std::vector<std::pair<itemkey_t , DataSetItem>> read_write_set;    // 本事务修改的数据项集合
@@ -338,12 +328,11 @@ class DTX {
   PageCache* page_cache;
 
   std::unordered_set<node_id_t> participants; // Participants in 2PC, only use in 2PC
+  // 2PC read-only optimization: 只记录有写操作的参与节点。
+  // Prepare 阶段只发给写参与者，纯读节点（已在 fetch 阶段释放锁）不参与 2PC。
+  std::unordered_set<node_id_t> write_participants;
 
   ThreadPool* thread_pool;
-  // B+ 树数据结构
-  public:
-  std::mutex root_latch;  
-  
 };
 
 
@@ -395,6 +384,7 @@ ALWAYS_INLINE
 void DTX::TxBegin(tx_id_t txid) {
     struct timespec start_time, end_time;
     clock_gettime(CLOCK_REALTIME, &start_time);
+    
     Clean();  // Clean the last transaction states
     tx_id = txid;
     struct timespec start_time1, end_time1;
@@ -402,6 +392,7 @@ void DTX::TxBegin(tx_id_t txid) {
     start_ts = GetTimestampRemote();
     clock_gettime(CLOCK_REALTIME, &end_time1);
     tx_get_timestamp_time1 += (end_time1.tv_sec - start_time1.tv_sec) + (double)(end_time1.tv_nsec - start_time1.tv_nsec) / 1000000000;
+    
     clock_gettime(CLOCK_REALTIME, &end_time);
     tx_begin_time += (end_time.tv_sec - start_time.tv_sec) + (double)(end_time.tv_nsec - start_time.tv_nsec) / 1000000000;
 }
@@ -443,14 +434,13 @@ void DTX::ClearReadWriteSet() {
 
 ALWAYS_INLINE
 void DTX::Clean() {
-  max_lsn = 0;
-
   read_only_set.clear();
   read_write_set.clear();
   insert_set.clear();
   delete_set.clear();
   tx_status = TXStatus::TX_INIT;
   participants.clear();
+  write_participants.clear();
 
   // SQL
   write_keys.clear();

@@ -11,6 +11,8 @@
 #include <functional>
 #include <unistd.h>
 #include <sched.h>
+#include <bthread/mutex.h>
+#include <bthread/condition_variable.h>
 
 // --- Simple ThreadPool
 class ThreadPool {
@@ -25,7 +27,7 @@ public:
                     std::function<void()> task;
 
                     {
-                        std::unique_lock<std::mutex> lock(this->queue_mutex);
+                        std::unique_lock<bthread::Mutex> lock(this->queue_mutex);
                         this->cond_var.wait(lock, [this]() { return stop || !tasks.empty(); });
 
                         if (stop && tasks.empty()) return;
@@ -48,7 +50,7 @@ public:
 
         std::future<result_type> res = task->get_future();
         {
-            std::unique_lock<std::mutex> lock(queue_mutex);
+            std::unique_lock<bthread::Mutex> lock(queue_mutex);
             tasks.emplace([task]() { (*task)(); });
         }
         cond_var.notify_one();
@@ -57,7 +59,7 @@ public:
 
     ~ThreadPool() {
         {
-            std::unique_lock<std::mutex> lock(queue_mutex);
+            std::unique_lock<bthread::Mutex> lock(queue_mutex);
             stop = true;
         }
         cond_var.notify_all();
@@ -69,7 +71,7 @@ private:
     std::vector<std::thread> workers;
     std::queue<std::function<void()>> tasks;
 
-    std::mutex queue_mutex;
-    std::condition_variable cond_var;
+    bthread::Mutex queue_mutex;
+    bthread::ConditionVariable cond_var;
     std::atomic<bool> stop;
 };

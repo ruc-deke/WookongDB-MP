@@ -5,6 +5,8 @@
 #include "config.h"
 #include "workload/ycsb/ycsb_db.h"
 #include "record.h"
+#include <set>
+#include <tuple>
 
 DTX::DTX(ComputeServer *server , brpc::Channel *data_channel , brpc::Channel *log_channel , brpc::Channel *server_channel , TxnLog *txn_l2og){
     tx_id = 0;
@@ -14,7 +16,12 @@ DTX::DTX(ComputeServer *server , brpc::Channel *data_channel , brpc::Channel *lo
     storage_data_channel = data_channel; 
     storage_log_channel = log_channel; 
     remote_server_channel = server_channel;
-    txn_log = txn_l2og;
+    // txn_log = txn_l2og;
+    if (txn_l2og == nullptr){
+        txn_log = new TxnLog();
+    }else {
+        txn_log = txn_l2og;
+    }
 }
 
 DTX::DTX(MetaManager* meta_man,
@@ -48,7 +55,12 @@ DTX::DTX(MetaManager* meta_man,
   storage_data_channel = data_channel; 
   storage_log_channel = log_channel; 
   remote_server_channel = server_channel;
-  txn_log = txn_log0;
+//   txn_log = txn_log0;
+  if (txn_log0 == nullptr){
+    txn_log = new TxnLog();
+  }else {
+    txn_log = txn_log0;
+  }
   thread_pool = thd_pool;
 }
 
@@ -73,14 +85,14 @@ timestamp_t DTX::GetTimestampRemote() {
   stub.GetTimeStamp(&cntl, &request, &response, nullptr);
   if (cntl.Failed()) {
     LOG(ERROR) << "Fail to get timestamp from remote";
-    return 0;
+    assert(false);
   }
   local_timestamp = response.timestamp() * BatchTimeStamp;
   ret = local_timestamp++;
   return ret;
 }
 
-void DTX::ReleaseSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id){
+void DTX::ReleaseSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id , int type){
     if(SYSTEM_MODE == 0) {
         compute_server->rpc_release_s_page(table_id,page_id);
     } else if(SYSTEM_MODE == 1){
@@ -89,19 +101,35 @@ void DTX::ReleaseSPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_
         compute_server->local_release_s_page(table_id,page_id);
     }else if(SYSTEM_MODE == 3){
         compute_server->single_release_s_page(table_id,page_id);
-    }else assert(false);
+    }else if(SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
+        compute_server->rpc_ts_release_s_page(table_id , page_id);
+    }else {
+        assert(false);
+    }
 }
 
-void DTX::ReleaseXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id){
-    if(SYSTEM_MODE == 0) {
+void DTX::ReleaseXPage(coro_yield_t &yield, table_id_t table_id, page_id_t page_id , int type){
+   if(SYSTEM_MODE == 0) {
         compute_server->rpc_release_x_page(table_id,page_id);
-    } else if(SYSTEM_MODE == 1){
+    } 
+    else if(SYSTEM_MODE == 1){
         compute_server->rpc_lazy_release_x_page(table_id,page_id);
-    } else if(SYSTEM_MODE == 2){
+    }
+    else if(SYSTEM_MODE == 2){
         compute_server->local_release_x_page(table_id,page_id);
-    } else if(SYSTEM_MODE == 3){
+    }
+    else if(SYSTEM_MODE == 3){
         compute_server->single_release_x_page(table_id,page_id);
-    } else assert(false);
+    }else if (SYSTEM_MODE == 12 || SYSTEM_MODE == 13){
+        compute_server->rpc_ts_release_x_page(table_id , page_id);
+        // if (compute_server->is_hot_page(table_id, page_id)){
+        //     compute_server->rpc_lazy_release_x_page(table_id , page_id);
+        // } else {
+        //     compute_server->rpc_ts_release_x_page(table_id , page_id);
+        // }
+    }else{ 
+        assert(false);
+    }
     
 }
 
@@ -174,4 +202,18 @@ DataItem* DTX::UndoDataItem(DataItem* item) {
 
 void DTX::Abort() {
   tx_status = TXStatus::TX_ABORT;
+}
+
+std::vector<size_t> DTX::UniqueRWIndices() {
+  std::vector<size_t> indices;
+  std::set<std::tuple<table_id_t, page_id_t, int>> seen;
+  for (size_t i = 0; i < read_write_set.size(); i++) {
+    const auto& data_item = read_write_set[i].second;
+    if (!data_item.is_fetched) continue;
+    Rid rid = GetRidFromBLink(data_item.item_ptr->table_id, read_write_set[i].first);
+    if (seen.emplace(data_item.item_ptr->table_id, rid.page_no_, rid.slot_no_).second) {
+      indices.push_back(i);
+    }
+  }
+  return indices;
 }

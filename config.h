@@ -41,6 +41,7 @@ extern int WORKLOAD_MODE;
 extern bool use_rdma;
 extern int ComputeNodeCount;
 extern int thread_num_per_node;
+extern int PARALLEL_PAGE_FETCH; // 是否并行拉取事务内多个数据项的页面(0=串行,非0=基于线程池的std::future并行)
 extern double READONLY_TXN_RATE;
 extern double LOCAL_TRASACTION_RATE;
 extern uint64_t ATTEMPTED_NUM;
